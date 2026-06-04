@@ -1,8 +1,10 @@
 const STORAGE_KEY = "planningCopilotProject";
+const RAG_DOCS_KEY = "planningCopilotKnowledgeDocs";
 
 const sectionTitles = {
   notice: "공고 해석",
   cowork: "코워킹",
+  ragRoom: "RAG 지식방",
   aiBridge: "GPT 협업",
   sample: "샘플 분해",
   idea: "아이디어 인터뷰",
@@ -33,6 +35,8 @@ const exampleProject = {
   modelPrompt: "",
   modelResponse: "",
   aiSynthesis: "GPT 협업 답변을 붙여넣은 뒤 핵심 판단, 보완 질문, 사업계획서에 바로 쓸 문장 후보를 정리한다.",
+  ragQuery: "",
+  ragResults: "",
   sampleSource: "정책브리핑 보도자료, 유사 지원사업 공고문, 선정 사업계획서 샘플",
   sampleStructure: "정책 목적을 먼저 해석한 뒤 대상자의 불편, 기존 대안의 한계, 실행 가능한 개선안, 측정 가능한 성과로 연결한다.",
   sampleSignals: "평가자가 보는 신호는 정책 적합성, 시장성, 실행역량, 사업비 집행 타당성, 지역/산업 파급효과다.",
@@ -108,6 +112,47 @@ function saveProject() {
   showToast("저장했습니다.");
 }
 
+function loadKnowledgeDocs() {
+  try {
+    return JSON.parse(localStorage.getItem(RAG_DOCS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveKnowledgeDocs(docs) {
+  localStorage.setItem(RAG_DOCS_KEY, JSON.stringify(docs));
+  renderKnowledgeLibrary();
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderKnowledgeLibrary() {
+  const library = qs("#knowledgeLibrary");
+  if (!library) return;
+  const docs = loadKnowledgeDocs();
+  if (!docs.length) {
+    library.innerHTML = `<div class="knowledge-item"><strong>저장된 사례가 없습니다.</strong><span>좋은 사업계획서, 공고문, 평가표를 추가해 보세요.</span></div>`;
+    return;
+  }
+
+  library.innerHTML = docs
+    .map((doc) => {
+      const length = doc.text ? doc.text.length.toLocaleString() : "0";
+      return `<div class="knowledge-item">
+        <strong>${escapeHtml(doc.title || "제목 없음")}</strong>
+        <span>${escapeHtml(doc.type || "문서")} · ${length}자 · ${new Date(doc.createdAt).toLocaleDateString()}</span>
+      </div>`;
+    })
+    .join("");
+}
+
 function fillProject(data) {
   qs("#projectName").value = data.projectName || "";
   qsa("[data-key]").forEach((field) => {
@@ -180,6 +225,97 @@ function setFieldIfUseful(key, value, overwrite = false) {
   if (overwrite || !field.value.trim()) field.value = value;
 }
 
+function readFileAsText(file, onText) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result || "").trim();
+    if (!text || text.includes("\u0000")) {
+      showToast("이 파일은 직접 텍스트 추출이 어렵습니다. 내용을 복사해 붙여넣어 주세요.");
+      return;
+    }
+    onText(text);
+  };
+  reader.onerror = () => showToast("파일을 읽지 못했습니다.");
+  reader.readAsText(file, "utf-8");
+}
+
+function chunkText(text, size = 900, overlap = 160) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const chunks = [];
+  for (let start = 0; start < clean.length; start += size - overlap) {
+    const chunk = clean.slice(start, start + size).trim();
+    if (chunk.length > 80) chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function tokenize(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^0-9a-z가-힣\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+}
+
+function termVector(text) {
+  return tokenize(text).reduce((vector, token) => {
+    vector[token] = (vector[token] || 0) + 1;
+    return vector;
+  }, {});
+}
+
+function cosineSimilarity(a, b) {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  Object.keys(a).forEach((key) => {
+    normA += a[key] * a[key];
+    if (b[key]) dot += a[key] * b[key];
+  });
+  Object.keys(b).forEach((key) => {
+    normB += b[key] * b[key];
+  });
+  if (!normA || !normB) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function projectSearchQuery(data) {
+  return [
+    data.ragQuery,
+    data.noticeText,
+    data.evaluationFocus,
+    data.policyGoal,
+    data.coreIdea,
+    data.problemSituation,
+    data.writingStrategy
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function searchKnowledgeDocs(query, limit = 6) {
+  const docs = loadKnowledgeDocs();
+  const queryVector = termVector(query);
+  const scored = [];
+  docs.forEach((doc) => {
+    chunkText(doc.text || "").forEach((chunk, index) => {
+      const score = cosineSimilarity(queryVector, termVector(`${doc.title} ${doc.type} ${chunk}`));
+      if (score > 0) scored.push({ ...doc, chunk, chunkIndex: index + 1, score });
+    });
+  });
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+function formatKnowledgeResults(results) {
+  if (!results.length) return "관련 사례를 찾지 못했습니다. 지식방에 좋은 사업계획서나 유사 공고를 더 추가해 주세요.";
+  return results
+    .map((result, index) => {
+      const score = Math.round(result.score * 1000) / 1000;
+      return `### 참고 ${index + 1}. ${result.title} (${result.type || "문서"}, 유사도 ${score})\n${result.chunk}`;
+    })
+    .join("\n\n");
+}
+
 function splitSentences(text) {
   return text
     .replace(/\s+/g, " ")
@@ -236,6 +372,72 @@ function analyzeNoticeText() {
   generateCoaching(true);
   saveProject();
   showToast("공고문을 분석하고 코워킹 질문을 만들었습니다.");
+}
+
+function addKnowledgeDoc() {
+  const title = qs("#knowledgeTitle").value.trim();
+  const type = qs("#knowledgeType").value.trim();
+  const text = qs("#knowledgeText").value.trim();
+  if (!text) {
+    showToast("저장할 문서 내용을 입력해 주세요.");
+    return;
+  }
+
+  const docs = loadKnowledgeDocs();
+  docs.unshift({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    title: title || "이름 없는 사례",
+    type: type || "사례",
+    text,
+    createdAt: new Date().toISOString()
+  });
+  saveKnowledgeDocs(docs);
+  qs("#knowledgeTitle").value = "";
+  qs("#knowledgeType").value = "";
+  qs("#knowledgeText").value = "";
+  showToast("지식방에 저장했습니다.");
+}
+
+function searchKnowledge() {
+  const data = collectProject();
+  const query = projectSearchQuery(data);
+  if (!query.trim()) {
+    showToast("검색할 공고문이나 아이디어를 먼저 입력해 주세요.");
+    return;
+  }
+  const results = searchKnowledgeDocs(query);
+  setFieldIfUseful("ragResults", formatKnowledgeResults(results), true);
+  saveProject();
+  showToast("관련 사례를 찾았습니다.");
+}
+
+function clearKnowledge() {
+  if (!window.confirm("지식방에 저장한 사례를 모두 삭제할까요?")) return;
+  localStorage.removeItem(RAG_DOCS_KEY);
+  renderKnowledgeLibrary();
+  showToast("지식방을 비웠습니다.");
+}
+
+function importKnowledgeFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  readFileAsText(file, (text) => {
+    qs("#knowledgeTitle").value = qs("#knowledgeTitle").value || file.name;
+    qs("#knowledgeText").value = text;
+    showToast("파일 내용을 지식방 입력칸에 불러왔습니다.");
+  });
+  event.target.value = "";
+}
+
+function importNoticeFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  readFileAsText(file, (text) => {
+    const field = fieldByKey("noticeText");
+    field.value = text;
+    analyzeNoticeText();
+  });
+  event.target.value = "";
 }
 
 function generateCoaching(fromNotice = false) {
@@ -327,6 +529,8 @@ function buildModelPrompt(data) {
 
 ${compactSection("공고문/공고 해석", data.noticeText)}
 
+${compactSection("RAG 지식방 관련 사례", data.ragResults)}
+
 ${compactSection("정책 목적", data.policyGoal)}
 
 ${compactSection("평가 포인트", data.evaluationFocus)}
@@ -350,6 +554,10 @@ ${compactSection("현재 실행설계", [data.milestones, data.teamSystem, data.
 
 function generateModelPrompt() {
   const data = collectProject();
+  if (!data.ragResults && projectSearchQuery(data).trim()) {
+    data.ragResults = formatKnowledgeResults(searchKnowledgeDocs(projectSearchQuery(data)));
+    setFieldIfUseful("ragResults", data.ragResults, true);
+  }
   setFieldIfUseful("modelPrompt", buildModelPrompt(data), true);
   saveProject();
   showToast("GPT에 던질 질문을 만들었습니다.");
@@ -553,7 +761,12 @@ qsa("[data-add-row]").forEach((button) => {
 qsa("input, textarea").forEach((field) => field.addEventListener("input", autosaveSoon));
 qs("#saveProject").addEventListener("click", saveProject);
 qs("#analyzeNotice").addEventListener("click", analyzeNoticeText);
+qs("#noticeFile").addEventListener("change", importNoticeFile);
 qs("#generateCoaching").addEventListener("click", () => generateCoaching(false));
+qs("#addKnowledgeDoc").addEventListener("click", addKnowledgeDoc);
+qs("#knowledgeFile").addEventListener("change", importKnowledgeFile);
+qs("#searchKnowledge").addEventListener("click", searchKnowledge);
+qs("#clearKnowledge").addEventListener("click", clearKnowledge);
 qs("#generateModelPrompt").addEventListener("click", generateModelPrompt);
 qs("#copyModelPrompt").addEventListener("click", copyModelPrompt);
 qs("#absorbModelResponse").addEventListener("click", absorbModelResponse);
@@ -575,3 +788,4 @@ qs("#resetProject").addEventListener("click", () => {
 });
 
 loadStoredProject();
+renderKnowledgeLibrary();

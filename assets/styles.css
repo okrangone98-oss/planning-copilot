@@ -170,6 +170,16 @@ button:focus-visible {
   color: #f6f8fb;
 }
 
+.ghost-light-button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 14px;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 800;
+}
+
 .workspace {
   min-width: 0;
   padding: 28px;
@@ -186,6 +196,24 @@ button:focus-visible {
 .topbar h2 {
   margin: 4px 0 0;
   font-size: 26px;
+}
+
+.workflow-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.workflow-strip span {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #3d4a5a;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .panel {
@@ -262,6 +290,58 @@ button:focus-visible {
 .open-source-note span {
   color: var(--muted);
   line-height: 1.65;
+}
+
+.file-drop {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+  border: 1px dashed #9fb5c9;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.file-drop span {
+  font-weight: 800;
+}
+
+.file-drop small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.file-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.rag-query {
+  margin-top: 18px;
+}
+
+.knowledge-library {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.knowledge-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.knowledge-item strong {
+  font-size: 15px;
+}
+
+.knowledge-item span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .form-grid {
@@ -378,6 +458,10 @@ td input:focus {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .workflow-strip {
+    grid-template-columns: 1fr;
   }
 
   .coach-bar {

@@ -22,6 +22,7 @@
         <nav class="step-nav" aria-label="작성 단계">
           <button class="nav-item is-active" data-section="notice">공고 해석</button>
           <button class="nav-item" data-section="cowork">코워킹</button>
+          <button class="nav-item" data-section="ragRoom">RAG 지식방</button>
           <button class="nav-item" data-section="aiBridge">GPT 협업</button>
           <button class="nav-item" data-section="sample">샘플 분해</button>
           <button class="nav-item" data-section="idea">아이디어 인터뷰</button>
@@ -50,6 +51,12 @@
             <button id="exportMarkdown" class="primary-button" type="button">Markdown 내보내기</button>
           </div>
         </header>
+        <div class="workflow-strip" aria-label="권장 사용 흐름">
+          <span>1. 공고문 분석</span>
+          <span>2. RAG 사례 검색</span>
+          <span>3. GPT 질문 생성</span>
+          <span>4. 초안 조립</span>
+        </div>
 
         <section class="panel is-visible" id="notice">
           <div class="section-intro">
@@ -59,10 +66,15 @@
           <div class="coach-bar">
             <div>
               <strong>공고문 자동 분석</strong>
-              <span>공고문을 붙여넣고 누르면 목적, 평가 포인트, 필수 조건, 코워킹 질문을 자동으로 뽑습니다.</span>
+              <span>공고문을 붙여넣거나 텍스트 파일을 첨부한 뒤 누르면 목적, 평가 포인트, 필수 조건, 코워킹 질문을 자동으로 뽑습니다.</span>
             </div>
             <button id="analyzeNotice" class="primary-button" type="button">공고문 분석</button>
           </div>
+          <label class="file-drop">
+            <span>공고문 파일 첨부</span>
+            <input id="noticeFile" type="file" accept=".txt,.md,.csv,.html,.htm,.json,.xml,.hwpx,.docx">
+            <small>현재 버전은 텍스트 계열 파일을 가장 안정적으로 읽습니다. HWPX/DOCX는 추후 전용 파서를 붙일 예정입니다.</small>
+          </label>
           <div class="form-grid">
             <label class="field wide">
               <span>공고문 핵심 문장</span>
@@ -117,6 +129,51 @@
               <textarea data-key="missingEvidence" rows="6" placeholder="데이터, 사진, 인터뷰, 실적, 견적, 협력확인 등"></textarea>
             </label>
           </div>
+        </section>
+
+        <section class="panel" id="ragRoom">
+          <div class="section-intro">
+            <h3>좋은 사업기획서 사례를 모으는 지식방</h3>
+            <p>선정 사례, 좋은 문장, 유사 공고, 평가표를 저장해 두면 현재 공고와 아이디어에 맞는 참고 조각을 찾아 GPT 질문에 넣습니다.</p>
+          </div>
+          <div class="coach-bar">
+            <div>
+              <strong>로컬 벡터 검색</strong>
+              <span>브라우저 안에서 문서를 조각내고 키워드 벡터로 비교합니다. 서버로 자료를 보내지 않습니다.</span>
+            </div>
+            <button id="searchKnowledge" class="primary-button" type="button">관련 사례 찾기</button>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>문서 제목</span>
+              <input id="knowledgeTitle" type="text" placeholder="예: 로컬브랜드 선정 사업계획서 샘플">
+            </label>
+            <label class="field">
+              <span>문서 유형</span>
+              <input id="knowledgeType" type="text" placeholder="선정사례, 공고문, 평가표, 좋은문장">
+            </label>
+            <label class="field wide">
+              <span>문서 내용</span>
+              <textarea id="knowledgeText" rows="8" placeholder="좋은 사업계획서 사례나 공고문 내용을 붙여넣으세요."></textarea>
+            </label>
+          </div>
+          <div class="draft-actions bridge-actions">
+            <label class="secondary-button file-button">
+              파일에서 추가
+              <input id="knowledgeFile" type="file" accept=".txt,.md,.csv,.html,.htm,.json,.xml" hidden>
+            </label>
+            <button id="addKnowledgeDoc" class="secondary-button" type="button">지식방에 저장</button>
+            <button id="clearKnowledge" class="ghost-light-button" type="button">지식방 비우기</button>
+          </div>
+          <label class="field wide rag-query">
+            <span>검색 질문</span>
+            <textarea data-key="ragQuery" rows="4" placeholder="비워두면 현재 공고문, 평가포인트, 아이디어를 기준으로 검색합니다."></textarea>
+          </label>
+          <label class="field wide">
+            <span>관련 사례 검색 결과</span>
+            <textarea data-key="ragResults" rows="12" placeholder="관련 사례 찾기를 누르면 GPT 질문에 넣을 참고 조각이 정리됩니다."></textarea>
+          </label>
+          <div id="knowledgeLibrary" class="knowledge-library" aria-live="polite"></div>
         </section>
 
         <section class="panel" id="aiBridge">
