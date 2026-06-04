@@ -3,6 +3,7 @@ const STORAGE_KEY = "planningCopilotProject";
 const sectionTitles = {
   notice: "공고 해석",
   cowork: "코워킹",
+  aiBridge: "GPT 협업",
   sample: "샘플 분해",
   idea: "아이디어 인터뷰",
   problem: "문제정의",
@@ -29,6 +30,9 @@ const exampleProject = {
   nextQuestions: "1. 이 아이디어가 해결하는 가장 구체적인 대상자의 불편은 무엇인가?\n2. 공고의 평가항목 중 가장 높은 배점에 대응하는 증거는 무엇인가?\n3. 신청자가 이미 해 본 실행 경험은 무엇인가?\n4. 성과를 어떤 자료로 증명할 수 있는가?",
   writingStrategy: "문제정의에서는 정책 목적과 현장 불편을 연결하고, 추진전략에서는 실행 단계와 예산 근거를 명확히 하며, 파급효과에서는 정량 성과와 확산 가능성을 함께 제시한다.",
   missingEvidence: "대상자 인터뷰, 시장/지역 데이터, 기존 서비스의 한계 사례, 견적서, 협력기관 확인, 이전 운영 실적",
+  modelPrompt: "",
+  modelResponse: "",
+  aiSynthesis: "GPT 협업 답변을 붙여넣은 뒤 핵심 판단, 보완 질문, 사업계획서에 바로 쓸 문장 후보를 정리한다.",
   sampleSource: "정책브리핑 보도자료, 유사 지원사업 공고문, 선정 사업계획서 샘플",
   sampleStructure: "정책 목적을 먼저 해석한 뒤 대상자의 불편, 기존 대안의 한계, 실행 가능한 개선안, 측정 가능한 성과로 연결한다.",
   sampleSignals: "평가자가 보는 신호는 정책 적합성, 시장성, 실행역량, 사업비 집행 타당성, 지역/산업 파급효과다.",
@@ -282,6 +286,103 @@ function generateCoaching(fromNotice = false) {
   }
 }
 
+function compactSection(title, value) {
+  return `## ${title}\n${value && value.trim() ? value.trim() : "아직 입력되지 않음"}`;
+}
+
+function buildModelPrompt(data) {
+  return `당신은 정부지원사업 사업계획서 전문 공동기획자입니다. 아래 자료를 평가자 관점으로 분석하고, 신청자의 아이디어가 사라지지 않도록 사업계획서로 발전시켜 주세요.
+
+답변은 반드시 다음 형식으로 작성해 주세요.
+
+1. 공고 해석
+- 이 공고가 실제로 원하는 답
+- 가장 중요한 평가 신호
+- 탈락 위험이 있는 빈틈
+
+2. 공동기획 질문
+- 내가 사용자에게 추가로 물어봐야 할 질문 10개
+- 각 질문이 필요한 이유
+
+3. 사업계획서 전략
+- 문제정의 방향
+- 추진전략 방향
+- 수행역량 강조 방식
+- 성과지표와 파급효과 설계
+
+4. 바로 쓸 수 있는 문장
+- 사업 필요성 문장 3개
+- 차별성 문장 3개
+- 기대효과 문장 3개
+
+5. 보완 자료 체크리스트
+- 제출 전 모아야 할 근거자료
+- 예산/성과/협력 관련 증빙
+
+주의사항:
+- 공고문에 없는 사실을 단정하지 마세요.
+- 사용자의 아이디어를 일반적인 문장으로 희석하지 마세요.
+- 평가항목과 배점이 있으면 그 순서에 맞춰 답하세요.
+- 결과는 한국어 사업계획서 문체로 작성하세요.
+
+${compactSection("공고문/공고 해석", data.noticeText)}
+
+${compactSection("정책 목적", data.policyGoal)}
+
+${compactSection("평가 포인트", data.evaluationFocus)}
+
+${compactSection("필수 조건", data.requirements)}
+
+${compactSection("가점/차별화 기회", data.advantageSignals)}
+
+${compactSection("사용자 핵심 아이디어", data.coreIdea)}
+
+${compactSection("대상자", data.targetUsers)}
+
+${compactSection("현장 근거", data.fieldEvidence)}
+
+${compactSection("사용자의 고유한 관점", data.founderInsight)}
+
+${compactSection("현재 문제정의", [data.problemSituation, data.rootCauses, data.existingLimits, data.whyNow].filter(Boolean).join("\\n"))}
+
+${compactSection("현재 실행설계", [data.milestones, data.teamSystem, data.budgetPlan, data.riskPlan].filter(Boolean).join("\\n"))}`;
+}
+
+function generateModelPrompt() {
+  const data = collectProject();
+  setFieldIfUseful("modelPrompt", buildModelPrompt(data), true);
+  saveProject();
+  showToast("GPT에 던질 질문을 만들었습니다.");
+}
+
+function copyModelPrompt() {
+  const promptField = fieldByKey("modelPrompt");
+  if (!promptField.value.trim()) generateModelPrompt();
+  navigator.clipboard.writeText(promptField.value).then(() => showToast("GPT 질문을 복사했습니다."));
+}
+
+function absorbModelResponse() {
+  const response = fieldByKey("modelResponse").value.trim();
+  if (!response) {
+    showToast("먼저 GPT 답변을 붙여넣어 주세요.");
+    return;
+  }
+
+  const synthesis = [
+    "GPT 협업 결과 요약",
+    response.slice(0, 4000),
+    "",
+    "반영 기준",
+    "- 공고문과 충돌하는 내용은 제외한다.",
+    "- 사용자의 현장 경험과 고유 관점이 드러나는 문장을 우선 반영한다.",
+    "- 평가항목, 배점, 제출양식과 직접 연결되는 내용부터 초안에 적용한다."
+  ].join("\n");
+
+  setFieldIfUseful("aiSynthesis", synthesis, true);
+  saveProject();
+  showToast("GPT 답변을 반영 메모로 정리했습니다.");
+}
+
 function bullets(text) {
   if (!text) return "- 보완 필요";
   return text
@@ -328,7 +429,11 @@ ${bullets(data.nextQuestions)}
 ### 작성 전략과 빠진 근거
 ${bullets([data.writingStrategy, data.missingEvidence].filter(Boolean).join("\n"))}
 
-## 3. 샘플 분해에서 얻은 적용 원칙
+## 3. GPT 협업 반영 메모
+
+${bullets(data.aiSynthesis)}
+
+## 4. 샘플 분해에서 얻은 적용 원칙
 
 ### 참고 문서/출처
 ${bullets(data.sampleSource)}
@@ -339,7 +444,7 @@ ${bullets([data.sampleStructure, data.sampleSignals].filter(Boolean).join("\n"))
 ### 우리 사업에 적용할 방식
 ${bullets(data.sampleAdaptation)}
 
-## 4. 사업 아이디어
+## 5. 사업 아이디어
 
 ### 핵심 아이디어
 ${bullets(data.coreIdea)}
@@ -350,7 +455,7 @@ ${bullets([data.targetUsers, data.fieldEvidence].filter(Boolean).join("\n"))}
 ### 작성자의 고유 관점
 ${bullets(data.founderInsight)}
 
-## 5. 문제정의
+## 6. 문제정의
 
 ### 문제 상황
 ${bullets(data.problemSituation)}
@@ -361,7 +466,7 @@ ${bullets([data.rootCauses, data.existingLimits].filter(Boolean).join("\n"))}
 ### 지금 필요한 이유
 ${bullets(data.whyNow)}
 
-## 6. 논리모형
+## 7. 논리모형
 
 | 구분 | 내용 |
 | --- | --- |
@@ -371,9 +476,9 @@ ${bullets(data.whyNow)}
 | 단기성과 | ${data.shortOutcomes || "보완 필요"} |
 | 중장기성과 | ${data.longOutcomes || "보완 필요"} |
 
-${tableToMarkdown("7. 성과지표", tableSchemas.metricsTable, data.metricsTable || [])}
+${tableToMarkdown("8. 성과지표", tableSchemas.metricsTable, data.metricsTable || [])}
 
-## 8. 실행설계
+## 9. 실행설계
 
 ### 추진 단계
 ${bullets(data.milestones)}
@@ -387,9 +492,9 @@ ${bullets(data.budgetPlan)}
 ### 리스크 대응
 ${bullets(data.riskPlan)}
 
-${tableToMarkdown("9. 서비스 블루프린트", tableSchemas.blueprintTable, data.blueprintTable || [])}
+${tableToMarkdown("10. 서비스 블루프린트", tableSchemas.blueprintTable, data.blueprintTable || [])}
 
-## 10. 다음 보완 질문
+## 11. 다음 보완 질문
 
 - 공고의 실제 평가표에서 가장 배점이 높은 항목은 무엇인가?
 - 대상자의 문제를 증명할 수 있는 정량/정성 근거는 무엇인가?
@@ -449,6 +554,9 @@ qsa("input, textarea").forEach((field) => field.addEventListener("input", autosa
 qs("#saveProject").addEventListener("click", saveProject);
 qs("#analyzeNotice").addEventListener("click", analyzeNoticeText);
 qs("#generateCoaching").addEventListener("click", () => generateCoaching(false));
+qs("#generateModelPrompt").addEventListener("click", generateModelPrompt);
+qs("#copyModelPrompt").addEventListener("click", copyModelPrompt);
+qs("#absorbModelResponse").addEventListener("click", absorbModelResponse);
 qs("#generateDraft").addEventListener("click", generateDraft);
 qs("#exportMarkdown").addEventListener("click", exportMarkdown);
 qs("#copyDraft").addEventListener("click", copyDraft);

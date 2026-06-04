@@ -22,6 +22,7 @@
         <nav class="step-nav" aria-label="작성 단계">
           <button class="nav-item is-active" data-section="notice">공고 해석</button>
           <button class="nav-item" data-section="cowork">코워킹</button>
+          <button class="nav-item" data-section="aiBridge">GPT 협업</button>
           <button class="nav-item" data-section="sample">샘플 분해</button>
           <button class="nav-item" data-section="idea">아이디어 인터뷰</button>
           <button class="nav-item" data-section="problem">문제정의</button>
@@ -115,6 +116,42 @@
               <span>빠진 근거/자료</span>
               <textarea data-key="missingEvidence" rows="6" placeholder="데이터, 사진, 인터뷰, 실적, 견적, 협력확인 등"></textarea>
             </label>
+          </div>
+        </section>
+
+        <section class="panel" id="aiBridge">
+          <div class="section-intro">
+            <h3>오픈소스 분석과 GPT 고급판단을 연결합니다</h3>
+            <p>로컬 앱은 공고문을 정리하고, GPT에는 평가자 관점의 판단과 문장 개선을 요청합니다. 답변을 다시 붙여넣으면 초안에 반영됩니다.</p>
+          </div>
+          <div class="coach-bar">
+            <div>
+              <strong>GPT 질문 만들기</strong>
+              <span>현재 입력값을 바탕으로 GPT-5.5 같은 강한 모델에 던질 공동기획 질문을 생성합니다.</span>
+            </div>
+            <button id="generateModelPrompt" class="primary-button" type="button">질문 생성</button>
+          </div>
+          <div class="form-grid">
+            <label class="field wide">
+              <span>GPT에 복사할 질문</span>
+              <textarea data-key="modelPrompt" rows="14" placeholder="질문 생성 버튼을 누르면 GPT에 붙여넣을 프롬프트가 만들어집니다."></textarea>
+            </label>
+            <label class="field wide">
+              <span>GPT 답변 붙여넣기</span>
+              <textarea data-key="modelResponse" rows="12" placeholder="GPT의 답변을 여기에 붙여넣으세요."></textarea>
+            </label>
+            <label class="field wide">
+              <span>반영 메모</span>
+              <textarea data-key="aiSynthesis" rows="8" placeholder="GPT 답변에서 사업계획서에 반영할 핵심 판단과 문장을 정리합니다."></textarea>
+            </label>
+          </div>
+          <div class="draft-actions bridge-actions">
+            <button id="copyModelPrompt" class="secondary-button" type="button">질문 복사</button>
+            <button id="absorbModelResponse" class="secondary-button" type="button">답변 반영 메모화</button>
+          </div>
+          <div class="open-source-note">
+            <strong>오픈소스로 강화 가능한 영역</strong>
+            <span>문서 파싱, 키워드 추출, 배점/마감/제출서류 탐지, 체크리스트, 로컬 저장은 오픈소스로 충분합니다. 평가자 관점의 해석, 아이디어 전환, 설득력 있는 문장화는 강한 GPT 모델을 연결하는 편이 빠릅니다.</span>
           </div>
         </section>
 

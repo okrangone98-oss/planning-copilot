@@ -244,6 +244,26 @@ button:focus-visible {
   line-height: 1.55;
 }
 
+.bridge-actions {
+  margin-top: 16px;
+}
+
+.open-source-note {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  border-left: 4px solid var(--warm);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fff7f2;
+  color: #283341;
+}
+
+.open-source-note span {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
