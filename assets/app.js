@@ -2,6 +2,7 @@ const STORAGE_KEY = "planningCopilotProject";
 
 const sectionTitles = {
   notice: "공고 해석",
+  sample: "샘플 분해",
   idea: "아이디어 인터뷰",
   problem: "문제정의",
   logic: "논리모형",
@@ -23,6 +24,10 @@ const exampleProject = {
   evaluationFocus: "문제정의의 타당성, 실행 가능성, 성과지표의 적절성, 확산 가능성, 신청자의 추진역량",
   requirements: "공고문, 제출양식, 예산기준, 평가표를 입력자료로 사용한다.",
   advantageSignals: "좋은 샘플 분해, 서비스 디자인, 논리모형 기반 성과 설계, 작성자 고유 관점 반영",
+  sampleSource: "정책브리핑 보도자료, 유사 지원사업 공고문, 선정 사업계획서 샘플",
+  sampleStructure: "정책 목적을 먼저 해석한 뒤 대상자의 불편, 기존 대안의 한계, 실행 가능한 개선안, 측정 가능한 성과로 연결한다.",
+  sampleSignals: "평가자가 보는 신호는 정책 적합성, 시장성, 실행역량, 사업비 집행 타당성, 지역/산업 파급효과다.",
+  sampleAdaptation: "샘플의 문장보다 구조를 가져오고, 사용자의 현장 경험과 고유 관점을 핵심 근거로 배치한다.",
   coreIdea: "사용자와 대화하며 공고 해석부터 사업계획서 초안까지 공동기획하는 웹 기반 에이전트",
   targetUsers: "지원사업에 도전하는 창업자, 사회혁신가, 로컬 기획자, 비영리 실무자",
   fieldEvidence: "좋은 아이디어가 있어도 공고의 의도, 평가 언어, 성과지표 설계에서 막히는 경우가 많다.",
@@ -191,7 +196,18 @@ ${bullets(data.evaluationFocus)}
 ### 필수 조건 및 가점 요소
 ${bullets([data.requirements, data.advantageSignals].filter(Boolean).join("\n"))}
 
-## 2. 사업 아이디어
+## 2. 샘플 분해에서 얻은 적용 원칙
+
+### 참고 문서/출처
+${bullets(data.sampleSource)}
+
+### 좋은 구조와 평가 신호
+${bullets([data.sampleStructure, data.sampleSignals].filter(Boolean).join("\n"))}
+
+### 우리 사업에 적용할 방식
+${bullets(data.sampleAdaptation)}
+
+## 3. 사업 아이디어
 
 ### 핵심 아이디어
 ${bullets(data.coreIdea)}
@@ -202,7 +218,7 @@ ${bullets([data.targetUsers, data.fieldEvidence].filter(Boolean).join("\n"))}
 ### 작성자의 고유 관점
 ${bullets(data.founderInsight)}
 
-## 3. 문제정의
+## 4. 문제정의
 
 ### 문제 상황
 ${bullets(data.problemSituation)}
@@ -213,7 +229,7 @@ ${bullets([data.rootCauses, data.existingLimits].filter(Boolean).join("\n"))}
 ### 지금 필요한 이유
 ${bullets(data.whyNow)}
 
-## 4. 논리모형
+## 5. 논리모형
 
 | 구분 | 내용 |
 | --- | --- |
@@ -223,9 +239,9 @@ ${bullets(data.whyNow)}
 | 단기성과 | ${data.shortOutcomes || "보완 필요"} |
 | 중장기성과 | ${data.longOutcomes || "보완 필요"} |
 
-${tableToMarkdown("5. 성과지표", tableSchemas.metricsTable, data.metricsTable || [])}
+${tableToMarkdown("6. 성과지표", tableSchemas.metricsTable, data.metricsTable || [])}
 
-## 6. 실행설계
+## 7. 실행설계
 
 ### 추진 단계
 ${bullets(data.milestones)}
@@ -239,9 +255,9 @@ ${bullets(data.budgetPlan)}
 ### 리스크 대응
 ${bullets(data.riskPlan)}
 
-${tableToMarkdown("7. 서비스 블루프린트", tableSchemas.blueprintTable, data.blueprintTable || [])}
+${tableToMarkdown("8. 서비스 블루프린트", tableSchemas.blueprintTable, data.blueprintTable || [])}
 
-## 8. 다음 보완 질문
+## 9. 다음 보완 질문
 
 - 공고의 실제 평가표에서 가장 배점이 높은 항목은 무엇인가?
 - 대상자의 문제를 증명할 수 있는 정량/정성 근거는 무엇인가?
