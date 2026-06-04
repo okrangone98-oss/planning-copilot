@@ -3,10 +3,10 @@ const RAG_DOCS_KEY = "planningCopilotKnowledgeDocs";
 
 const sectionTitles = {
   notice: "공고 해석",
-  cowork: "코워킹",
-  ragRoom: "RAG 지식방",
-  aiBridge: "GPT 협업",
-  driveBackup: "Drive 백업",
+  cowork: "질문 받기",
+  ragRoom: "사례 모으기",
+  aiBridge: "AI 질문",
+  driveBackup: "백업",
   sample: "샘플 분해",
   idea: "아이디어 인터뷰",
   problem: "문제정의",
@@ -60,7 +60,7 @@ const exampleProject = {
   missingEvidence: "대상자 인터뷰, 시장/지역 데이터, 기존 서비스의 한계 사례, 견적서, 협력기관 확인, 이전 운영 실적",
   modelPrompt: "",
   modelResponse: "",
-  aiSynthesis: "GPT 협업 답변을 붙여넣은 뒤 핵심 판단, 보완 질문, 사업계획서에 바로 쓸 문장 후보를 정리한다.",
+  aiSynthesis: "AI 답변을 붙여넣은 뒤 사업계획서에 반영할 핵심 판단, 보완 질문, 문장 후보를 정리한다.",
   ragQuery: "",
   ragResults: "",
   sampleSource: "정책브리핑 보도자료, 유사 지원사업 공고문, 선정 사업계획서 샘플",
@@ -177,18 +177,18 @@ function downloadArchive() {
   link.download = archiveFileName();
   link.click();
   URL.revokeObjectURL(url);
-  showToast("아카이브를 다운로드했습니다.");
+  showToast("백업 파일을 다운로드했습니다.");
 }
 
 function restoreArchive(archive) {
   if (!archive || !archive.project) {
-    showToast("올바른 아카이브 파일이 아닙니다.");
+    showToast("올바른 백업 파일이 아닙니다.");
     return;
   }
   fillProject(archive.project);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(archive.project));
   saveKnowledgeDocs(Array.isArray(archive.knowledgeDocs) ? archive.knowledgeDocs : []);
-  showToast("아카이브를 복원했습니다.");
+  showToast("백업 파일을 복원했습니다.");
 }
 
 function importArchiveFile(event) {
@@ -198,7 +198,7 @@ function importArchiveFile(event) {
     try {
       restoreArchive(JSON.parse(text));
     } catch {
-      showToast("아카이브 JSON을 읽지 못했습니다.");
+      showToast("백업 파일을 읽지 못했습니다.");
     }
   });
   event.target.value = "";
@@ -217,7 +217,7 @@ function loadDriveEndpoint() {
 function backupToDrive() {
   const endpoint = qs("#driveEndpoint").value.trim();
   if (!endpoint) {
-    showToast("Apps Script Web App URL을 입력해 주세요.");
+    showToast("Google Drive 연결 주소를 입력해 주세요.");
     return;
   }
   saveDriveEndpoint();
@@ -249,7 +249,7 @@ function backupToDrive() {
 }
 
 function copyAppsScript() {
-  navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE).then(() => showToast("Apps Script 코드를 복사했습니다."));
+  navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE).then(() => showToast("연결 코드를 복사했습니다."));
 }
 
 function fillAppsScriptTemplate() {
@@ -439,7 +439,7 @@ function searchKnowledgeDocs(query, limit = 6) {
 }
 
 function formatKnowledgeResults(results) {
-  if (!results.length) return "관련 사례를 찾지 못했습니다. 지식방에 좋은 사업계획서나 유사 공고를 더 추가해 주세요.";
+  if (!results.length) return "관련 사례를 찾지 못했습니다. 좋은 사업계획서나 비슷한 공고를 더 추가해 주세요.";
   return results
     .map((result, index) => {
       const score = Math.round(result.score * 1000) / 1000;
@@ -503,7 +503,7 @@ function analyzeNoticeText() {
 
   generateCoaching(true);
   saveProject();
-  showToast("공고문을 분석하고 코워킹 질문을 만들었습니다.");
+  showToast("공고문을 분석하고 다음 질문을 만들었습니다.");
 }
 
 function addKnowledgeDoc() {
@@ -527,7 +527,7 @@ function addKnowledgeDoc() {
   qs("#knowledgeTitle").value = "";
   qs("#knowledgeType").value = "";
   qs("#knowledgeText").value = "";
-  showToast("지식방에 저장했습니다.");
+  showToast("사례를 저장했습니다.");
 }
 
 function searchKnowledge() {
@@ -544,10 +544,10 @@ function searchKnowledge() {
 }
 
 function clearKnowledge() {
-  if (!window.confirm("지식방에 저장한 사례를 모두 삭제할까요?")) return;
+  if (!window.confirm("저장한 사례를 모두 삭제할까요?")) return;
   localStorage.removeItem(RAG_DOCS_KEY);
   renderKnowledgeLibrary();
-  showToast("지식방을 비웠습니다.");
+  showToast("저장한 사례를 모두 지웠습니다.");
 }
 
 function importKnowledgeFile(event) {
@@ -556,7 +556,7 @@ function importKnowledgeFile(event) {
   readFileAsText(file, (text) => {
     qs("#knowledgeTitle").value = qs("#knowledgeTitle").value || file.name;
     qs("#knowledgeText").value = text;
-    showToast("파일 내용을 지식방 입력칸에 불러왔습니다.");
+    showToast("파일 내용을 사례 입력칸에 불러왔습니다.");
   });
   event.target.value = "";
 }
@@ -616,7 +616,7 @@ function generateCoaching(fromNotice = false) {
 
   if (!fromNotice) {
     saveProject();
-    showToast("코워킹 질문을 다시 생성했습니다.");
+    showToast("다음 질문을 다시 만들었습니다.");
   }
 }
 
@@ -661,7 +661,7 @@ function buildModelPrompt(data) {
 
 ${compactSection("공고문/공고 해석", data.noticeText)}
 
-${compactSection("RAG 지식방 관련 사례", data.ragResults)}
+${compactSection("저장한 사례에서 찾은 참고 내용", data.ragResults)}
 
 ${compactSection("정책 목적", data.policyGoal)}
 
@@ -692,24 +692,24 @@ function generateModelPrompt() {
   }
   setFieldIfUseful("modelPrompt", buildModelPrompt(data), true);
   saveProject();
-  showToast("GPT에 던질 질문을 만들었습니다.");
+  showToast("AI에 물어볼 질문을 만들었습니다.");
 }
 
 function copyModelPrompt() {
   const promptField = fieldByKey("modelPrompt");
   if (!promptField.value.trim()) generateModelPrompt();
-  navigator.clipboard.writeText(promptField.value).then(() => showToast("GPT 질문을 복사했습니다."));
+  navigator.clipboard.writeText(promptField.value).then(() => showToast("AI 질문을 복사했습니다."));
 }
 
 function absorbModelResponse() {
   const response = fieldByKey("modelResponse").value.trim();
   if (!response) {
-    showToast("먼저 GPT 답변을 붙여넣어 주세요.");
+    showToast("먼저 AI 답변을 붙여넣어 주세요.");
     return;
   }
 
   const synthesis = [
-    "GPT 협업 결과 요약",
+    "AI 답변 요약",
     response.slice(0, 4000),
     "",
     "반영 기준",
@@ -720,7 +720,7 @@ function absorbModelResponse() {
 
   setFieldIfUseful("aiSynthesis", synthesis, true);
   saveProject();
-  showToast("GPT 답변을 반영 메모로 정리했습니다.");
+  showToast("AI 답변을 반영 메모로 정리했습니다.");
 }
 
 function bullets(text) {
@@ -758,18 +758,18 @@ ${bullets(data.evaluationFocus)}
 ### 필수 조건 및 가점 요소
 ${bullets([data.requirements, data.advantageSignals].filter(Boolean).join("\n"))}
 
-## 2. 코워킹 메모
+## 2. 함께 작성할 질문과 메모
 
 ### 에이전트 해석 메모
 ${bullets(data.agentMemo)}
 
-### 다음 코워킹 질문
+### 다음 질문
 ${bullets(data.nextQuestions)}
 
 ### 작성 전략과 빠진 근거
 ${bullets([data.writingStrategy, data.missingEvidence].filter(Boolean).join("\n"))}
 
-## 3. GPT 협업 반영 메모
+## 3. AI 답변 반영 메모
 
 ${bullets(data.aiSynthesis)}
 

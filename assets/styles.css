@@ -292,6 +292,23 @@ button:focus-visible {
   line-height: 1.65;
 }
 
+.setup-details {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fbfcfe;
+}
+
+.setup-details summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.setup-details .field {
+  margin-top: 12px;
+}
+
 .file-drop {
   display: grid;
   gap: 8px;

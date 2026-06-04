@@ -21,10 +21,10 @@
 
         <nav class="step-nav" aria-label="작성 단계">
           <button class="nav-item is-active" data-section="notice">공고 해석</button>
-          <button class="nav-item" data-section="cowork">코워킹</button>
-          <button class="nav-item" data-section="ragRoom">RAG 지식방</button>
-          <button class="nav-item" data-section="aiBridge">GPT 협업</button>
-          <button class="nav-item" data-section="driveBackup">Drive 백업</button>
+          <button class="nav-item" data-section="cowork">질문 받기</button>
+          <button class="nav-item" data-section="ragRoom">사례 모으기</button>
+          <button class="nav-item" data-section="aiBridge">AI 질문</button>
+          <button class="nav-item" data-section="driveBackup">백업</button>
           <button class="nav-item" data-section="sample">샘플 분해</button>
           <button class="nav-item" data-section="idea">아이디어 인터뷰</button>
           <button class="nav-item" data-section="problem">문제정의</button>
@@ -54,8 +54,8 @@
         </header>
         <div class="workflow-strip" aria-label="권장 사용 흐름">
           <span>1. 공고문 분석</span>
-          <span>2. RAG 사례 검색</span>
-          <span>3. GPT 질문 생성</span>
+          <span>2. 사례 찾기</span>
+          <span>3. AI 질문 만들기</span>
           <span>4. 초안 조립</span>
         </div>
 
@@ -67,7 +67,7 @@
           <div class="coach-bar">
             <div>
               <strong>공고문 자동 분석</strong>
-              <span>공고문을 붙여넣거나 텍스트 파일을 첨부한 뒤 누르면 목적, 평가 포인트, 필수 조건, 코워킹 질문을 자동으로 뽑습니다.</span>
+              <span>공고문을 붙여넣거나 파일을 올린 뒤 누르면 꼭 봐야 할 내용을 정리합니다.</span>
             </div>
             <button id="analyzeNotice" class="primary-button" type="button">공고문 분석</button>
           </div>
@@ -102,23 +102,23 @@
 
         <section class="panel" id="cowork">
           <div class="section-intro">
-            <h3>에이전트가 묻고, 사용자가 답하며 같이 씁니다</h3>
-            <p>공고문 분석 결과를 바탕으로 다음 질문, 빠진 근거, 작성 전략을 정리합니다. 이 영역이 코워킹의 중심 노트입니다.</p>
+            <h3>다음에 답할 질문을 정리합니다</h3>
+            <p>공고문을 바탕으로 더 물어봐야 할 것, 부족한 자료, 작성 방향을 정리합니다.</p>
           </div>
           <div class="coach-bar">
             <div>
-              <strong>공동작성 질문 생성</strong>
-              <span>현재 입력값을 보고 다음에 답해야 할 질문과 보완 근거를 다시 제안합니다.</span>
+              <strong>질문 다시 만들기</strong>
+              <span>현재 입력값을 보고 다음에 답해야 할 질문을 다시 정리합니다.</span>
             </div>
             <button id="generateCoaching" class="primary-button" type="button">질문 생성</button>
           </div>
           <div class="form-grid">
             <label class="field">
-              <span>에이전트 해석 메모</span>
+              <span>분석 메모</span>
               <textarea data-key="agentMemo" rows="6" placeholder="공고가 요구하는 답, 평가자가 볼 핵심 신호, 작성 방향"></textarea>
             </label>
             <label class="field">
-              <span>다음 코워킹 질문</span>
+              <span>다음 질문</span>
               <textarea data-key="nextQuestions" rows="6" placeholder="사용자가 답해야 할 질문 목록"></textarea>
             </label>
             <label class="field">
@@ -134,13 +134,13 @@
 
         <section class="panel" id="ragRoom">
           <div class="section-intro">
-            <h3>좋은 사업기획서 사례를 모으는 지식방</h3>
-            <p>선정 사례, 좋은 문장, 유사 공고, 평가표를 저장해 두면 현재 공고와 아이디어에 맞는 참고 조각을 찾아 GPT 질문에 넣습니다.</p>
+            <h3>좋은 사례를 모아 둡니다</h3>
+            <p>선정 사례, 좋은 문장, 비슷한 공고, 평가표를 저장해 두면 현재 사업에 맞는 참고 내용을 찾아 줍니다.</p>
           </div>
           <div class="coach-bar">
             <div>
-              <strong>로컬 벡터 검색</strong>
-              <span>브라우저 안에서 문서를 조각내고 키워드 벡터로 비교합니다. 서버로 자료를 보내지 않습니다.</span>
+              <strong>내 자료에서 찾기</strong>
+              <span>저장한 자료 안에서 지금 공고와 비슷한 내용을 찾아옵니다. 자료는 내 브라우저에 보관됩니다.</span>
             </div>
             <button id="searchKnowledge" class="primary-button" type="button">관련 사례 찾기</button>
           </div>
@@ -163,44 +163,44 @@
               파일에서 추가
               <input id="knowledgeFile" type="file" accept=".txt,.md,.csv,.html,.htm,.json,.xml" hidden>
             </label>
-            <button id="addKnowledgeDoc" class="secondary-button" type="button">지식방에 저장</button>
-            <button id="clearKnowledge" class="ghost-light-button" type="button">지식방 비우기</button>
+            <button id="addKnowledgeDoc" class="secondary-button" type="button">사례 저장</button>
+            <button id="clearKnowledge" class="ghost-light-button" type="button">사례 모두 지우기</button>
           </div>
           <label class="field wide rag-query">
-            <span>검색 질문</span>
+            <span>찾고 싶은 내용</span>
             <textarea data-key="ragQuery" rows="4" placeholder="비워두면 현재 공고문, 평가포인트, 아이디어를 기준으로 검색합니다."></textarea>
           </label>
           <label class="field wide">
-            <span>관련 사례 검색 결과</span>
-            <textarea data-key="ragResults" rows="12" placeholder="관련 사례 찾기를 누르면 GPT 질문에 넣을 참고 조각이 정리됩니다."></textarea>
+            <span>찾은 참고 내용</span>
+            <textarea data-key="ragResults" rows="12" placeholder="관련 사례 찾기를 누르면 AI 질문에 넣을 참고 내용이 정리됩니다."></textarea>
           </label>
           <div id="knowledgeLibrary" class="knowledge-library" aria-live="polite"></div>
         </section>
 
         <section class="panel" id="aiBridge">
           <div class="section-intro">
-            <h3>오픈소스 분석과 GPT 고급판단을 연결합니다</h3>
-            <p>로컬 앱은 공고문을 정리하고, GPT에는 평가자 관점의 판단과 문장 개선을 요청합니다. 답변을 다시 붙여넣으면 초안에 반영됩니다.</p>
+            <h3>AI에게 물어볼 질문을 만듭니다</h3>
+            <p>입력한 공고문, 내 아이디어, 저장한 사례를 모아 AI에게 물어볼 질문을 만들어 줍니다. 답변을 붙여넣으면 초안에 반영됩니다.</p>
           </div>
           <div class="coach-bar">
             <div>
-              <strong>GPT 질문 만들기</strong>
-              <span>현재 입력값을 바탕으로 GPT-5.5 같은 강한 모델에 던질 공동기획 질문을 생성합니다.</span>
+              <strong>AI 질문 만들기</strong>
+              <span>현재 입력값을 바탕으로 AI에게 물어볼 질문을 만듭니다.</span>
             </div>
             <button id="generateModelPrompt" class="primary-button" type="button">질문 생성</button>
           </div>
           <div class="form-grid">
             <label class="field wide">
-              <span>GPT에 복사할 질문</span>
-              <textarea data-key="modelPrompt" rows="14" placeholder="질문 생성 버튼을 누르면 GPT에 붙여넣을 프롬프트가 만들어집니다."></textarea>
+              <span>AI에 복사할 질문</span>
+              <textarea data-key="modelPrompt" rows="14" placeholder="질문 생성 버튼을 누르면 AI에 붙여넣을 질문이 만들어집니다."></textarea>
             </label>
             <label class="field wide">
-              <span>GPT 답변 붙여넣기</span>
-              <textarea data-key="modelResponse" rows="12" placeholder="GPT의 답변을 여기에 붙여넣으세요."></textarea>
+              <span>AI 답변 붙여넣기</span>
+              <textarea data-key="modelResponse" rows="12" placeholder="AI의 답변을 여기에 붙여넣으세요."></textarea>
             </label>
             <label class="field wide">
               <span>반영 메모</span>
-              <textarea data-key="aiSynthesis" rows="8" placeholder="GPT 답변에서 사업계획서에 반영할 핵심 판단과 문장을 정리합니다."></textarea>
+              <textarea data-key="aiSynthesis" rows="8" placeholder="AI 답변에서 사업계획서에 반영할 내용을 정리합니다."></textarea>
             </label>
           </div>
           <div class="draft-actions bridge-actions">
@@ -208,44 +208,47 @@
             <button id="absorbModelResponse" class="secondary-button" type="button">답변 반영 메모화</button>
           </div>
           <div class="open-source-note">
-            <strong>오픈소스로 강화 가능한 영역</strong>
-            <span>문서 파싱, 키워드 추출, 배점/마감/제출서류 탐지, 체크리스트, 로컬 저장은 오픈소스로 충분합니다. 평가자 관점의 해석, 아이디어 전환, 설득력 있는 문장화는 강한 GPT 모델을 연결하는 편이 빠릅니다.</span>
+            <strong>역할 나누기</strong>
+            <span>이 앱은 자료를 모으고 정리합니다. AI는 평가자 관점으로 더 깊게 생각하고 문장을 다듬는 데 씁니다.</span>
           </div>
         </section>
 
         <section class="panel" id="driveBackup">
           <div class="section-intro">
-            <h3>Google Drive를 아카이브 저장소로 씁니다</h3>
-            <p>현재 프로젝트, RAG 지식방, GPT 협업 메모를 하나의 아카이브로 묶어 백업합니다. Apps Script Web App URL을 연결하면 내 Google Drive에 저장할 수 있습니다.</p>
+            <h3>내 Google Drive에 백업합니다</h3>
+            <p>현재 프로젝트, 저장한 사례, AI 답변 메모를 하나로 묶어 백업합니다.</p>
           </div>
           <div class="coach-bar">
             <div>
               <strong>현재 저장 구조</strong>
-              <span>기본값은 브라우저 로컬 저장입니다. Drive 백업을 켜면 아카이브 JSON을 Google Drive 폴더에 보관합니다.</span>
+              <span>기본 저장은 이 브라우저에 됩니다. 백업을 하면 내 Google Drive에도 보관할 수 있습니다.</span>
             </div>
-            <button id="downloadArchive" class="primary-button" type="button">아카이브 다운로드</button>
+            <button id="downloadArchive" class="primary-button" type="button">백업 파일 받기</button>
           </div>
           <div class="form-grid">
             <label class="field wide">
-              <span>Google Apps Script Web App URL</span>
+              <span>Google Drive 연결 주소</span>
               <input id="driveEndpoint" type="url" placeholder="https://script.google.com/macros/s/.../exec">
             </label>
-            <label class="field wide">
-              <span>Apps Script 코드 템플릿</span>
-              <textarea id="appsScriptTemplate" rows="18" readonly></textarea>
-            </label>
+            <details class="setup-details wide">
+              <summary>Google Drive 연결 코드 보기</summary>
+              <label class="field">
+                <span>연결 코드</span>
+                <textarea id="appsScriptTemplate" rows="18" readonly></textarea>
+              </label>
+            </details>
           </div>
           <div class="draft-actions bridge-actions">
-            <button id="copyAppsScript" class="secondary-button" type="button">Apps Script 코드 복사</button>
-            <button id="backupToDrive" class="secondary-button" type="button">Drive에 백업</button>
+            <button id="copyAppsScript" class="secondary-button" type="button">연결 코드 복사</button>
+            <button id="backupToDrive" class="secondary-button" type="button">Google Drive에 백업</button>
             <label class="secondary-button file-button">
-              아카이브 가져오기
+              백업 파일 가져오기
               <input id="archiveFile" type="file" accept=".json" hidden>
             </label>
           </div>
           <div class="open-source-note">
-            <strong>권장 폴더 구조</strong>
-            <span>Google Drive / Planning Copilot Archive / planning-copilot-archive.json 파일에 최신 백업을 저장합니다. 원본 PDF/DOCX/HWPX는 별도 폴더에 보관하고, 앱에는 텍스트 추출본과 메타데이터를 저장하는 방식이 안전합니다.</span>
+            <strong>저장 위치</strong>
+            <span>Google Drive의 Planning Copilot Archive 폴더에 최신 백업 파일을 저장합니다. 원본 문서는 Drive에 따로 보관하고, 앱에는 필요한 내용만 넣는 방식이 안전합니다.</span>
           </div>
         </section>
 
