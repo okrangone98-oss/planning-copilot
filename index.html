@@ -24,6 +24,7 @@
           <button class="nav-item" data-section="cowork">코워킹</button>
           <button class="nav-item" data-section="ragRoom">RAG 지식방</button>
           <button class="nav-item" data-section="aiBridge">GPT 협업</button>
+          <button class="nav-item" data-section="driveBackup">Drive 백업</button>
           <button class="nav-item" data-section="sample">샘플 분해</button>
           <button class="nav-item" data-section="idea">아이디어 인터뷰</button>
           <button class="nav-item" data-section="problem">문제정의</button>
@@ -209,6 +210,42 @@
           <div class="open-source-note">
             <strong>오픈소스로 강화 가능한 영역</strong>
             <span>문서 파싱, 키워드 추출, 배점/마감/제출서류 탐지, 체크리스트, 로컬 저장은 오픈소스로 충분합니다. 평가자 관점의 해석, 아이디어 전환, 설득력 있는 문장화는 강한 GPT 모델을 연결하는 편이 빠릅니다.</span>
+          </div>
+        </section>
+
+        <section class="panel" id="driveBackup">
+          <div class="section-intro">
+            <h3>Google Drive를 아카이브 저장소로 씁니다</h3>
+            <p>현재 프로젝트, RAG 지식방, GPT 협업 메모를 하나의 아카이브로 묶어 백업합니다. Apps Script Web App URL을 연결하면 내 Google Drive에 저장할 수 있습니다.</p>
+          </div>
+          <div class="coach-bar">
+            <div>
+              <strong>현재 저장 구조</strong>
+              <span>기본값은 브라우저 로컬 저장입니다. Drive 백업을 켜면 아카이브 JSON을 Google Drive 폴더에 보관합니다.</span>
+            </div>
+            <button id="downloadArchive" class="primary-button" type="button">아카이브 다운로드</button>
+          </div>
+          <div class="form-grid">
+            <label class="field wide">
+              <span>Google Apps Script Web App URL</span>
+              <input id="driveEndpoint" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+            </label>
+            <label class="field wide">
+              <span>Apps Script 코드 템플릿</span>
+              <textarea id="appsScriptTemplate" rows="18" readonly></textarea>
+            </label>
+          </div>
+          <div class="draft-actions bridge-actions">
+            <button id="copyAppsScript" class="secondary-button" type="button">Apps Script 코드 복사</button>
+            <button id="backupToDrive" class="secondary-button" type="button">Drive에 백업</button>
+            <label class="secondary-button file-button">
+              아카이브 가져오기
+              <input id="archiveFile" type="file" accept=".json" hidden>
+            </label>
+          </div>
+          <div class="open-source-note">
+            <strong>권장 폴더 구조</strong>
+            <span>Google Drive / Planning Copilot Archive / planning-copilot-archive.json 파일에 최신 백업을 저장합니다. 원본 PDF/DOCX/HWPX는 별도 폴더에 보관하고, 앱에는 텍스트 추출본과 메타데이터를 저장하는 방식이 안전합니다.</span>
           </div>
         </section>
 

@@ -6,6 +6,7 @@ const sectionTitles = {
   cowork: "코워킹",
   ragRoom: "RAG 지식방",
   aiBridge: "GPT 협업",
+  driveBackup: "Drive 백업",
   sample: "샘플 분해",
   idea: "아이디어 인터뷰",
   problem: "문제정의",
@@ -15,6 +16,31 @@ const sectionTitles = {
   blueprint: "서비스 블루프린트",
   draft: "초안 조립"
 };
+
+const APPS_SCRIPT_TEMPLATE = `const ARCHIVE_FOLDER = 'Planning Copilot Archive';
+const ARCHIVE_FILE = 'planning-copilot-archive.json';
+
+function doPost(e) {
+  const payload = e.parameter.payload || '{}';
+  const folder = getOrCreateFolder_(ARCHIVE_FOLDER);
+  const files = folder.getFilesByName(ARCHIVE_FILE);
+  const blob = Utilities.newBlob(payload, 'application/json', ARCHIVE_FILE);
+
+  if (files.hasNext()) {
+    files.next().setContent(payload);
+  } else {
+    folder.createFile(blob);
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: true, savedAt: new Date().toISOString() }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function getOrCreateFolder_(name) {
+  const folders = DriveApp.getFoldersByName(name);
+  return folders.hasNext() ? folders.next() : DriveApp.createFolder(name);
+}`;
 
 const tableSchemas = {
   metricsTable: ["구분", "지표명", "목표값", "측정 방법"],
@@ -123,6 +149,112 @@ function loadKnowledgeDocs() {
 function saveKnowledgeDocs(docs) {
   localStorage.setItem(RAG_DOCS_KEY, JSON.stringify(docs));
   renderKnowledgeLibrary();
+}
+
+function createArchive() {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    app: "planning-copilot",
+    project: collectProject(),
+    knowledgeDocs: loadKnowledgeDocs()
+  };
+}
+
+function archiveFileName() {
+  const projectName = qs("#projectName").value.trim() || "planning-copilot";
+  const safeName = projectName.replace(/[\\/:*?"<>|]/g, "_");
+  const date = new Date().toISOString().slice(0, 10);
+  return `${safeName}-archive-${date}.json`;
+}
+
+function downloadArchive() {
+  const content = JSON.stringify(createArchive(), null, 2);
+  const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = archiveFileName();
+  link.click();
+  URL.revokeObjectURL(url);
+  showToast("아카이브를 다운로드했습니다.");
+}
+
+function restoreArchive(archive) {
+  if (!archive || !archive.project) {
+    showToast("올바른 아카이브 파일이 아닙니다.");
+    return;
+  }
+  fillProject(archive.project);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(archive.project));
+  saveKnowledgeDocs(Array.isArray(archive.knowledgeDocs) ? archive.knowledgeDocs : []);
+  showToast("아카이브를 복원했습니다.");
+}
+
+function importArchiveFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  readFileAsText(file, (text) => {
+    try {
+      restoreArchive(JSON.parse(text));
+    } catch {
+      showToast("아카이브 JSON을 읽지 못했습니다.");
+    }
+  });
+  event.target.value = "";
+}
+
+function saveDriveEndpoint() {
+  const endpoint = qs("#driveEndpoint").value.trim();
+  localStorage.setItem("planningCopilotDriveEndpoint", endpoint);
+}
+
+function loadDriveEndpoint() {
+  const field = qs("#driveEndpoint");
+  if (field) field.value = localStorage.getItem("planningCopilotDriveEndpoint") || "";
+}
+
+function backupToDrive() {
+  const endpoint = qs("#driveEndpoint").value.trim();
+  if (!endpoint) {
+    showToast("Apps Script Web App URL을 입력해 주세요.");
+    return;
+  }
+  saveDriveEndpoint();
+
+  const iframeName = "driveBackupTarget";
+  let iframe = qs(`iframe[name="${iframeName}"]`);
+  if (!iframe) {
+    iframe = document.createElement("iframe");
+    iframe.name = iframeName;
+    iframe.hidden = true;
+    document.body.appendChild(iframe);
+  }
+
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = endpoint;
+  form.target = iframeName;
+  form.hidden = true;
+
+  const payload = document.createElement("input");
+  payload.type = "hidden";
+  payload.name = "payload";
+  payload.value = JSON.stringify(createArchive());
+  form.appendChild(payload);
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+  showToast("Google Drive 백업을 요청했습니다.");
+}
+
+function copyAppsScript() {
+  navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE).then(() => showToast("Apps Script 코드를 복사했습니다."));
+}
+
+function fillAppsScriptTemplate() {
+  const field = qs("#appsScriptTemplate");
+  if (field) field.value = APPS_SCRIPT_TEMPLATE;
 }
 
 function escapeHtml(value) {
@@ -770,6 +902,11 @@ qs("#clearKnowledge").addEventListener("click", clearKnowledge);
 qs("#generateModelPrompt").addEventListener("click", generateModelPrompt);
 qs("#copyModelPrompt").addEventListener("click", copyModelPrompt);
 qs("#absorbModelResponse").addEventListener("click", absorbModelResponse);
+qs("#downloadArchive").addEventListener("click", downloadArchive);
+qs("#archiveFile").addEventListener("change", importArchiveFile);
+qs("#driveEndpoint").addEventListener("input", saveDriveEndpoint);
+qs("#backupToDrive").addEventListener("click", backupToDrive);
+qs("#copyAppsScript").addEventListener("click", copyAppsScript);
 qs("#generateDraft").addEventListener("click", generateDraft);
 qs("#exportMarkdown").addEventListener("click", exportMarkdown);
 qs("#copyDraft").addEventListener("click", copyDraft);
@@ -789,3 +926,5 @@ qs("#resetProject").addEventListener("click", () => {
 
 loadStoredProject();
 renderKnowledgeLibrary();
+fillAppsScriptTemplate();
+loadDriveEndpoint();
