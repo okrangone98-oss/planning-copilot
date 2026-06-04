@@ -21,6 +21,7 @@
 
         <nav class="step-nav" aria-label="작성 단계">
           <button class="nav-item is-active" data-section="notice">공고 해석</button>
+          <button class="nav-item" data-section="cowork">코워킹</button>
           <button class="nav-item" data-section="sample">샘플 분해</button>
           <button class="nav-item" data-section="idea">아이디어 인터뷰</button>
           <button class="nav-item" data-section="problem">문제정의</button>
@@ -54,6 +55,13 @@
             <h3>공고문이 원하는 답을 먼저 읽습니다</h3>
             <p>지원사업의 목적, 평가기준, 금지사항, 가점 요소를 분해하면 같은 아이디어도 훨씬 정확한 언어로 기획됩니다.</p>
           </div>
+          <div class="coach-bar">
+            <div>
+              <strong>공고문 자동 분석</strong>
+              <span>공고문을 붙여넣고 누르면 목적, 평가 포인트, 필수 조건, 코워킹 질문을 자동으로 뽑습니다.</span>
+            </div>
+            <button id="analyzeNotice" class="primary-button" type="button">공고문 분석</button>
+          </div>
           <div class="form-grid">
             <label class="field wide">
               <span>공고문 핵심 문장</span>
@@ -74,6 +82,38 @@
             <label class="field">
               <span>가점/차별화 기회</span>
               <textarea data-key="advantageSignals" rows="5" placeholder="공고문에서 암시하는 우대 요소"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel" id="cowork">
+          <div class="section-intro">
+            <h3>에이전트가 묻고, 사용자가 답하며 같이 씁니다</h3>
+            <p>공고문 분석 결과를 바탕으로 다음 질문, 빠진 근거, 작성 전략을 정리합니다. 이 영역이 코워킹의 중심 노트입니다.</p>
+          </div>
+          <div class="coach-bar">
+            <div>
+              <strong>공동작성 질문 생성</strong>
+              <span>현재 입력값을 보고 다음에 답해야 할 질문과 보완 근거를 다시 제안합니다.</span>
+            </div>
+            <button id="generateCoaching" class="primary-button" type="button">질문 생성</button>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>에이전트 해석 메모</span>
+              <textarea data-key="agentMemo" rows="6" placeholder="공고가 요구하는 답, 평가자가 볼 핵심 신호, 작성 방향"></textarea>
+            </label>
+            <label class="field">
+              <span>다음 코워킹 질문</span>
+              <textarea data-key="nextQuestions" rows="6" placeholder="사용자가 답해야 할 질문 목록"></textarea>
+            </label>
+            <label class="field">
+              <span>작성 전략</span>
+              <textarea data-key="writingStrategy" rows="6" placeholder="어떤 문항에서 무엇을 강조할지"></textarea>
+            </label>
+            <label class="field">
+              <span>빠진 근거/자료</span>
+              <textarea data-key="missingEvidence" rows="6" placeholder="데이터, 사진, 인터뷰, 실적, 견적, 협력확인 등"></textarea>
             </label>
           </div>
         </section>

@@ -2,6 +2,7 @@ const STORAGE_KEY = "planningCopilotProject";
 
 const sectionTitles = {
   notice: "공고 해석",
+  cowork: "코워킹",
   sample: "샘플 분해",
   idea: "아이디어 인터뷰",
   problem: "문제정의",
@@ -24,6 +25,10 @@ const exampleProject = {
   evaluationFocus: "문제정의의 타당성, 실행 가능성, 성과지표의 적절성, 확산 가능성, 신청자의 추진역량",
   requirements: "공고문, 제출양식, 예산기준, 평가표를 입력자료로 사용한다.",
   advantageSignals: "좋은 샘플 분해, 서비스 디자인, 논리모형 기반 성과 설계, 작성자 고유 관점 반영",
+  agentMemo: "이 에이전트는 공고문을 평가자의 질문으로 바꾸고, 사용자의 현장 아이디어가 사라지지 않도록 문제정의와 실행설계에 연결한다.",
+  nextQuestions: "1. 이 아이디어가 해결하는 가장 구체적인 대상자의 불편은 무엇인가?\n2. 공고의 평가항목 중 가장 높은 배점에 대응하는 증거는 무엇인가?\n3. 신청자가 이미 해 본 실행 경험은 무엇인가?\n4. 성과를 어떤 자료로 증명할 수 있는가?",
+  writingStrategy: "문제정의에서는 정책 목적과 현장 불편을 연결하고, 추진전략에서는 실행 단계와 예산 근거를 명확히 하며, 파급효과에서는 정량 성과와 확산 가능성을 함께 제시한다.",
+  missingEvidence: "대상자 인터뷰, 시장/지역 데이터, 기존 서비스의 한계 사례, 견적서, 협력기관 확인, 이전 운영 실적",
   sampleSource: "정책브리핑 보도자료, 유사 지원사업 공고문, 선정 사업계획서 샘플",
   sampleStructure: "정책 목적을 먼저 해석한 뒤 대상자의 불편, 기존 대안의 한계, 실행 가능한 개선안, 측정 가능한 성과로 연결한다.",
   sampleSignals: "평가자가 보는 신호는 정책 적합성, 시장성, 실행역량, 사업비 집행 타당성, 지역/산업 파급효과다.",
@@ -161,6 +166,122 @@ function switchSection(sectionId) {
   qs("#sectionTitle").textContent = sectionTitles[sectionId];
 }
 
+function fieldByKey(key) {
+  return qs(`[data-key="${key}"]`);
+}
+
+function setFieldIfUseful(key, value, overwrite = false) {
+  const field = fieldByKey(key);
+  if (!field || !value) return;
+  if (overwrite || !field.value.trim()) field.value = value;
+}
+
+function splitSentences(text) {
+  return text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?。])\s+|(?=\d+\s*[.)]\s)|(?=□|○|ㅇ| - )/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 8);
+}
+
+function findSentences(text, keywords, limit = 5) {
+  const sentences = splitSentences(text);
+  return sentences
+    .filter((sentence) => keywords.some((keyword) => sentence.includes(keyword)))
+    .slice(0, limit)
+    .join("\n");
+}
+
+function findFacts(text) {
+  const dates = text.match(/\d{4}[.년-]\s?\d{1,2}[.월-]\s?\d{0,2}|~\s?\d{1,2}[.월-]\s?\d{1,2}|마감|접수|신청기간/g) || [];
+  const amounts = text.match(/\d+\s?(억|만원|천원|%|개사|명|점)|최대\s?\d+\s?(억|만원|천원)/g) || [];
+  const scores = text.match(/[^.\n]*(평가|배점|점|추진전략|수행역량|파급효과)[^.\n]*/g) || [];
+  return {
+    dates: [...new Set(dates)].slice(0, 8),
+    amounts: [...new Set(amounts)].slice(0, 8),
+    scores: [...new Set(scores.map((item) => item.trim()))].slice(0, 6)
+  };
+}
+
+function analyzeNoticeText() {
+  const data = collectProject();
+  const text = data.noticeText;
+  if (!text) {
+    showToast("먼저 공고문 핵심 문장을 붙여넣어 주세요.");
+    return;
+  }
+
+  const facts = findFacts(text);
+  const policy = findSentences(text, ["목적", "취지", "지원", "해결", "혁신", "고도화", "성장"], 4);
+  const evaluation = [
+    findSentences(text, ["평가", "배점", "추진전략", "수행역량", "파급효과", "기대효과"], 6),
+    facts.scores.join("\n")
+  ].filter(Boolean).join("\n");
+  const requirements = [
+    findSentences(text, ["신청", "접수", "제출", "서류", "자격", "대상", "제외", "필수"], 7),
+    facts.dates.length ? `주요 일정/조건: ${facts.dates.join(", ")}` : "",
+    facts.amounts.length ? `숫자 조건: ${facts.amounts.join(", ")}` : ""
+  ].filter(Boolean).join("\n");
+  const advantages = findSentences(text, ["우대", "가점", "추천", "비수도권", "지역", "협업", "성과", "확산", "브랜드"], 5);
+
+  setFieldIfUseful("policyGoal", policy || "공고문에서 정책 목적 문장을 더 명확히 추출해야 합니다.", true);
+  setFieldIfUseful("evaluationFocus", evaluation || "평가항목과 배점을 추가 확인해야 합니다.", true);
+  setFieldIfUseful("requirements", requirements || "신청자격, 제출서류, 마감일을 추가 확인해야 합니다.", true);
+  setFieldIfUseful("advantageSignals", advantages || "가점, 우대, 차별화 요소를 추가 확인해야 합니다.", true);
+
+  generateCoaching(true);
+  saveProject();
+  showToast("공고문을 분석하고 코워킹 질문을 만들었습니다.");
+}
+
+function generateCoaching(fromNotice = false) {
+  const data = collectProject();
+  const scoreHint = data.evaluationFocus || "평가항목과 배점";
+  const policyHint = data.policyGoal || "정책 목적";
+  const ideaHint = data.coreIdea || "사용자의 핵심 아이디어";
+
+  const memo = [
+    `이 공고는 ${policyHint}에 맞춰 답해야 합니다.`,
+    `작성의 중심은 ${scoreHint}에 대응하는 증거를 만드는 것입니다.`,
+    `아이디어는 '${ideaHint}' 자체보다, 왜 지금 필요하고 어떻게 실행되며 어떤 성과로 증명되는지가 중요합니다.`
+  ].join("\n");
+
+  const questions = [
+    "1. 이 사업의 대상자는 누구이며, 지금 가장 크게 겪는 불편은 무엇인가?",
+    "2. 그 불편이 개인 문제가 아니라 시장/지역/정책 문제라는 근거는 무엇인가?",
+    "3. 기존 제품, 서비스, 지원사업은 왜 충분하지 않았는가?",
+    "4. 공고의 가장 높은 배점 항목에 대응하는 핵심 실행계획은 무엇인가?",
+    "5. 신청자가 이미 보유한 경험, 협력자, 자원, 실적은 무엇인가?",
+    "6. 선정 후 3개월, 6개월, 종료 시점에 무엇이 달라졌다고 증명할 것인가?"
+  ].join("\n");
+
+  const strategy = [
+    "문제정의: 대상자의 장면과 정책 목적을 한 문단 안에서 연결합니다.",
+    "추진전략: 활동 목록보다 의사결정 흐름, 일정, 예산 근거를 먼저 보여줍니다.",
+    "수행역량: 사람/경험/협력자/보유자원을 역할별로 배치합니다.",
+    "파급효과: 매출, 참여자, 재방문, 만족도, 확산 사례처럼 측정 가능한 지표로 씁니다."
+  ].join("\n");
+
+  const missing = [
+    "대상자 인터뷰 또는 실제 불편 사례",
+    "시장 규모, 지역 데이터, 검색량, 매출/방문 변화 같은 정량 근거",
+    "시제품, 사진, 메뉴/서비스 흐름, 고객 여정 자료",
+    "협력기관, 공급업체, 전문가, 지역 파트너의 역할 증빙",
+    "예산 산출 근거와 견적 자료",
+    "성과지표별 측정 방법과 증빙 자료"
+  ].join("\n");
+
+  setFieldIfUseful("agentMemo", memo, true);
+  setFieldIfUseful("nextQuestions", questions, true);
+  setFieldIfUseful("writingStrategy", strategy, true);
+  setFieldIfUseful("missingEvidence", missing, true);
+
+  if (!fromNotice) {
+    saveProject();
+    showToast("코워킹 질문을 다시 생성했습니다.");
+  }
+}
+
 function bullets(text) {
   if (!text) return "- 보완 필요";
   return text
@@ -196,7 +317,18 @@ ${bullets(data.evaluationFocus)}
 ### 필수 조건 및 가점 요소
 ${bullets([data.requirements, data.advantageSignals].filter(Boolean).join("\n"))}
 
-## 2. 샘플 분해에서 얻은 적용 원칙
+## 2. 코워킹 메모
+
+### 에이전트 해석 메모
+${bullets(data.agentMemo)}
+
+### 다음 코워킹 질문
+${bullets(data.nextQuestions)}
+
+### 작성 전략과 빠진 근거
+${bullets([data.writingStrategy, data.missingEvidence].filter(Boolean).join("\n"))}
+
+## 3. 샘플 분해에서 얻은 적용 원칙
 
 ### 참고 문서/출처
 ${bullets(data.sampleSource)}
@@ -207,7 +339,7 @@ ${bullets([data.sampleStructure, data.sampleSignals].filter(Boolean).join("\n"))
 ### 우리 사업에 적용할 방식
 ${bullets(data.sampleAdaptation)}
 
-## 3. 사업 아이디어
+## 4. 사업 아이디어
 
 ### 핵심 아이디어
 ${bullets(data.coreIdea)}
@@ -218,7 +350,7 @@ ${bullets([data.targetUsers, data.fieldEvidence].filter(Boolean).join("\n"))}
 ### 작성자의 고유 관점
 ${bullets(data.founderInsight)}
 
-## 4. 문제정의
+## 5. 문제정의
 
 ### 문제 상황
 ${bullets(data.problemSituation)}
@@ -229,7 +361,7 @@ ${bullets([data.rootCauses, data.existingLimits].filter(Boolean).join("\n"))}
 ### 지금 필요한 이유
 ${bullets(data.whyNow)}
 
-## 5. 논리모형
+## 6. 논리모형
 
 | 구분 | 내용 |
 | --- | --- |
@@ -239,9 +371,9 @@ ${bullets(data.whyNow)}
 | 단기성과 | ${data.shortOutcomes || "보완 필요"} |
 | 중장기성과 | ${data.longOutcomes || "보완 필요"} |
 
-${tableToMarkdown("6. 성과지표", tableSchemas.metricsTable, data.metricsTable || [])}
+${tableToMarkdown("7. 성과지표", tableSchemas.metricsTable, data.metricsTable || [])}
 
-## 7. 실행설계
+## 8. 실행설계
 
 ### 추진 단계
 ${bullets(data.milestones)}
@@ -255,9 +387,9 @@ ${bullets(data.budgetPlan)}
 ### 리스크 대응
 ${bullets(data.riskPlan)}
 
-${tableToMarkdown("8. 서비스 블루프린트", tableSchemas.blueprintTable, data.blueprintTable || [])}
+${tableToMarkdown("9. 서비스 블루프린트", tableSchemas.blueprintTable, data.blueprintTable || [])}
 
-## 9. 다음 보완 질문
+## 10. 다음 보완 질문
 
 - 공고의 실제 평가표에서 가장 배점이 높은 항목은 무엇인가?
 - 대상자의 문제를 증명할 수 있는 정량/정성 근거는 무엇인가?
@@ -315,6 +447,8 @@ qsa("[data-add-row]").forEach((button) => {
 
 qsa("input, textarea").forEach((field) => field.addEventListener("input", autosaveSoon));
 qs("#saveProject").addEventListener("click", saveProject);
+qs("#analyzeNotice").addEventListener("click", analyzeNoticeText);
+qs("#generateCoaching").addEventListener("click", () => generateCoaching(false));
 qs("#generateDraft").addEventListener("click", generateDraft);
 qs("#exportMarkdown").addEventListener("click", exportMarkdown);
 qs("#copyDraft").addEventListener("click", copyDraft);
