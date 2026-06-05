@@ -17,6 +17,7 @@ https://okrangone98-oss.github.io/planning-copilot/
 - 직접 만들기 어려운 고급 판단은 AI에게 물어볼 질문으로 만들어 줍니다.
 - 필요하면 Google Drive와 로컬 폴더에 함께 저장합니다.
 - 시각 자료는 Mermaid, Excalidraw, draw.io 같은 오픈소스 방식부터 적용합니다.
+- `시각자료` 탭에서 Mermaid 기반 논리모형/성과 흐름도를 만들 수 있습니다.
 
 ## 권장 사용 순서
 
@@ -46,3 +47,7 @@ Google Sheets를 자동으로 만들고 내 계정에 공유하는 로컬 에이
 자세한 제품 기준과 개발 로드맵은 아래 문서를 기준으로 관리합니다.
 
 [docs/product-blueprint.md](docs/product-blueprint.md)
+
+오픈소스 후보를 어떻게 포크하거나 기능 단위로 흡수할지는 아래 기준을 따릅니다.
+
+[docs/open-source-integration.md](docs/open-source-integration.md)

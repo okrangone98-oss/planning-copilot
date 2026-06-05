@@ -1,15 +1,16 @@
 :root {
   color-scheme: light;
   --ink: #18202a;
-  --muted: #647184;
-  --line: #d9dee7;
+  --muted: #657386;
+  --line: #d8dee8;
   --paper: #ffffff;
-  --surface: #f5f7fb;
+  --surface: #f4f7fb;
   --accent: #1f7a68;
   --accent-strong: #155c4e;
   --warm: #b85c38;
   --gold: #d9a441;
   --focus: #2454c6;
+  --sidebar: #202a35;
   --shadow: 0 16px 40px rgba(24, 32, 42, 0.08);
 }
 
@@ -47,7 +48,7 @@ button {
   flex-direction: column;
   gap: 22px;
   padding: 28px;
-  background: #202a35;
+  background: var(--sidebar);
   color: #f6f8fb;
 }
 
@@ -55,7 +56,6 @@ button {
   margin: 8px 0 0;
   font-size: 28px;
   line-height: 1.25;
-  font-weight: 800;
 }
 
 .eyebrow {
@@ -89,6 +89,11 @@ button {
   color: var(--ink);
   line-height: 1.55;
   resize: vertical;
+}
+
+.field textarea[spellcheck="false"] {
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
 }
 
 .sidebar .field input {
@@ -141,7 +146,8 @@ button:focus-visible {
 
 .primary-button,
 .secondary-button,
-.ghost-button {
+.ghost-button,
+.ghost-light-button {
   min-height: 40px;
   border-radius: 8px;
   padding: 9px 14px;
@@ -171,13 +177,9 @@ button:focus-visible {
 }
 
 .ghost-light-button {
-  min-height: 40px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 14px;
   background: transparent;
   color: var(--ink);
-  font-weight: 800;
 }
 
 .workspace {
@@ -218,11 +220,11 @@ button:focus-visible {
 
 .panel {
   display: none;
-  background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: var(--shadow);
   padding: 26px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
 }
 
 .panel.is-visible {
@@ -267,29 +269,15 @@ button:focus-visible {
   font-size: 15px;
 }
 
-.coach-bar span {
-  color: #526171;
+.coach-bar span,
+.file-drop small,
+.knowledge-item span {
+  color: var(--muted);
   line-height: 1.55;
 }
 
 .bridge-actions {
   margin-top: 16px;
-}
-
-.open-source-note {
-  display: grid;
-  gap: 6px;
-  margin-top: 18px;
-  border-left: 4px solid var(--warm);
-  border-radius: 8px;
-  padding: 14px 16px;
-  background: #fff7f2;
-  color: #283341;
-}
-
-.open-source-note span {
-  color: var(--muted);
-  line-height: 1.65;
 }
 
 .setup-details {
@@ -323,11 +311,6 @@ button:focus-visible {
   font-weight: 800;
 }
 
-.file-drop small {
-  color: var(--muted);
-  line-height: 1.5;
-}
-
 .file-button {
   display: inline-flex;
   align-items: center;
@@ -354,11 +337,6 @@ button:focus-visible {
 
 .knowledge-item strong {
   font-size: 15px;
-}
-
-.knowledge-item span {
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .form-grid {
@@ -413,11 +391,6 @@ td input {
   background: #fbfcfe;
 }
 
-td input:focus {
-  outline: 2px solid rgba(36, 84, 198, 0.25);
-  border-color: var(--focus);
-}
-
 .draft-output {
   width: 100%;
   margin-top: 16px;
@@ -427,11 +400,39 @@ td input:focus {
   line-height: 1.65;
 }
 
+.visual-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.1fr);
+  gap: 18px;
+}
+
+.visual-preview-wrap {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+
+.visual-preview {
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+  overflow: auto;
+  color: var(--muted);
+  text-align: center;
+}
+
+.visual-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .toast {
   position: fixed;
   right: 22px;
   bottom: 22px;
-  max-width: 320px;
+  max-width: 340px;
   border-radius: 8px;
   padding: 12px 14px;
   background: #1f2933;
@@ -461,7 +462,8 @@ td input:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .form-grid {
+  .form-grid,
+  .visual-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -472,20 +474,13 @@ td input:focus {
     padding: 18px;
   }
 
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .workflow-strip {
-    grid-template-columns: 1fr;
-  }
-
+  .topbar,
   .coach-bar {
     align-items: flex-start;
     flex-direction: column;
   }
 
+  .workflow-strip,
   .step-nav {
     grid-template-columns: 1fr;
   }

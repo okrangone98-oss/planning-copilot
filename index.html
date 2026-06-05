@@ -3,36 +3,37 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>공동기획형 사업계획서 코파일럿</title>
+    <title>사업계획서 코워크 에이전트</title>
     <link rel="stylesheet" href="assets/styles.css">
   </head>
   <body>
     <main class="app-shell">
-      <aside class="sidebar" aria-label="프로젝트 탐색">
+      <aside class="sidebar" aria-label="작업 단계">
         <div class="brand-block">
           <p class="eyebrow">Planning Copilot</p>
-          <h1>공동기획형 사업계획서 코파일럿</h1>
+          <h1>사업계획서 코워크 에이전트</h1>
         </div>
 
         <label class="field">
           <span>프로젝트명</span>
-          <input id="projectName" type="text" placeholder="예: 양양잇다 생활문화혁신지원">
+          <input id="projectName" type="text" placeholder="예: 생활문화 혁신 지원사업">
         </label>
 
         <nav class="step-nav" aria-label="작성 단계">
-          <button class="nav-item is-active" data-section="notice">공고 해석</button>
-          <button class="nav-item" data-section="cowork">질문 받기</button>
-          <button class="nav-item" data-section="ragRoom">사례 모으기</button>
-          <button class="nav-item" data-section="aiBridge">AI 질문</button>
-          <button class="nav-item" data-section="driveBackup">백업</button>
-          <button class="nav-item" data-section="sample">샘플 분해</button>
-          <button class="nav-item" data-section="idea">아이디어 인터뷰</button>
-          <button class="nav-item" data-section="problem">문제정의</button>
-          <button class="nav-item" data-section="logic">논리모형</button>
-          <button class="nav-item" data-section="metrics">성과지표</button>
-          <button class="nav-item" data-section="execution">실행설계</button>
-          <button class="nav-item" data-section="blueprint">서비스 블루프린트</button>
-          <button class="nav-item" data-section="draft">초안 조립</button>
+          <button class="nav-item is-active" data-section="notice" type="button">공고 해석</button>
+          <button class="nav-item" data-section="cowork" type="button">질문 받기</button>
+          <button class="nav-item" data-section="ragRoom" type="button">사례 모으기</button>
+          <button class="nav-item" data-section="aiBridge" type="button">AI 질문</button>
+          <button class="nav-item" data-section="visuals" type="button">시각자료</button>
+          <button class="nav-item" data-section="driveBackup" type="button">백업</button>
+          <button class="nav-item" data-section="sample" type="button">샘플 분해</button>
+          <button class="nav-item" data-section="idea" type="button">아이디어 인터뷰</button>
+          <button class="nav-item" data-section="problem" type="button">문제정의</button>
+          <button class="nav-item" data-section="logic" type="button">논리모형</button>
+          <button class="nav-item" data-section="metrics" type="button">성과지표</button>
+          <button class="nav-item" data-section="execution" type="button">실행설계</button>
+          <button class="nav-item" data-section="blueprint" type="button">서비스 블루프린트</button>
+          <button class="nav-item" data-section="draft" type="button">초안 조립</button>
         </nav>
 
         <div class="sidebar-actions">
@@ -44,7 +45,7 @@
       <section class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Version 0.1</p>
+            <p class="eyebrow">Version 0.2</p>
             <h2 id="sectionTitle">공고 해석</h2>
           </div>
           <div class="topbar-actions">
@@ -52,7 +53,8 @@
             <button id="exportMarkdown" class="primary-button" type="button">Markdown 내보내기</button>
           </div>
         </header>
-        <div class="workflow-strip" aria-label="권장 사용 흐름">
+
+        <div class="workflow-strip" aria-label="권장 사용 순서">
           <span>1. 공고문 분석</span>
           <span>2. 사례 찾기</span>
           <span>3. AI 질문 만들기</span>
@@ -62,72 +64,72 @@
         <section class="panel is-visible" id="notice">
           <div class="section-intro">
             <h3>공고문이 원하는 답을 먼저 읽습니다</h3>
-            <p>지원사업의 목적, 평가기준, 금지사항, 가점 요소를 분해하면 같은 아이디어도 훨씬 정확한 언어로 기획됩니다.</p>
+            <p>지원사업의 목적, 평가기준, 필수 조건, 차별화 기회를 정리합니다.</p>
           </div>
           <div class="coach-bar">
             <div>
               <strong>공고문 자동 분석</strong>
-              <span>공고문을 붙여넣거나 파일을 올린 뒤 누르면 꼭 봐야 할 내용을 정리합니다.</span>
+              <span>공고문을 붙여넣거나 파일을 올린 뒤 분석을 누르세요.</span>
             </div>
             <button id="analyzeNotice" class="primary-button" type="button">공고문 분석</button>
           </div>
           <label class="file-drop">
             <span>공고문 파일 첨부</span>
             <input id="noticeFile" type="file" accept=".txt,.md,.csv,.html,.htm,.json,.xml,.hwpx,.docx">
-            <small>현재 버전은 텍스트 계열 파일을 가장 안정적으로 읽습니다. HWPX/DOCX는 추후 전용 파서를 붙일 예정입니다.</small>
+            <small>현재 브라우저 버전은 텍스트가 들어 있는 파일을 안정적으로 읽습니다. PDF/DOCX/HWPX 원본은 텍스트를 복사해 붙여넣으면 가장 정확합니다.</small>
           </label>
           <div class="form-grid">
             <label class="field wide">
-              <span>공고문 핵심 문장</span>
+              <span>공고문 핵심 내용</span>
               <textarea data-key="noticeText" rows="8" placeholder="공고문에서 목적, 지원대상, 사업내용, 평가기준 문장을 붙여넣으세요."></textarea>
             </label>
             <label class="field">
               <span>정책 목적</span>
-              <textarea data-key="policyGoal" rows="5" placeholder="이 공고가 해결하려는 정책 문제"></textarea>
+              <textarea data-key="policyGoal" rows="5"></textarea>
             </label>
             <label class="field">
               <span>평가 포인트</span>
-              <textarea data-key="evaluationFocus" rows="5" placeholder="중요해 보이는 평가항목과 배점"></textarea>
+              <textarea data-key="evaluationFocus" rows="5"></textarea>
             </label>
             <label class="field">
               <span>필수 조건</span>
-              <textarea data-key="requirements" rows="5" placeholder="자격, 제출물, 예산 제한, 일정"></textarea>
+              <textarea data-key="requirements" rows="5"></textarea>
             </label>
             <label class="field">
-              <span>가점/차별화 기회</span>
-              <textarea data-key="advantageSignals" rows="5" placeholder="공고문에서 암시하는 우대 요소"></textarea>
+              <span>차별화 기회</span>
+              <textarea data-key="advantageSignals" rows="5"></textarea>
             </label>
           </div>
         </section>
 
         <section class="panel" id="cowork">
           <div class="section-intro">
-            <h3>다음에 답할 질문을 정리합니다</h3>
-            <p>공고문을 바탕으로 더 물어봐야 할 것, 부족한 자료, 작성 방향을 정리합니다.</p>
+            <h3>다음에 답해야 할 질문을 정리합니다</h3>
+            <p>공고문과 현재 입력값을 보고 보완 질문, 작성 전략, 부족한 근거를 정리합니다.</p>
           </div>
           <div class="coach-bar">
             <div>
               <strong>질문 다시 만들기</strong>
-              <span>현재 입력값을 보고 다음에 답해야 할 질문을 다시 정리합니다.</span>
+              <span>현재 내용에 맞춰 공동기획 질문을 생성합니다.</span>
             </div>
             <button id="generateCoaching" class="primary-button" type="button">질문 생성</button>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>분석 메모</span>
-              <textarea data-key="agentMemo" rows="6" placeholder="공고가 요구하는 답, 평가자가 볼 핵심 신호, 작성 방향"></textarea>
+              <textarea data-key="agentMemo" rows="6"></textarea>
             </label>
             <label class="field">
               <span>다음 질문</span>
-              <textarea data-key="nextQuestions" rows="6" placeholder="사용자가 답해야 할 질문 목록"></textarea>
+              <textarea data-key="nextQuestions" rows="6"></textarea>
             </label>
             <label class="field">
               <span>작성 전략</span>
-              <textarea data-key="writingStrategy" rows="6" placeholder="어떤 문항에서 무엇을 강조할지"></textarea>
+              <textarea data-key="writingStrategy" rows="6"></textarea>
             </label>
             <label class="field">
-              <span>빠진 근거/자료</span>
-              <textarea data-key="missingEvidence" rows="6" placeholder="데이터, 사진, 인터뷰, 실적, 견적, 협력확인 등"></textarea>
+              <span>부족한 근거</span>
+              <textarea data-key="missingEvidence" rows="6"></textarea>
             </label>
           </div>
         </section>
@@ -135,27 +137,27 @@
         <section class="panel" id="ragRoom">
           <div class="section-intro">
             <h3>좋은 사례를 모아 둡니다</h3>
-            <p>선정 사례, 좋은 문장, 비슷한 공고, 평가표를 저장해 두면 현재 사업에 맞는 참고 내용을 찾아 줍니다.</p>
+            <p>좋은 사업계획서, 유사 공고, 평가표를 저장하면 현재 사업과 맞는 참고 내용을 찾아옵니다.</p>
           </div>
           <div class="coach-bar">
             <div>
               <strong>내 자료에서 찾기</strong>
-              <span>저장한 자료 안에서 지금 공고와 비슷한 내용을 찾아옵니다. 자료는 내 브라우저에 보관됩니다.</span>
+              <span>브라우저 안에 저장된 사례에서 관련 내용을 찾습니다.</span>
             </div>
             <button id="searchKnowledge" class="primary-button" type="button">관련 사례 찾기</button>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>문서 제목</span>
-              <input id="knowledgeTitle" type="text" placeholder="예: 로컬브랜드 선정 사업계획서 샘플">
+              <input id="knowledgeTitle" type="text" placeholder="예: 우수 선정 사업계획서 샘플">
             </label>
             <label class="field">
-              <span>문서 유형</span>
-              <input id="knowledgeType" type="text" placeholder="선정사례, 공고문, 평가표, 좋은문장">
+              <span>문서 종류</span>
+              <input id="knowledgeType" type="text" placeholder="선정사례, 공고문, 평가표">
             </label>
             <label class="field wide">
               <span>문서 내용</span>
-              <textarea id="knowledgeText" rows="8" placeholder="좋은 사업계획서 사례나 공고문 내용을 붙여넣으세요."></textarea>
+              <textarea id="knowledgeText" rows="8" placeholder="좋은 사업계획서나 공고문 내용을 붙여넣으세요."></textarea>
             </label>
           </div>
           <div class="draft-actions bridge-actions">
@@ -168,60 +170,84 @@
           </div>
           <label class="field wide rag-query">
             <span>찾고 싶은 내용</span>
-            <textarea data-key="ragQuery" rows="4" placeholder="비워두면 현재 공고문, 평가포인트, 아이디어를 기준으로 검색합니다."></textarea>
+            <textarea data-key="ragQuery" rows="4" placeholder="비워두면 현재 공고문, 평가 포인트, 아이디어를 기준으로 찾습니다."></textarea>
           </label>
           <label class="field wide">
             <span>찾은 참고 내용</span>
-            <textarea data-key="ragResults" rows="12" placeholder="관련 사례 찾기를 누르면 AI 질문에 넣을 참고 내용이 정리됩니다."></textarea>
+            <textarea data-key="ragResults" rows="12"></textarea>
           </label>
           <div id="knowledgeLibrary" class="knowledge-library" aria-live="polite"></div>
         </section>
 
         <section class="panel" id="aiBridge">
           <div class="section-intro">
-            <h3>AI에게 물어볼 질문을 만듭니다</h3>
-            <p>입력한 공고문, 내 아이디어, 저장한 사례를 모아 AI에게 물어볼 질문을 만들어 줍니다. 답변을 붙여넣으면 초안에 반영됩니다.</p>
+            <h3>AI에게 물어볼 좋은 질문을 만듭니다</h3>
+            <p>무료 기능만으로 어려운 판단은 최신 AI에게 복사해 물어볼 수 있도록 정리합니다.</p>
           </div>
           <div class="coach-bar">
             <div>
-              <strong>AI 질문 만들기</strong>
-              <span>현재 입력값을 바탕으로 AI에게 물어볼 질문을 만듭니다.</span>
+              <strong>질문 생성</strong>
+              <span>현재 공고, 아이디어, 사례 검색 결과를 하나의 깊은 질문으로 만듭니다.</span>
             </div>
-            <button id="generateModelPrompt" class="primary-button" type="button">질문 생성</button>
+            <button id="generateModelPrompt" class="primary-button" type="button">AI 질문 생성</button>
           </div>
           <div class="form-grid">
             <label class="field wide">
               <span>AI에 복사할 질문</span>
-              <textarea data-key="modelPrompt" rows="14" placeholder="질문 생성 버튼을 누르면 AI에 붙여넣을 질문이 만들어집니다."></textarea>
+              <textarea data-key="modelPrompt" rows="14"></textarea>
             </label>
             <label class="field wide">
               <span>AI 답변 붙여넣기</span>
-              <textarea data-key="modelResponse" rows="12" placeholder="AI의 답변을 여기에 붙여넣으세요."></textarea>
+              <textarea data-key="modelResponse" rows="12"></textarea>
             </label>
             <label class="field wide">
               <span>반영 메모</span>
-              <textarea data-key="aiSynthesis" rows="8" placeholder="AI 답변에서 사업계획서에 반영할 내용을 정리합니다."></textarea>
+              <textarea data-key="aiSynthesis" rows="8"></textarea>
             </label>
           </div>
           <div class="draft-actions bridge-actions">
             <button id="copyModelPrompt" class="secondary-button" type="button">질문 복사</button>
             <button id="absorbModelResponse" class="secondary-button" type="button">답변 반영 메모화</button>
           </div>
-          <div class="open-source-note">
-            <strong>역할 나누기</strong>
-            <span>이 앱은 자료를 모으고 정리합니다. AI는 평가자 관점으로 더 깊게 생각하고 문장을 다듬는 데 씁니다.</span>
+        </section>
+
+        <section class="panel" id="visuals">
+          <div class="section-intro">
+            <h3>시각자료 초안을 만듭니다</h3>
+            <p>논리모형, 추진 흐름, 성과 연결을 Mermaid 다이어그램으로 먼저 만들고 필요하면 이미지로 내보낼 수 있습니다.</p>
+          </div>
+          <div class="coach-bar">
+            <div>
+              <strong>오픈소스 시각화</strong>
+              <span>Mermaid를 사용합니다. Napkin.ai처럼 “문장 → 구조도” 흐름의 첫 단계입니다.</span>
+            </div>
+            <button id="generateVisual" class="primary-button" type="button">시각자료 생성</button>
+          </div>
+          <div class="visual-layout">
+            <label class="field">
+              <span>다이어그램 코드</span>
+              <textarea data-key="visualMermaid" rows="18" spellcheck="false"></textarea>
+            </label>
+            <div class="visual-preview-wrap">
+              <div id="visualPreview" class="visual-preview" aria-live="polite">시각자료 생성 버튼을 누르면 미리보기가 표시됩니다.</div>
+            </div>
+          </div>
+          <div class="draft-actions bridge-actions">
+            <button id="renderVisual" class="secondary-button" type="button">미리보기 새로고침</button>
+            <button id="copyVisualCode" class="secondary-button" type="button">코드 복사</button>
+            <button id="downloadVisualSvg" class="secondary-button" type="button">SVG 받기</button>
           </div>
         </section>
 
         <section class="panel" id="driveBackup">
           <div class="section-intro">
-            <h3>내 Google Drive에 백업합니다</h3>
-            <p>현재 프로젝트, 저장한 사례, AI 답변 메모를 하나로 묶어 백업합니다.</p>
+            <h3>작업을 백업합니다</h3>
+            <p>현재 프로젝트, 저장한 사례, AI 답변 메모를 파일 또는 Google Drive로 보관합니다.</p>
           </div>
           <div class="coach-bar">
             <div>
               <strong>현재 저장 구조</strong>
-              <span>기본 저장은 이 브라우저에 됩니다. 백업을 하면 내 Google Drive에도 보관할 수 있습니다.</span>
+              <span>앱의 빠른 작업 데이터는 브라우저에 저장하고, 원본 파일은 Google Drive에 보관하는 구조를 권장합니다.</span>
             </div>
             <button id="downloadArchive" class="primary-button" type="button">백업 파일 받기</button>
           </div>
@@ -246,58 +272,54 @@
               <input id="archiveFile" type="file" accept=".json" hidden>
             </label>
           </div>
-          <div class="open-source-note">
-            <strong>저장 위치</strong>
-            <span>Google Drive의 Planning Copilot Archive 폴더에 최신 백업 파일을 저장합니다. 원본 문서는 Drive에 따로 보관하고, 앱에는 필요한 내용만 넣는 방식이 안전합니다.</span>
-          </div>
         </section>
 
         <section class="panel" id="sample">
           <div class="section-intro">
-            <h3>좋은 문서의 구조를 우리 사업의 판단 기준으로 바꿉니다</h3>
-            <p>샘플 사업계획서, 공고 해설, 유사 선정사례에서 좋은 논리와 표현을 뽑아내고 적용 방식을 정리합니다.</p>
+            <h3>좋은 문서의 구조를 우리 사업 기준으로 바꿉니다</h3>
+            <p>문장을 베끼지 않고 구조, 논리, 평가자 신호를 가져옵니다.</p>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>참고 문서/출처</span>
-              <textarea data-key="sampleSource" rows="5" placeholder="문서명, 링크, 사업유형, 선정/평가 맥락"></textarea>
+              <textarea data-key="sampleSource" rows="5"></textarea>
             </label>
             <label class="field">
               <span>좋았던 구조</span>
-              <textarea data-key="sampleStructure" rows="5" placeholder="문제 제기, 근거 제시, 실행계획, 성과 설계의 흐름"></textarea>
+              <textarea data-key="sampleStructure" rows="5"></textarea>
             </label>
             <label class="field">
               <span>평가자에게 주는 신호</span>
-              <textarea data-key="sampleSignals" rows="5" placeholder="실행력, 차별성, 정책 적합성, 확산성 등"></textarea>
+              <textarea data-key="sampleSignals" rows="5"></textarea>
             </label>
             <label class="field">
               <span>우리 사업에 적용할 방식</span>
-              <textarea data-key="sampleAdaptation" rows="5" placeholder="그대로 베끼지 않고 우리 아이디어에 맞게 변환할 포인트"></textarea>
+              <textarea data-key="sampleAdaptation" rows="5"></textarea>
             </label>
           </div>
         </section>
 
         <section class="panel" id="idea">
           <div class="section-intro">
-            <h3>작성자의 아이디어를 지우지 않고 선명하게 만듭니다</h3>
-            <p>현장 경험, 문제의식, 하고 싶은 일을 먼저 모은 뒤 지원사업 언어로 번역합니다.</p>
+            <h3>작성자의 아이디어를 선명하게 만듭니다</h3>
+            <p>현장 경험과 고유 관점을 정책 언어로 번역합니다.</p>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>핵심 아이디어</span>
-              <textarea data-key="coreIdea" rows="5" placeholder="무엇을 만들고 운영하려는가"></textarea>
+              <textarea data-key="coreIdea" rows="5"></textarea>
             </label>
             <label class="field">
               <span>대상자</span>
-              <textarea data-key="targetUsers" rows="5" placeholder="누구의 문제를 해결하는가"></textarea>
+              <textarea data-key="targetUsers" rows="5"></textarea>
             </label>
             <label class="field">
               <span>현장 근거</span>
-              <textarea data-key="fieldEvidence" rows="5" placeholder="직접 본 장면, 인터뷰, 데이터, 기존 경험"></textarea>
+              <textarea data-key="fieldEvidence" rows="5"></textarea>
             </label>
             <label class="field">
-              <span>사용자의 고유한 관점</span>
-              <textarea data-key="founderInsight" rows="5" placeholder="왜 내가/우리가 이 문제를 잘 풀 수 있는가"></textarea>
+              <span>작성자의 고유 관점</span>
+              <textarea data-key="founderInsight" rows="5"></textarea>
             </label>
           </div>
         </section>
@@ -305,53 +327,53 @@
         <section class="panel" id="problem">
           <div class="section-intro">
             <h3>문제를 사업의 언어로 정의합니다</h3>
-            <p>불편의 증상, 구조적 원인, 기존 해결책의 한계를 분리하면 필요성과 타당성이 살아납니다.</p>
+            <p>증상, 원인, 기존 해결책의 한계, 지금 필요한 이유를 분리합니다.</p>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>문제 상황</span>
-              <textarea data-key="problemSituation" rows="5" placeholder="대상자가 겪는 구체적 어려움"></textarea>
+              <textarea data-key="problemSituation" rows="5"></textarea>
             </label>
             <label class="field">
               <span>원인 분석</span>
-              <textarea data-key="rootCauses" rows="5" placeholder="왜 이 문제가 반복되는가"></textarea>
+              <textarea data-key="rootCauses" rows="5"></textarea>
             </label>
             <label class="field">
               <span>기존 해결책의 한계</span>
-              <textarea data-key="existingLimits" rows="5" placeholder="기존 사업, 서비스, 제도의 빈틈"></textarea>
+              <textarea data-key="existingLimits" rows="5"></textarea>
             </label>
             <label class="field">
               <span>지금 필요한 이유</span>
-              <textarea data-key="whyNow" rows="5" placeholder="정책, 사회, 기술, 지역 트렌드와 연결"></textarea>
+              <textarea data-key="whyNow" rows="5"></textarea>
             </label>
           </div>
         </section>
 
         <section class="panel" id="logic">
           <div class="section-intro">
-            <h3>좋은 사업계획서는 인과관계가 보입니다</h3>
-            <p>투입부터 중장기성과까지 연결해 평가자가 납득할 수 있는 변화의 경로를 만듭니다.</p>
+            <h3>사업의 인과관계를 설계합니다</h3>
+            <p>투입에서 중장기성과까지 평가자가 이해할 수 있는 변화 경로를 만듭니다.</p>
           </div>
           <div class="logic-board">
             <label class="field">
               <span>투입</span>
-              <textarea data-key="inputs" rows="6" placeholder="인력, 예산, 공간, 파트너, 데이터"></textarea>
+              <textarea data-key="inputs" rows="6"></textarea>
             </label>
             <label class="field">
               <span>활동</span>
-              <textarea data-key="activities" rows="6" placeholder="모집, 교육, 워크숍, 플랫폼, 컨설팅"></textarea>
+              <textarea data-key="activities" rows="6"></textarea>
             </label>
             <label class="field">
               <span>산출</span>
-              <textarea data-key="outputs" rows="6" placeholder="참여자 수, 콘텐츠 수, 운영 회차"></textarea>
+              <textarea data-key="outputs" rows="6"></textarea>
             </label>
             <label class="field">
               <span>단기성과</span>
-              <textarea data-key="shortOutcomes" rows="6" placeholder="역량 향상, 만족도, 행동 변화"></textarea>
+              <textarea data-key="shortOutcomes" rows="6"></textarea>
             </label>
             <label class="field">
               <span>중장기성과</span>
-              <textarea data-key="longOutcomes" rows="6" placeholder="지역 확산, 사회문제 완화, 지속모델"></textarea>
+              <textarea data-key="longOutcomes" rows="6"></textarea>
             </label>
           </div>
         </section>
@@ -382,32 +404,32 @@
         <section class="panel" id="execution">
           <div class="section-intro">
             <h3>실행 가능한 계획으로 바꿉니다</h3>
-            <p>추진 일정, 역할, 예산, 리스크를 설계해 계획서가 실제 운영될 수 있음을 보여줍니다.</p>
+            <p>일정, 역할, 예산, 위험 대응을 구체화합니다.</p>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>추진 단계</span>
-              <textarea data-key="milestones" rows="6" placeholder="월별/단계별 주요 활동"></textarea>
+              <textarea data-key="milestones" rows="6"></textarea>
             </label>
             <label class="field">
-              <span>추진체계</span>
-              <textarea data-key="teamSystem" rows="6" placeholder="운영 주체, 파트너, 역할분담"></textarea>
+              <span>추진 체계</span>
+              <textarea data-key="teamSystem" rows="6"></textarea>
             </label>
             <label class="field">
               <span>예산 설계</span>
-              <textarea data-key="budgetPlan" rows="6" placeholder="항목별 예산과 산출 근거"></textarea>
+              <textarea data-key="budgetPlan" rows="6"></textarea>
             </label>
             <label class="field">
-              <span>리스크 대응</span>
-              <textarea data-key="riskPlan" rows="6" placeholder="모집 실패, 일정 지연, 품질 저하 대응"></textarea>
+              <span>위험 대응</span>
+              <textarea data-key="riskPlan" rows="6"></textarea>
             </label>
           </div>
         </section>
 
         <section class="panel" id="blueprint">
           <div class="section-intro">
-            <h3>서비스 디자인 관점으로 운영 경험을 설계합니다</h3>
-            <p>사용자 여정과 운영 접점을 분리하면 실행계획의 해상도가 올라갑니다.</p>
+            <h3>서비스 디자인 관점으로 운영 경험을 봅니다</h3>
+            <p>사용자 여정과 운영 접점을 분리하면 실행계획의 현실감이 높아집니다.</p>
           </div>
           <div class="table-tools">
             <button class="secondary-button" data-add-row="blueprintTable" type="button">접점 추가</button>
@@ -419,7 +441,7 @@
                   <th>단계</th>
                   <th>사용자 행동</th>
                   <th>접점</th>
-                  <th>백스테이지 운영</th>
+                  <th>운영 방식</th>
                   <th>실패 가능성</th>
                 </tr>
               </thead>
@@ -431,18 +453,18 @@
         <section class="panel" id="draft">
           <div class="section-intro">
             <h3>공고 양식에 맞는 초안으로 조립합니다</h3>
-            <p>입력한 내용을 바탕으로 사업계획서의 기본 골격을 만듭니다. 이후 문항별 분량과 톤에 맞춰 다듬으면 됩니다.</p>
+            <p>입력한 내용을 사업계획서의 기본 골격으로 정리합니다.</p>
           </div>
           <div class="draft-actions">
             <button id="generateDraft" class="primary-button" type="button">초안 생성</button>
             <button id="copyDraft" class="secondary-button" type="button">초안 복사</button>
           </div>
-          <textarea id="draftOutput" class="draft-output" rows="24" placeholder="초안 생성 버튼을 누르면 여기에 조립됩니다."></textarea>
+          <textarea id="draftOutput" class="draft-output" rows="24"></textarea>
         </section>
       </section>
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="assets/app.js"></script>
+    <script type="module" src="assets/app.js"></script>
   </body>
 </html>
