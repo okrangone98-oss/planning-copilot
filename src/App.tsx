@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
 import { generateDraftText } from "./lib/draft";
+import { extractTextFromFile } from "./lib/fileText";
 import { absorbModelResponse, buildModelPrompt } from "./lib/prompts";
 import {
   clearProject,
@@ -199,17 +200,13 @@ export default function App() {
   const notify = (message: string) => setToast(message);
 
   const readFile = (file: File, onText: (text: string) => void) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result || "").trim();
-      if (!text || text.includes("\u0000")) {
-        notify("이 파일은 브라우저에서 바로 읽기 어렵습니다. 텍스트를 복사해 붙여넣어 주세요.");
-        return;
-      }
-      onText(text);
-    };
-    reader.onerror = () => notify("파일을 읽지 못했습니다.");
-    reader.readAsText(file, "utf-8");
+    extractTextFromFile(file)
+      .then(({ text, warning }) => {
+        if (warning) notify(warning);
+        if (!text) return;
+        onText(text);
+      })
+      .catch(() => notify("파일을 읽지 못했습니다. 문서 내용을 복사해 붙여넣어 주세요."));
   };
 
   const runNoticeAnalysis = () => {
@@ -396,12 +393,12 @@ export default function App() {
             </div>
             <label className="file-drop">
               <span>공고문 파일 첨부</span>
-              <input type="file" accept=".txt,.md,.csv,.html,.htm,.json,.xml,.hwpx,.docx" onChange={(event) => {
+              <input type="file" accept=".pdf,.docx,.hwpx,.txt,.md,.csv,.html,.htm,.json,.xml" onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) readFile(file, (text) => { updateProject({ noticeText: text }); notify("파일 내용을 불러왔습니다. 공고문 분석을 눌러 주세요."); });
                 event.currentTarget.value = "";
               }} />
-              <small>PDF/DOCX/HWPX 원본은 텍스트를 복사해 붙여넣으면 가장 정확합니다.</small>
+              <small>PDF, DOCX, HWPX, TXT 파일을 읽습니다. 스캔 이미지 PDF는 추후 OCR 단계에서 보완합니다.</small>
             </label>
             <div className="form-grid">
               <Field label="공고문 핵심 내용" value={project.noticeText} onChange={(noticeText) => updateProject({ noticeText })} rows={8} wide />
@@ -440,7 +437,7 @@ export default function App() {
               <Field label="문서 내용" value={knowledgeText} onChange={setKnowledgeText} rows={8} wide />
             </div>
             <div className="draft-actions bridge-actions">
-              <label className="secondary-button file-button">파일에서 추가<input type="file" accept=".txt,.md,.csv,.html,.htm,.json,.xml" hidden onChange={(event) => {
+              <label className="secondary-button file-button">파일에서 추가<input type="file" accept=".pdf,.docx,.hwpx,.txt,.md,.csv,.html,.htm,.json,.xml" hidden onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) readFile(file, (text) => { setKnowledgeTitle(knowledgeTitle || file.name); setKnowledgeText(text); notify("파일 내용을 사례 입력칸에 불러왔습니다."); });
                 event.currentTarget.value = "";
