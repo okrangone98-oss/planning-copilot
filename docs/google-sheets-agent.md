@@ -13,10 +13,10 @@ GCP 콘솔에서 아래 API를 사용 설정합니다.
 
 다운로드한 서비스 계정 JSON 파일은 저장소 밖이나 `secrets/` 폴더에 둡니다.
 
-예:
+추천 위치:
 
 ```powershell
-C:\Users\samsung\OneDrive\문서\사업계획서1\secrets\service-account.json
+E:\26사업계획서1\secrets\service-account.json
 ```
 
 `secrets/`와 `service-account*.json`은 `.gitignore`에 들어 있어 GitHub에 올라가지 않습니다.
@@ -28,7 +28,7 @@ C:\Users\samsung\OneDrive\문서\사업계획서1\secrets\service-account.json
 필수:
 
 ```powershell
-GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\service-account.json
+GOOGLE_APPLICATION_CREDENTIALS=E:\26사업계획서1\secrets\service-account.json
 GOOGLE_SHARE_WITH_EMAIL=내구글계정@gmail.com
 ```
 
