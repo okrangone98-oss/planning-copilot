@@ -7,3 +7,12 @@ dist/
 build/
 .env
 .env.local
+*.env
+service-account*.json
+*service-account*.json
+google-credentials*.json
+credentials/
+secrets/
+private/
+*.pem
+*.key

@@ -47,3 +47,5 @@ Google Drive 백업을 쓰려면 `백업` 탭의 연결 코드를 복사해 Goog
 - 사례 검색 고도화: MiniSearch, FlexSearch, Transformers.js
 - Google Drive 연동 강화: 원본 파일 업로드와 폴더별 정리
 - 외부 도구 연결: 공고문 수집, 문서 변환, 제출 양식 내보내기
+
+Google Sheets를 자동으로 만들고 내 계정에 공유하는 에이전트 코드는 [docs/google-sheets-agent.md](docs/google-sheets-agent.md)에 정리했습니다.

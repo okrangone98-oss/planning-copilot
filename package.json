@@ -1,0 +1,14 @@
+{
+  "name": "planning-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sheets:create": "node scripts/google-sheets-agent.mjs",
+    "check": "node --check assets/app.js && node --check scripts/google-sheets-agent.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0"
+  }
+}
