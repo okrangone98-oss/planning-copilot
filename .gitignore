@@ -16,3 +16,4 @@ secrets/
 private/
 *.pem
 *.key
+env.local
