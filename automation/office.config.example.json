@@ -1,0 +1,20 @@
+{
+  "mode": "simulation",
+  "timezone": "Asia/Seoul",
+  "nightlyRunTime": "01:00",
+  "morningReportTime": "07:00",
+  "defaultCommand": "내일 아침 로컬기획 사무국 보고서를 만들어줘",
+  "dailyKeywords": [
+    "농촌 정책",
+    "로컬 콘텐츠",
+    "공모사업",
+    "AI 자동화"
+  ],
+  "maxAgentRuns": 7,
+  "allowExternalSend": false,
+  "outputPolicy": {
+    "drafts": "private",
+    "publicReports": "reports/public-after-review",
+    "sensitiveData": "private-only"
+  }
+}
