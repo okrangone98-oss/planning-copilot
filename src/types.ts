@@ -62,10 +62,21 @@ export type MorningReport = {
   markdown: string;
 };
 
+export type PromptPackage = {
+  rolePrompts: Array<{
+    agentId: AgentId;
+    title: string;
+    prompt: string;
+  }>;
+  unifiedPrompt: string;
+  usageGuide: string[];
+};
+
 export type OfficeResult = {
   tasks: AgentTask[];
   drafts: AgentDraft[];
   report: MorningReport;
+  promptPackage: PromptPackage;
 };
 
 export type KnowledgeDoc = {

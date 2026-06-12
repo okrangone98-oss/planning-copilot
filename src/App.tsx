@@ -442,7 +442,11 @@ export default function App() {
             </div>
             <Field label="명령 입력" value={officeCommand} onChange={setOfficeCommand} rows={4} wide placeholder="다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘" />
             {officeResult ? (
-              <OfficeResultView result={officeResult} onCopy={() => copyText(officeResult.report.markdown, "아침 보고서를 복사했습니다.")} />
+              <OfficeResultView
+                result={officeResult}
+                onCopyReport={() => copyText(officeResult.report.markdown, "아침 보고서를 복사했습니다.")}
+                onCopyPrompt={() => copyText(officeResult.promptPackage.unifiedPrompt, "GPT 질문 패키지를 복사했습니다.")}
+              />
             ) : (
               <div className="office-empty">
                 <strong>아직 실행 결과가 없습니다.</strong>
@@ -628,7 +632,15 @@ export default function App() {
   );
 }
 
-function OfficeResultView({ result, onCopy }: { result: OfficeResult; onCopy: () => void }) {
+function OfficeResultView({
+  result,
+  onCopyReport,
+  onCopyPrompt
+}: {
+  result: OfficeResult;
+  onCopyReport: () => void;
+  onCopyPrompt: () => void;
+}) {
   const activeAgentIds = Array.from(new Set(result.tasks.map((task) => task.agentId)));
   const activeRoles = agentRoles.filter((role) => activeAgentIds.includes(role.id));
   const visibleDrafts = result.drafts.filter((draft) => draft.agentId !== "chief");
@@ -684,9 +696,32 @@ function OfficeResultView({ result, onCopy }: { result: OfficeResult; onCopy: ()
       <section className="office-block">
         <div className="office-block-title">
           <span>④ 아침 보고서</span>
-          <button className="secondary-button" type="button" onClick={onCopy}>보고서 복사</button>
+          <button className="secondary-button" type="button" onClick={onCopyReport}>보고서 복사</button>
         </div>
         <textarea className="draft-output office-report-output" rows={24} value={result.report.markdown} readOnly />
+      </section>
+
+      <section className="office-block">
+        <div className="office-block-title">
+          <span>⑤ GPT 질문 패키지</span>
+          <button className="secondary-button" type="button" onClick={onCopyPrompt}>통합 질문 복사</button>
+        </div>
+        <div className="prompt-package">
+          <div className="prompt-guide">
+            {result.promptPackage.usageGuide.map((guide) => (
+              <span key={guide}>{guide}</span>
+            ))}
+          </div>
+          <Field label="유료 GPT/Claude에 복사할 통합 질문" value={result.promptPackage.unifiedPrompt} onChange={() => {}} rows={18} wide />
+          <div className="role-prompt-grid">
+            {result.promptPackage.rolePrompts.map((item) => (
+              <article className="role-prompt-card" key={`${item.agentId}-${item.title}`}>
+                <strong>{item.title}</strong>
+                <textarea rows={10} value={item.prompt} readOnly />
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
     </div>
   );

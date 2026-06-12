@@ -5,6 +5,7 @@
       "id": "instagram-agent",
       "name": "인스타그램에이전트",
       "specialty": "콘텐츠 캘린더, 인스타그램 카드뉴스, 릴스/캡션 초안",
+      "promptPath": "prompts/specialists/instagram-content/prompt.md",
       "recommendedRepo": "agent-instagram-office",
       "syncPolicy": "sanitize-before-upload",
       "neverUpload": [".env", "계정정보", "토큰", "예약발행 인증정보"]
@@ -13,6 +14,7 @@
       "id": "dev-lead-agent",
       "name": "개발부장",
       "specialty": "개발 계획, 코드 리뷰, 자동화 설계, 기술 문서",
+      "promptPath": "prompts/specialists/dev-lead/prompt.md",
       "recommendedRepo": "agent-dev-lead",
       "syncPolicy": "sanitize-before-upload",
       "neverUpload": [".env", "개인 업무 로그", "비공개 리서치"]
@@ -21,6 +23,7 @@
       "id": "design-agent",
       "name": "디자인에이전트",
       "specialty": "디자인 시스템, 카드 UI, 브랜드 톤, 시각자료",
+      "promptPath": "prompts/specialists/design-director/prompt.md",
       "recommendedRepo": "agent-design-office",
       "syncPolicy": "prompt-first"
     },
@@ -28,6 +31,7 @@
       "id": "cyber-safety-agent",
       "name": "사이버수사대에이전트",
       "specialty": "보안 점검, 피싱/계정 위험 점검, 민감정보 노출 방지",
+      "promptPath": "prompts/specialists/security-review/prompt.md",
       "recommendedRepo": "agent-cyber-safety",
       "syncPolicy": "private-by-default"
     }

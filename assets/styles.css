@@ -591,6 +591,53 @@ td input {
   font-size: 13px;
 }
 
+.prompt-package {
+  display: grid;
+  gap: 14px;
+}
+
+.prompt-guide {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #c8e0d9;
+  border-radius: 8px;
+  padding: 12px;
+  background: #eef8f5;
+}
+
+.prompt-guide span {
+  color: #334255;
+  line-height: 1.55;
+}
+
+.role-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.role-prompt-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.role-prompt-card textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -610,7 +657,8 @@ td input {
 
   .form-grid,
   .visual-layout,
-  .agent-role-grid {
+  .agent-role-grid,
+  .role-prompt-grid {
     grid-template-columns: 1fr;
   }
 }

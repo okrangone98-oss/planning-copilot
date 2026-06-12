@@ -1,5 +1,5 @@
 import { agentRoles, getAgentRole } from "../data/agentRoles";
-import type { AgentDraft, AgentId, AgentTask, MorningReport, OfficeResult } from "../types";
+import type { AgentDraft, AgentId, AgentTask, MorningReport, OfficeResult, PromptPackage } from "../types";
 
 type OfficeMode = "simulation" | "llm";
 
@@ -29,6 +29,7 @@ export function runOffice(command: string, options: OfficeRunOptions = {}): Offi
   const assignedAgents = prioritizeAgents(normalizedCommand);
   const tasks = createTasks(normalizedCommand, assignedAgents);
   const drafts = createDrafts(normalizedCommand, tasks, mode);
+  const promptPackage = createPromptPackage(normalizedCommand, tasks, drafts);
   const report: MorningReport = {
     command: normalizedCommand,
     createdAt,
@@ -37,10 +38,11 @@ export function runOffice(command: string, options: OfficeRunOptions = {}): Offi
     nextActions: createNextActions(normalizedCommand),
     markdown: ""
   };
+  const result: OfficeResult = { tasks, drafts, report, promptPackage };
 
-  report.markdown = createReportMarkdown({ tasks, drafts, report });
+  report.markdown = createReportMarkdown(result);
 
-  return { tasks, drafts, report };
+  return result;
 }
 
 export function callLLM(prompt: string): string {
@@ -133,6 +135,84 @@ function createNextActions(command: string): string[] {
     "수신자명, 일정, 예산, 기관명 같은 자리표시자를 실제 정보로 확인한다.",
     "외부 발송이나 게시가 필요하면 사용자가 직접 검토 후 수동 실행한다."
   ];
+}
+
+function createPromptPackage(command: string, tasks: AgentTask[], drafts: AgentDraft[]): PromptPackage {
+  const rolePrompts = drafts
+    .filter((draft) => draft.agentId !== "chief")
+    .map((draft) => ({
+      agentId: draft.agentId,
+      title: `${roleName(draft.agentId)}에게 추가 질문`,
+      prompt: createRolePrompt(command, draft)
+    }));
+
+  return {
+    rolePrompts,
+    unifiedPrompt: createUnifiedPrompt(command, tasks, drafts),
+    usageGuide: [
+      "민감한 개인정보, 계정정보, 내부 예산 실수치는 지운 뒤 복사합니다.",
+      "먼저 통합 질문을 유료 GPT 또는 Claude에 붙여넣고, 답변이 부족하면 역할별 질문을 추가로 사용합니다.",
+      "외부 AI 답변은 사실관계, 일정, 예산, 공개 가능 여부를 직접 확인한 뒤 앱의 초안 조립 단계에 반영합니다.",
+      "메일 발송, SNS 게시, 공문 제출은 자동 실행하지 않고 사용자가 최종 승인합니다."
+    ]
+  };
+}
+
+function createRolePrompt(command: string, draft: AgentDraft): string {
+  const role = getAgentRole(draft.agentId);
+  const roleInstruction = role ? `${role.name} 역할로 일해 주세요. 목표는 "${role.goal}"입니다.` : "전문 실무자 역할로 일해 주세요.";
+
+  return `${roleInstruction}
+
+아래 초안을 더 실무적으로 고도화해 주세요.
+
+[사용자 명령]
+${command}
+
+[현재 초안]
+${draft.content}
+
+[요청]
+- 한국어로 답변
+- 실행 가능한 문장과 체크리스트 중심
+- 사실 확인이 필요한 내용은 [확인 필요]로 표시
+- 개인정보, 계정정보, 자동 발송/자동 게시 제안 금지
+- 최종 출력은 바로 복사해 쓸 수 있는 Markdown`;
+}
+
+function createUnifiedPrompt(command: string, tasks: AgentTask[], drafts: AgentDraft[]): string {
+  const taskLines = tasks.map((task) => `- ${task.id} / ${roleName(task.agentId)} / ${task.title}: ${task.input}`).join("\n");
+  const draftLines = drafts
+    .filter((draft) => draft.agentId !== "chief")
+    .map((draft) => `## ${roleName(draft.agentId)}\n${draft.content}`)
+    .join("\n\n");
+
+  // 로컬 앱은 민감정보를 오래 붙들지 않고, 외부 고성능 모델에는 사용자가 선별한 질문만 전달하게 만든다.
+  return `당신은 로컬크리에이터를 돕는 전문가 검토위원회입니다. 아래 AI 사무국 초안을 바탕으로 사업기획, 콘텐츠, 행정문서, 메일 초안을 고도화해 주세요.
+
+[사용자 명령]
+${command}
+
+[작업 분해]
+${taskLines}
+
+[에이전트 초안]
+${draftLines}
+
+[답변 방식]
+1. 오늘의 핵심 판단 3가지
+2. 사업기획 고도화안
+3. 콘텐츠 고도화안
+4. 행정문서/메일 보완안
+5. 리스크와 누락 정보
+6. 다음 액션 체크리스트
+
+[안전 규칙]
+- 한국어로 답변하세요.
+- 모르는 사실은 지어내지 말고 [확인 필요]로 표시하세요.
+- 주민 개인정보, 계정정보, 내부 예산 실수치 입력을 요구하지 마세요.
+- 자동 메일 발송, SNS 자동 게시, 공문 자동 제출을 권하지 마세요.
+- 바로 복사해 활용할 수 있는 Markdown으로 작성하세요.`;
 }
 
 function taskTitle(agentId: AgentId): string {
