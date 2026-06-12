@@ -17,3 +17,11 @@ private/
 *.pem
 *.key
 env.local
+# Local-only automation data
+reports/private/
+prompts/private/
+automation/*.local.json
+# Agent credentials and generated archives
+.agent/**/secrets/
+files.zip
+*.ics

@@ -1,40 +1,76 @@
 import { useEffect, useMemo, useState } from "react";
+import { agentRoles } from "./data/agentRoles";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
 import { generateDraftText } from "./lib/draft";
 import { extractTextFromFile } from "./lib/fileText";
 import { absorbModelResponse, buildModelPrompt } from "./lib/prompts";
+import { roleSummary, runOffice } from "./lib/agentOffice";
 import {
   clearProject,
   createArchive,
   downloadTextFile,
   loadDriveEndpoint,
   loadKnowledgeDocs,
+  loadOfficeSession,
   loadProject,
   safeFileName,
   saveDriveEndpoint,
   saveKnowledgeDocs,
+  saveOfficeSession,
   saveProject
 } from "./lib/storage";
 import { buildMermaid } from "./lib/visuals";
-import { emptyProject, type KnowledgeDoc, type ProjectData, type SectionId } from "./types";
+import { emptyProject, type AgentDraft, type KnowledgeDoc, type OfficeResult, type ProjectData, type SectionId } from "./types";
 
-const navItems: Array<{ id: SectionId; label: string }> = [
-  { id: "notice", label: "공고 해석" },
-  { id: "cowork", label: "질문 받기" },
-  { id: "ragRoom", label: "사례 모으기" },
-  { id: "aiBridge", label: "AI 질문" },
-  { id: "visuals", label: "시각자료" },
-  { id: "integrations", label: "연결 허브" },
-  { id: "driveBackup", label: "백업" },
-  { id: "sample", label: "샘플 분해" },
-  { id: "idea", label: "아이디어 인터뷰" },
-  { id: "problem", label: "문제정의" },
-  { id: "logic", label: "논리모형" },
-  { id: "metrics", label: "성과지표" },
-  { id: "execution", label: "실행설계" },
-  { id: "blueprint", label: "서비스 블루프린트" },
-  { id: "draft", label: "초안 조립" }
+const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: string }> }> = [
+  {
+    title: "AI 운영",
+    items: [{ id: "agentOffice", label: "AI 사무국" }]
+  },
+  {
+    title: "자료·분석",
+    items: [
+      { id: "notice", label: "공고 해석" },
+      { id: "ragRoom", label: "사례 모으기" },
+      { id: "sample", label: "샘플 분해" },
+      { id: "aiBridge", label: "AI 질문" }
+    ]
+  },
+  {
+    title: "기획 설계",
+    items: [
+      { id: "cowork", label: "질문 받기" },
+      { id: "idea", label: "아이디어 인터뷰" },
+      { id: "problem", label: "문제정의" },
+      { id: "logic", label: "논리모형" },
+      { id: "metrics", label: "성과지표" },
+      { id: "execution", label: "실행설계" }
+    ]
+  },
+  {
+    title: "산출물",
+    items: [
+      { id: "visuals", label: "시각자료" },
+      { id: "blueprint", label: "서비스 블루프린트" },
+      { id: "draft", label: "초안 조립" }
+    ]
+  },
+  {
+    title: "연결·관리",
+    items: [
+      { id: "integrations", label: "연결 허브" },
+      { id: "driveBackup", label: "백업" }
+    ]
+  }
+];
+
+const navItems = navGroups.flatMap((group) => group.items);
+const quickOfficeCommands = [
+  "2026 청년 관광두레 플러스사업 지원 전략 짜줘",
+  "다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘",
+  "로컬브랜드 협업 제안 메일과 사업개요 만들어줘",
+  "오늘 자료를 바탕으로 아침 보고서와 실행 체크리스트 만들어줘"
 ];
 
 const APPS_SCRIPT_TEMPLATE = `const ARCHIVE_FOLDER = 'Planning Copilot Archive';
@@ -69,7 +105,8 @@ function Field({
   rows = 5,
   wide = false,
   placeholder = "",
-  monospace = false
+  monospace = false,
+  onKeyDown
 }: {
   label: string;
   value: string;
@@ -78,11 +115,12 @@ function Field({
   wide?: boolean;
   placeholder?: string;
   monospace?: boolean;
+  onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>;
 }) {
   return (
     <label className={`field ${wide ? "wide" : ""}`}>
       <span>{label}</span>
-      <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} spellCheck={!monospace} />
+      <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} spellCheck={!monospace} />
     </label>
   );
 }
@@ -167,13 +205,15 @@ function TableEditor({
 export default function App() {
   const [project, setProject] = useState<ProjectData>(() => loadProject());
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(() => loadKnowledgeDocs());
-  const [section, setSection] = useState<SectionId>("notice");
+  const [section, setSection] = useState<SectionId>("agentOffice");
   const [toast, setToast] = useState("");
   const [knowledgeTitle, setKnowledgeTitle] = useState("");
   const [knowledgeType, setKnowledgeType] = useState("");
   const [knowledgeText, setKnowledgeText] = useState("");
   const [driveEndpoint, setDriveEndpoint] = useState(() => loadDriveEndpoint());
   const [visualSvg, setVisualSvg] = useState("");
+  const [officeCommand, setOfficeCommand] = useState(() => loadOfficeSession().command);
+  const [officeResult, setOfficeResult] = useState<OfficeResult | null>(() => loadOfficeSession().result);
 
   const sectionTitle = useMemo(() => navItems.find((item) => item.id === section)?.label || "", [section]);
 
@@ -195,6 +235,10 @@ export default function App() {
     if (section !== "visuals" || !project.visualMermaid) return;
     renderVisual(project.visualMermaid);
   }, [section, project.visualMermaid]);
+
+  useEffect(() => {
+    saveOfficeSession(officeCommand, officeResult);
+  }, [officeCommand, officeResult]);
 
   const updateProject = (patch: Partial<ProjectData>) => setProject((current) => ({ ...current, ...patch }));
   const notify = (message: string) => setToast(message);
@@ -337,6 +381,64 @@ export default function App() {
     navigator.clipboard.writeText(text).then(() => notify(message));
   };
 
+  const runAgentOffice = () => {
+    if (!officeCommand.trim()) {
+      notify("AI 사무국에 맡길 명령을 입력해 주세요.");
+      return;
+    }
+    const result = runOffice(officeCommand);
+    setOfficeResult(result);
+    notify("AI 사무국 보고서를 만들었습니다.");
+  };
+
+  const useQuickOfficeCommand = (command: string) => {
+    setOfficeCommand(command);
+    setOfficeResult(runOffice(command));
+    notify("예시 명령으로 사무국 보고서를 만들었습니다.");
+  };
+
+  const sendOfficePromptToAiBridge = () => {
+    if (!officeResult) {
+      notify("먼저 AI 사무국을 실행해 주세요.");
+      return;
+    }
+    // 결과를 복사해서 다른 탭에 다시 붙이는 시간을 줄이기 위해, 모델 질문 칸으로 직접 보낸다.
+    updateProject({ modelPrompt: officeResult.promptPackage.unifiedPrompt });
+    setSection("aiBridge");
+    notify("GPT 질문 패키지를 AI 질문 탭으로 보냈습니다.");
+  };
+
+  const sendOfficeReportToDraft = () => {
+    if (!officeResult) {
+      notify("먼저 AI 사무국을 실행해 주세요.");
+      return;
+    }
+    updateProject({ draftOutput: officeResult.report.markdown });
+    setSection("draft");
+    notify("아침 보고서를 초안 조립 탭으로 보냈습니다.");
+  };
+
+  const copyOfficeDrafts = () => {
+    if (!officeResult) {
+      notify("먼저 AI 사무국을 실행해 주세요.");
+      return;
+    }
+    const drafts = officeResult.drafts
+      .filter((draft) => draft.agentId !== "chief")
+      .map((draft) => `# ${roleSummary(draft.agentId)}\n\n${draft.content}`)
+      .join("\n\n---\n\n");
+    copyText(drafts, "에이전트별 초안을 복사했습니다.");
+  };
+
+  const downloadOfficeReport = () => {
+    if (!officeResult) {
+      notify("먼저 AI 사무국을 실행해 주세요.");
+      return;
+    }
+    downloadTextFile(officeResult.report.markdown, `${safeFileName(officeResult.report.command, "agent-office-report")}.md`, "text/markdown;charset=utf-8");
+    notify("아침 보고서를 Markdown으로 내려받았습니다.");
+  };
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="작업 단계">
@@ -346,10 +448,20 @@ export default function App() {
         </div>
         <TextInput label="프로젝트명" value={project.projectName} onChange={(projectName) => updateProject({ projectName })} placeholder="예: 생활문화 혁신 지원사업" />
         <nav className="step-nav" aria-label="작성 단계">
-          {navItems.map((item) => (
-            <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => setSection(item.id)}>
-              {item.label}
-            </button>
+          {navGroups.map((group) => (
+            <section className="nav-group" key={group.title}>
+              <div className="nav-group-title">
+                <span>{group.title}</span>
+                <small>{group.items.length}</small>
+              </div>
+              <div className="nav-group-items">
+                {group.items.map((item) => (
+                  <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => setSection(item.id)}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
         <div className="sidebar-actions">
@@ -379,11 +491,54 @@ export default function App() {
         </header>
 
         <div className="workflow-strip" aria-label="권장 사용 순서">
-          <span>1. 공고문 분석</span>
-          <span>2. 사례 찾기</span>
-          <span>3. AI 질문 만들기</span>
-          <span>4. 초안 조립</span>
+          <button type="button" onClick={() => setSection("notice")}>1. 공고문 분석</button>
+          <button type="button" onClick={() => setSection("ragRoom")}>2. 사례 찾기</button>
+          <button type="button" onClick={() => setSection("aiBridge")}>3. AI 질문 만들기</button>
+          <button type="button" onClick={() => setSection("draft")}>4. 초안 조립</button>
         </div>
+
+        {section === "agentOffice" && (
+          <Panel title="AI 로컬기획 사무국" description="명령 한 줄을 역할별 업무와 아침 보고서로 바꿉니다. 현재는 API 키 없이 동작하는 시뮬레이션 모드입니다.">
+            <div className="coach-bar">
+              <div><strong>Chief Agent 실행</strong><span>입력한 명령을 기획, 리서치, 콘텐츠, 행정문서, 메일, 검수 업무로 나눕니다.</span></div>
+              <button className="primary-button" type="button" onClick={runAgentOffice}>사무국 실행</button>
+            </div>
+            <div className="quick-command-grid" aria-label="빠른 명령 예시">
+              {quickOfficeCommands.map((command) => (
+                <button className="quick-command" key={command} type="button" onClick={() => useQuickOfficeCommand(command)}>
+                  {command}
+                </button>
+              ))}
+            </div>
+            <Field
+              label="명령 입력"
+              value={officeCommand}
+              onChange={setOfficeCommand}
+              rows={4}
+              wide
+              placeholder="다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘"
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") runAgentOffice();
+              }}
+            />
+            {officeResult ? (
+              <OfficeResultView
+                result={officeResult}
+                onCopyReport={() => copyText(officeResult.report.markdown, "아침 보고서를 복사했습니다.")}
+                onCopyPrompt={() => copyText(officeResult.promptPackage.unifiedPrompt, "GPT 질문 패키지를 복사했습니다.")}
+                onCopyDrafts={copyOfficeDrafts}
+                onSendPrompt={sendOfficePromptToAiBridge}
+                onSendReport={sendOfficeReportToDraft}
+                onDownloadReport={downloadOfficeReport}
+              />
+            ) : (
+              <div className="office-empty">
+                <strong>아직 실행 결과가 없습니다.</strong>
+                <span>명령을 입력하고 사무국 실행을 누르면 작업 분해, 담당 에이전트, 초안, 아침 보고서가 표시됩니다.</span>
+              </div>
+            )}
+          </Panel>
+        )}
 
         {section === "notice" && (
           <Panel title="공고문이 원하는 답을 먼저 읽습니다" description="지원사업의 목적, 평가기준, 필수 조건, 차별화 기회를 정리합니다.">
@@ -559,6 +714,128 @@ export default function App() {
       <div className={`toast ${toast ? "is-visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>
   );
+}
+
+function OfficeResultView({
+  result,
+  onCopyReport,
+  onCopyPrompt,
+  onCopyDrafts,
+  onSendPrompt,
+  onSendReport,
+  onDownloadReport
+}: {
+  result: OfficeResult;
+  onCopyReport: () => void;
+  onCopyPrompt: () => void;
+  onCopyDrafts: () => void;
+  onSendPrompt: () => void;
+  onSendReport: () => void;
+  onDownloadReport: () => void;
+}) {
+  const activeAgentIds = Array.from(new Set(result.tasks.map((task) => task.agentId)));
+  const activeRoles = agentRoles.filter((role) => activeAgentIds.includes(role.id));
+  const visibleDrafts = result.drafts.filter((draft) => draft.agentId !== "chief");
+
+  return (
+    <div className="office-results">
+      <section className="office-action-bar" aria-label="사무국 결과 활용">
+        <div>
+          <strong>다음 작업으로 바로 보내기</strong>
+          <span>보고서를 복사하거나 다른 탭으로 넘겨 후속 작업 시간을 줄입니다.</span>
+        </div>
+        <div className="office-action-buttons">
+          <button className="secondary-button" type="button" onClick={onCopyDrafts}>초안 전체 복사</button>
+          <button className="secondary-button" type="button" onClick={onCopyPrompt}>GPT 질문 복사</button>
+          <button className="secondary-button" type="button" onClick={onSendPrompt}>AI 질문 탭으로</button>
+          <button className="secondary-button" type="button" onClick={onSendReport}>초안 조립으로</button>
+          <button className="ghost-light-button" type="button" onClick={onDownloadReport}>보고서 받기</button>
+        </div>
+      </section>
+
+      <section className="office-block">
+        <div className="office-block-title"><span>① 작업 분해</span></div>
+        <div className="table-wrap office-table-wrap">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>담당</th><th>작업</th><th>선행</th></tr>
+            </thead>
+            <tbody>
+              {result.tasks.map((task) => (
+                <tr key={task.id}>
+                  <td>{task.id}</td>
+                  <td>{roleSummary(task.agentId)}</td>
+                  <td>{task.title}<br /><span className="muted-inline">{task.input}</span></td>
+                  <td>{task.dependsOn.join(", ") || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="office-block">
+        <div className="office-block-title"><span>② 담당 에이전트</span></div>
+        <div className="agent-role-grid">
+          {activeRoles.map((role) => (
+            <article className="agent-role-card" key={role.id}>
+              <strong>{role.name}</strong>
+              <span>{role.role}</span>
+              <small>{role.outputFormat}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="office-block">
+        <div className="office-block-title"><span>③ 에이전트별 초안</span></div>
+        <div className="office-draft-list">
+          {visibleDrafts.map((draft) => (
+            <article className="office-draft" key={draft.taskId}>
+              <div><strong>{roleSummary(draft.agentId)}</strong><span>{draftStatusLabel(draft)}</span></div>
+              <pre>{draft.content}</pre>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="office-block">
+        <div className="office-block-title">
+          <span>④ 아침 보고서</span>
+          <button className="secondary-button" type="button" onClick={onCopyReport}>보고서 복사</button>
+        </div>
+        <textarea className="draft-output office-report-output" rows={24} value={result.report.markdown} readOnly />
+      </section>
+
+      <section className="office-block">
+        <div className="office-block-title">
+          <span>⑤ GPT 질문 패키지</span>
+          <button className="secondary-button" type="button" onClick={onCopyPrompt}>통합 질문 복사</button>
+        </div>
+        <div className="prompt-package">
+          <div className="prompt-guide">
+            {result.promptPackage.usageGuide.map((guide) => (
+              <span key={guide}>{guide}</span>
+            ))}
+          </div>
+          <Field label="유료 GPT/Claude에 복사할 통합 질문" value={result.promptPackage.unifiedPrompt} onChange={() => {}} rows={18} wide />
+          <div className="role-prompt-grid">
+            {result.promptPackage.rolePrompts.map((item) => (
+              <article className="role-prompt-card" key={`${item.agentId}-${item.title}`}>
+                <strong>{item.title}</strong>
+                <textarea rows={10} value={item.prompt} readOnly />
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function draftStatusLabel(draft: AgentDraft) {
+  const status = draft.reviewStatus === "approved" ? "승인" : draft.reviewStatus === "revised" ? "수정 권고" : "반려";
+  return draft.reviewNote ? `${status} · ${draft.reviewNote}` : status;
 }
 
 function Panel({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

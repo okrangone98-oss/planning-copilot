@@ -111,7 +111,40 @@ button:focus-visible {
 
 .step-nav {
   display: grid;
+  gap: 14px;
+}
+
+.nav-group {
+  display: grid;
   gap: 8px;
+}
+
+.nav-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #9fb0c4;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nav-group-title small {
+  display: inline-grid;
+  min-width: 22px;
+  min-height: 22px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #d8dee8;
+  font-size: 11px;
+}
+
+.nav-group-items {
+  display: grid;
+  gap: 6px;
 }
 
 .nav-item {
@@ -129,6 +162,10 @@ button:focus-visible {
 .nav-item.is-active {
   background: #fff;
   color: #1e2936;
+}
+
+.nav-item.is-active {
+  box-shadow: inset 4px 0 0 var(--gold);
 }
 
 .sidebar-actions,
@@ -207,7 +244,7 @@ button:focus-visible {
   margin-bottom: 18px;
 }
 
-.workflow-strip span {
+.workflow-strip button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
@@ -216,6 +253,11 @@ button:focus-visible {
   font-size: 13px;
   font-weight: 800;
   text-align: center;
+}
+
+.workflow-strip button:hover {
+  border-color: #c8e0d9;
+  background: #eef8f5;
 }
 
 .panel {
@@ -449,6 +491,212 @@ td input {
   transform: translateY(0);
 }
 
+
+.office-empty {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  border: 1px dashed #9fb5c9;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fbff;
+}
+
+.office-empty span,
+.muted-inline {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.office-results {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.quick-command-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.quick-command {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #fff;
+  color: #334255;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.quick-command:hover {
+  border-color: #c8e0d9;
+  background: #eef8f5;
+}
+
+.office-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+
+.office-action-bar strong,
+.office-action-bar span {
+  display: block;
+}
+
+.office-action-bar span {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.office-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.office-block {
+  display: grid;
+  gap: 12px;
+}
+
+.office-block-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.office-block-title span {
+  color: #334255;
+  font-weight: 900;
+}
+
+.office-table-wrap table {
+  min-width: 880px;
+}
+
+.agent-role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-role-card,
+.office-draft {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+
+.agent-role-card strong,
+.office-draft strong {
+  color: var(--ink);
+}
+
+.agent-role-card span,
+.agent-role-card small,
+.office-draft span {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.office-draft-list {
+  display: grid;
+  gap: 12px;
+}
+
+.office-draft > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.office-draft pre {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.office-report-output {
+  margin-top: 0;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
+}
+
+.prompt-package {
+  display: grid;
+  gap: 14px;
+}
+
+.prompt-guide {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #c8e0d9;
+  border-radius: 8px;
+  padding: 12px;
+  background: #eef8f5;
+}
+
+.prompt-guide span {
+  color: #334255;
+  line-height: 1.55;
+}
+
+.role-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.role-prompt-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.role-prompt-card textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -462,8 +710,15 @@ td input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .nav-group {
+    align-content: start;
+  }
+
   .form-grid,
-  .visual-layout {
+  .quick-command-grid,
+  .visual-layout,
+  .agent-role-grid,
+  .role-prompt-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -475,6 +730,7 @@ td input {
   }
 
   .topbar,
+  .office-action-bar,
   .coach-bar {
     align-items: flex-start;
     flex-direction: column;

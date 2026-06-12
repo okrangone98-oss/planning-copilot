@@ -1,4 +1,5 @@
 export type SectionId =
+  | "agentOffice"
   | "notice"
   | "cowork"
   | "ragRoom"
@@ -14,6 +15,69 @@ export type SectionId =
   | "execution"
   | "blueprint"
   | "draft";
+
+
+export type AgentId =
+  | "chief"
+  | "local-planning"
+  | "research"
+  | "content"
+  | "admin-doc"
+  | "email-draft"
+  | "review";
+
+export type AgentRole = {
+  id: AgentId;
+  name: string;
+  role: string;
+  goal: string;
+  constraints: string[];
+  outputFormat: string;
+  promptTemplate: string;
+};
+
+export type AgentTask = {
+  id: string;
+  agentId: AgentId;
+  title: string;
+  input: string;
+  dependsOn: string[];
+};
+
+export type AgentDraft = {
+  taskId: string;
+  agentId: AgentId;
+  content: string;
+  reviewStatus: "approved" | "revised" | "rejected";
+  reviewNote?: string;
+  mode: "simulation" | "llm";
+};
+
+export type MorningReport = {
+  command: string;
+  createdAt: string;
+  highlights: string[];
+  drafts: AgentDraft[];
+  nextActions: string[];
+  markdown: string;
+};
+
+export type PromptPackage = {
+  rolePrompts: Array<{
+    agentId: AgentId;
+    title: string;
+    prompt: string;
+  }>;
+  unifiedPrompt: string;
+  usageGuide: string[];
+};
+
+export type OfficeResult = {
+  tasks: AgentTask[];
+  drafts: AgentDraft[];
+  report: MorningReport;
+  promptPackage: PromptPackage;
+};
 
 export type KnowledgeDoc = {
   id: string;
