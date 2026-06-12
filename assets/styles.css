@@ -244,7 +244,7 @@ button:focus-visible {
   margin-bottom: 18px;
 }
 
-.workflow-strip span {
+.workflow-strip button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
@@ -253,6 +253,11 @@ button:focus-visible {
   font-size: 13px;
   font-weight: 800;
   text-align: center;
+}
+
+.workflow-strip button:hover {
+  border-color: #c8e0d9;
+  background: #eef8f5;
 }
 
 .panel {
@@ -509,6 +514,60 @@ td input {
   margin-top: 20px;
 }
 
+.quick-command-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.quick-command {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #fff;
+  color: #334255;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.quick-command:hover {
+  border-color: #c8e0d9;
+  background: #eef8f5;
+}
+
+.office-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+
+.office-action-bar strong,
+.office-action-bar span {
+  display: block;
+}
+
+.office-action-bar span {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.office-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .office-block {
   display: grid;
   gap: 12px;
@@ -656,6 +715,7 @@ td input {
   }
 
   .form-grid,
+  .quick-command-grid,
   .visual-layout,
   .agent-role-grid,
   .role-prompt-grid {
@@ -670,6 +730,7 @@ td input {
   }
 
   .topbar,
+  .office-action-bar,
   .coach-bar {
     align-items: flex-start;
     flex-direction: column;
