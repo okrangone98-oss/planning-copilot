@@ -1,5 +1,8 @@
 export type SectionId =
   | "agentOffice"
+  | "modelSettings"
+  | "approvalInbox"
+  | "projectMemory"
   | "notice"
   | "cowork"
   | "ragRoom"
@@ -79,6 +82,48 @@ export type OfficeResult = {
   promptPackage: PromptPackage;
 };
 
+
+export type ModelProvider = "simulation" | "ollama" | "gemini" | "github-models" | "manual-gpt";
+
+export type ModelSettings = {
+  provider: ModelProvider;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  githubToken: string;
+  githubModel: string;
+};
+
+export type ModelRunResult = {
+  provider: ModelProvider;
+  ok: boolean;
+  output: string;
+  error?: string;
+};
+
+export type ApprovalStatus = "draft" | "reviewing" | "approved" | "blocked" | "discarded";
+
+export type ApprovalItem = {
+  id: string;
+  title: string;
+  type: "report" | "prompt" | "email" | "content" | "admin-doc" | "plan";
+  status: ApprovalStatus;
+  content: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectMemoryEntry = {
+  id: string;
+  projectName: string;
+  title: string;
+  summary: string;
+  source: string;
+  createdAt: string;
+};
+
 export type KnowledgeDoc = {
   id: string;
   title: string;
@@ -141,6 +186,8 @@ export type ArchiveData = {
   app: "planning-copilot";
   project: ProjectData;
   knowledgeDocs: KnowledgeDoc[];
+  approvalItems?: ApprovalItem[];
+  memoryEntries?: ProjectMemoryEntry[];
 };
 
 export const textFields: Array<keyof ProjectData> = [

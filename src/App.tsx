@@ -5,6 +5,7 @@ import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQ
 import { generateDraftText } from "./lib/draft";
 import { extractTextFromFile } from "./lib/fileText";
 import { absorbModelResponse, buildModelPrompt } from "./lib/prompts";
+import { modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
 import { roleSummary, runOffice } from "./lib/agentOffice";
 import {
   clearProject,
@@ -12,21 +13,32 @@ import {
   downloadTextFile,
   loadDriveEndpoint,
   loadKnowledgeDocs,
+  loadModelSettings,
   loadOfficeSession,
   loadProject,
+  loadApprovalItems,
+  loadProjectMemory,
   safeFileName,
   saveDriveEndpoint,
   saveKnowledgeDocs,
+  saveModelSettings,
   saveOfficeSession,
-  saveProject
+  saveApprovalItems,
+  saveProject,
+  saveProjectMemory
 } from "./lib/storage";
 import { buildMermaid } from "./lib/visuals";
-import { emptyProject, type AgentDraft, type KnowledgeDoc, type OfficeResult, type ProjectData, type SectionId } from "./types";
+import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type KnowledgeDoc, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
 
 const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: string }> }> = [
   {
     title: "AI 운영",
-    items: [{ id: "agentOffice", label: "AI 사무국" }]
+    items: [
+      { id: "agentOffice", label: "AI 사무국" },
+      { id: "modelSettings", label: "모델 설정" },
+      { id: "approvalInbox", label: "승인함" },
+      { id: "projectMemory", label: "프로젝트 기억" }
+    ]
   },
   {
     title: "자료·분석",
@@ -214,6 +226,13 @@ export default function App() {
   const [visualSvg, setVisualSvg] = useState("");
   const [officeCommand, setOfficeCommand] = useState(() => loadOfficeSession().command);
   const [officeResult, setOfficeResult] = useState<OfficeResult | null>(() => loadOfficeSession().result);
+  const [modelSettings, setModelSettings] = useState<ModelSettings>(() => loadModelSettings());
+  const [modelTestPrompt, setModelTestPrompt] = useState("오늘 할 일을 5개 체크리스트로 정리해줘.");
+  const [modelTestResult, setModelTestResult] = useState<ModelRunResult | null>(null);
+  const [modelBusy, setModelBusy] = useState(false);
+  const [approvalItems, setApprovalItems] = useState<ApprovalItem[]>(() => loadApprovalItems());
+  const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryEntry[]>(() => loadProjectMemory());
+  const [memoryNote, setMemoryNote] = useState("");
 
   const sectionTitle = useMemo(() => navItems.find((item) => item.id === section)?.label || "", [section]);
 
@@ -239,6 +258,18 @@ export default function App() {
   useEffect(() => {
     saveOfficeSession(officeCommand, officeResult);
   }, [officeCommand, officeResult]);
+
+  useEffect(() => {
+    saveModelSettings(modelSettings);
+  }, [modelSettings]);
+
+  useEffect(() => {
+    saveApprovalItems(approvalItems);
+  }, [approvalItems]);
+
+  useEffect(() => {
+    saveProjectMemory(memoryEntries);
+  }, [memoryEntries]);
 
   const updateProject = (patch: Partial<ProjectData>) => setProject((current) => ({ ...current, ...patch }));
   const notify = (message: string) => setToast(message);
@@ -330,7 +361,7 @@ export default function App() {
   };
 
   const downloadArchive = () => {
-    downloadTextFile(JSON.stringify(createArchive(project, knowledgeDocs), null, 2), `${safeFileName(project.projectName, "planning-copilot")}-archive-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
+    downloadTextFile(JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries), null, 2), `${safeFileName(project.projectName, "planning-copilot")}-archive-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
     notify("백업 파일을 내려받았습니다.");
   };
 
@@ -356,7 +387,7 @@ export default function App() {
     const payload = document.createElement("input");
     payload.type = "hidden";
     payload.name = "payload";
-    payload.value = JSON.stringify(createArchive(project, knowledgeDocs));
+    payload.value = JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries));
     form.appendChild(payload);
     document.body.appendChild(form);
     form.submit();
@@ -437,6 +468,79 @@ export default function App() {
     }
     downloadTextFile(officeResult.report.markdown, `${safeFileName(officeResult.report.command, "agent-office-report")}.md`, "text/markdown;charset=utf-8");
     notify("아침 보고서를 Markdown으로 내려받았습니다.");
+  };
+
+  const updateModelSettings = (patch: Partial<ModelSettings>) => setModelSettings((current) => ({ ...current, ...patch }));
+
+  const runSelectedModel = async (prompt: string) => {
+    setModelBusy(true);
+    const result = await runModelPrompt(prompt, modelSettings);
+    setModelTestResult(result);
+    setModelBusy(false);
+    notify(result.ok ? `${modelLabel(result.provider)} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
+    return result;
+  };
+
+  const addApprovalItem = (item: Omit<ApprovalItem, "id" | "status" | "createdAt" | "updatedAt">, status: ApprovalStatus = "draft") => {
+    const now = new Date().toISOString();
+    setApprovalItems((current) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        status,
+        createdAt: now,
+        updatedAt: now,
+        ...item
+      },
+      ...current
+    ]);
+    notify("승인함에 추가했습니다.");
+  };
+
+  const updateApprovalStatus = (id: string, status: ApprovalStatus) => {
+    setApprovalItems((current) => current.map((item) => item.id === id ? { ...item, status, updatedAt: new Date().toISOString() } : item));
+  };
+
+  const removeApprovalItem = (id: string) => {
+    setApprovalItems((current) => current.filter((item) => item.id !== id));
+    notify("승인함에서 삭제했습니다.");
+  };
+
+  const saveCurrentMemory = () => {
+    const title = project.projectName || officeResult?.report.command || "이름 없는 프로젝트";
+    const summary = memoryNote.trim() || project.aiSynthesis || officeResult?.report.highlights.join("\n") || project.draftOutput || "저장할 프로젝트 메모가 없습니다.";
+    if (!summary.trim()) {
+      notify("저장할 프로젝트 기억이 없습니다.");
+      return;
+    }
+    setMemoryEntries((current) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        projectName: project.projectName || "미지정 프로젝트",
+        title,
+        summary,
+        source: officeResult ? "AI 사무국" : "수동 메모",
+        createdAt: new Date().toISOString()
+      },
+      ...current
+    ]);
+    setMemoryNote("");
+    notify("프로젝트 기억에 저장했습니다.");
+  };
+
+  const addOfficeReportToApproval = () => {
+    if (!officeResult) {
+      notify("먼저 AI 사무국을 실행해 주세요.");
+      return;
+    }
+    addApprovalItem({ title: `${officeResult.report.command} 아침 보고서`, type: "report", content: officeResult.report.markdown, source: "AI 사무국" }, "reviewing");
+  };
+
+  const addOfficePromptToApproval = () => {
+    if (!officeResult) {
+      notify("먼저 AI 사무국을 실행해 주세요.");
+      return;
+    }
+    addApprovalItem({ title: `${officeResult.report.command} GPT 질문`, type: "prompt", content: officeResult.promptPackage.unifiedPrompt, source: "GPT 질문 패키지" });
   };
 
   return (
@@ -530,6 +634,8 @@ export default function App() {
                 onSendPrompt={sendOfficePromptToAiBridge}
                 onSendReport={sendOfficeReportToDraft}
                 onDownloadReport={downloadOfficeReport}
+                onAddReportToApproval={addOfficeReportToApproval}
+                onAddPromptToApproval={addOfficePromptToApproval}
               />
             ) : (
               <div className="office-empty">
@@ -537,6 +643,81 @@ export default function App() {
                 <span>명령을 입력하고 사무국 실행을 누르면 작업 분해, 담당 에이전트, 초안, 아침 보고서가 표시됩니다.</span>
               </div>
             )}
+          </Panel>
+        )}
+
+        {section === "modelSettings" && (
+          <Panel title="모델 라우터 설정" description="무료 API와 로컬 LLM을 상황에 맞게 고릅니다. 민감한 자료는 Ollama 같은 로컬 모델을 우선 사용하세요.">
+            <div className="model-status-bar">
+              <strong>현재 경로: {modelLabel(modelSettings.provider)}</strong>
+              <span>{modelSafetyNote(modelSettings)}</span>
+            </div>
+            <div className="model-provider-grid">
+              {modelProviderOptions.map((option) => (
+                <button className={`provider-card ${modelSettings.provider === option.id ? "is-active" : ""}`} key={option.id} type="button" onClick={() => updateModelSettings({ provider: option.id })}>
+                  <strong>{option.label}</strong>
+                  <span>{option.description}</span>
+                </button>
+              ))}
+            </div>
+            <div className="form-grid">
+              <TextInput label="Ollama 주소" value={modelSettings.ollamaBaseUrl} onChange={(ollamaBaseUrl) => updateModelSettings({ ollamaBaseUrl })} placeholder="http://127.0.0.1:11434" />
+              <TextInput label="Ollama 모델" value={modelSettings.ollamaModel} onChange={(ollamaModel) => updateModelSettings({ ollamaModel })} placeholder="llama3.1" />
+              <TextInput label="Gemini API 키" value={modelSettings.geminiApiKey} onChange={(geminiApiKey) => updateModelSettings({ geminiApiKey })} placeholder="브라우저에만 저장" />
+              <TextInput label="Gemini 모델" value={modelSettings.geminiModel} onChange={(geminiModel) => updateModelSettings({ geminiModel })} placeholder="gemini-1.5-flash" />
+              <TextInput label="GitHub Models 토큰" value={modelSettings.githubToken} onChange={(githubToken) => updateModelSettings({ githubToken })} placeholder="브라우저에만 저장" />
+              <TextInput label="GitHub Models 모델" value={modelSettings.githubModel} onChange={(githubModel) => updateModelSettings({ githubModel })} placeholder="openai/gpt-4o-mini" />
+              <Field label="모델 테스트 프롬프트" value={modelTestPrompt} onChange={setModelTestPrompt} rows={6} wide />
+            </div>
+            <div className="draft-actions bridge-actions">
+              <button className="primary-button" type="button" onClick={() => runSelectedModel(modelTestPrompt)} disabled={modelBusy}>{modelBusy ? "실행 중" : "선택 모델 테스트"}</button>
+              <button className="secondary-button" type="button" onClick={() => { if (project.modelPrompt) runSelectedModel(project.modelPrompt); else notify("AI 질문 탭에 프롬프트가 없습니다."); }}>AI 질문으로 실행</button>
+            </div>
+            {modelTestResult && <textarea className="draft-output office-report-output" rows={16} value={modelTestResult.ok ? modelTestResult.output : modelTestResult.error || "실패"} readOnly />}
+          </Panel>
+        )}
+
+        {section === "approvalInbox" && (
+          <Panel title="승인함" description="AI가 만든 보고서, 메일, 콘텐츠, 질문을 바로 실행하지 않고 검토 상태로 관리합니다.">
+            <div className="approval-summary">
+              <span>전체 {approvalItems.length}</span>
+              <span>검토중 {approvalItems.filter((item) => item.status === "reviewing").length}</span>
+              <span>승인 {approvalItems.filter((item) => item.status === "approved").length}</span>
+              <span>보류 {approvalItems.filter((item) => item.status === "blocked").length}</span>
+            </div>
+            <div className="approval-list">
+              {approvalItems.length ? approvalItems.map((item) => (
+                <article className="approval-item" key={item.id}>
+                  <div className="approval-head"><strong>{item.title}</strong><span>{item.type} · {item.status}</span></div>
+                  <pre>{item.content}</pre>
+                  <div className="approval-actions">
+                    <button className="secondary-button" type="button" onClick={() => updateApprovalStatus(item.id, "reviewing")}>검토중</button>
+                    <button className="secondary-button" type="button" onClick={() => updateApprovalStatus(item.id, "approved")}>승인</button>
+                    <button className="secondary-button" type="button" onClick={() => updateApprovalStatus(item.id, "blocked")}>보류</button>
+                    <button className="ghost-light-button" type="button" onClick={() => removeApprovalItem(item.id)}>삭제</button>
+                  </div>
+                </article>
+              )) : <div className="office-empty"><strong>승인 대기 항목이 없습니다.</strong><span>AI 사무국 결과에서 보고서나 GPT 질문을 승인함에 추가해 보세요.</span></div>}
+            </div>
+          </Panel>
+        )}
+
+        {section === "projectMemory" && (
+          <Panel title="프로젝트 기억" description="확정 사실, 좋은 문장, 다음 액션을 프로젝트 단위로 저장합니다.">
+            <div className="coach-bar">
+              <div><strong>현재 프로젝트 저장</strong><span>민감자료 원본은 로컬/Drive에 두고, 앱에는 요약과 확정 사실만 남깁니다.</span></div>
+              <button className="primary-button" type="button" onClick={saveCurrentMemory}>기억 저장</button>
+            </div>
+            <Field label="추가 메모" value={memoryNote} onChange={setMemoryNote} rows={6} wide placeholder="예: 관광두레 신청 마감은 6월 30일 11시, 양양은 우대지역..." />
+            <div className="memory-list">
+              {memoryEntries.length ? memoryEntries.map((entry) => (
+                <article className="memory-card" key={entry.id}>
+                  <strong>{entry.title}</strong>
+                  <span>{entry.projectName} · {entry.source} · {new Date(entry.createdAt).toLocaleString()}</span>
+                  <p>{entry.summary}</p>
+                </article>
+              )) : <div className="office-empty"><strong>저장된 프로젝트 기억이 없습니다.</strong><span>확정된 사실과 다음 액션을 저장하면 반복 설명이 줄어듭니다.</span></div>}
+            </div>
           </Panel>
         )}
 
@@ -723,7 +904,9 @@ function OfficeResultView({
   onCopyDrafts,
   onSendPrompt,
   onSendReport,
-  onDownloadReport
+  onDownloadReport,
+  onAddReportToApproval,
+  onAddPromptToApproval
 }: {
   result: OfficeResult;
   onCopyReport: () => void;
@@ -732,6 +915,8 @@ function OfficeResultView({
   onSendPrompt: () => void;
   onSendReport: () => void;
   onDownloadReport: () => void;
+  onAddReportToApproval: () => void;
+  onAddPromptToApproval: () => void;
 }) {
   const activeAgentIds = Array.from(new Set(result.tasks.map((task) => task.agentId)));
   const activeRoles = agentRoles.filter((role) => activeAgentIds.includes(role.id));
@@ -749,6 +934,8 @@ function OfficeResultView({
           <button className="secondary-button" type="button" onClick={onCopyPrompt}>GPT 질문 복사</button>
           <button className="secondary-button" type="button" onClick={onSendPrompt}>AI 질문 탭으로</button>
           <button className="secondary-button" type="button" onClick={onSendReport}>초안 조립으로</button>
+          <button className="secondary-button" type="button" onClick={onAddReportToApproval}>보고서 승인함</button>
+          <button className="secondary-button" type="button" onClick={onAddPromptToApproval}>질문 승인함</button>
           <button className="ghost-light-button" type="button" onClick={onDownloadReport}>보고서 받기</button>
         </div>
       </section>
