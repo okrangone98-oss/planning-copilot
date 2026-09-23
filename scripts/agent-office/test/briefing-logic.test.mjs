@@ -47,3 +47,54 @@ test("buildDailyBriefing attaches aliases without mutating inputs and excludes c
   assert.equal(briefing.warningProjects.some((project) => project.name === "종료 사업"), false);
   assert.equal(briefing.coreTasks.some((task) => task.projectId === "P-WELCOME-2026"), true);
 });
+
+test("buildDailyBriefing excludes completed work from new-work outputs but keeps today's calendar list", () => {
+  const briefing = buildDailyBriefing({
+    now: "2026-09-24T00:00:00+09:00",
+    projects: [
+      { name: "ID 없는 완료 사업", statusText: "완료", deadline: "2026-09-25", source: { sourceId: "sheet-completed" } },
+      { projectId: "P-COMPLETED", name: "완료 사업", statusText: "완료", deadline: "2026-09-25", source: { sourceId: "sheet-completed-id" } }
+    ],
+    emails: [{ projectId: "P-COMPLETED", subject: "완료 사업 확인", category: "ACTION_REQUIRED", source: { sourceId: "mail-completed" } }],
+    events: [{ id: "event-completed", projectId: "P-COMPLETED", title: "완료 사업 성과공유회", start: "2026-09-24", end: "2026-09-24", allDay: true, source: { sourceId: "event-completed" } }]
+  });
+
+  assert.deepEqual(briefing.weekDeadlines, []);
+  assert.deepEqual(briefing.actionableEmails, []);
+  assert.deepEqual(briefing.warningProjects, []);
+  assert.deepEqual(briefing.majorEvents, []);
+  assert.equal(briefing.coreTasks.some((candidate) => candidate.projectId === "P-COMPLETED"), false);
+  assert.deepEqual(briefing.todayEvents.map((event) => event.id), ["event-completed"]);
+});
+
+test("computeProjectStatus finds a later event overlapping an earlier long event", () => {
+  const linkedEvents = [
+    { start: "2026-09-24T09:00:00+09:00", end: "2026-09-24T12:00:00+09:00" },
+    { start: "2026-09-24T10:00:00+09:00", end: "2026-09-24T10:30:00+09:00" },
+    { start: "2026-09-24T11:00:00+09:00", end: "2026-09-24T11:30:00+09:00" }
+  ];
+
+  assert.equal(computeProjectStatus({ statusText: "진행 중" }, { today: "2026-09-24", linkedEvents }), "RISK");
+});
+
+test("buildDailyBriefing preserves direct email and event projectIds when no project state exists", () => {
+  const briefing = buildDailyBriefing({
+    now: "2026-09-24T00:00:00+09:00",
+    emails: [{ projectId: "P-EXTERNAL", subject: "외부 사업 자료 확인", category: "ACTION_REQUIRED", source: { sourceId: "mail-external" } }],
+    events: [{ id: "event-external", projectId: "P-CALENDAR", title: "외부 사업 간담회", start: "2026-09-24", end: "2026-09-24", allDay: true, source: { sourceId: "event-external" } }]
+  });
+
+  assert.deepEqual(briefing.coreTasks.map((candidate) => candidate.projectId), ["P-EXTERNAL", "P-CALENDAR"]);
+});
+
+test("compareCandidates uses source identity as a stable final tie-breaker", async () => {
+  const { compareCandidates } = await import("../lib/briefing-logic.mjs");
+  assert.equal(typeof compareCandidates, "function");
+
+  const candidates = [
+    { projectId: "P-1", key: "P-1|동일 후보", sources: [{ sourceType: "gmail", sourceId: "mail-z" }] },
+    { projectId: "P-1", key: "P-1|동일 후보", sources: [{ sourceType: "gmail", sourceId: "mail-a" }] }
+  ];
+
+  assert.deepEqual([...candidates].sort(compareCandidates).map((candidate) => candidate.sources[0].sourceId), ["mail-a", "mail-z"]);
+});

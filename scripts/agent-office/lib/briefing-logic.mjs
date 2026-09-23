@@ -38,30 +38,31 @@ export function buildDailyBriefing(input = {}) {
   const emailByProject = group(emails), eventByProject = group(events);
   const decorated = projects.map((project) => ({ ...project, sources: sourcesOf(project), status: computeProjectStatus(project, { today, linkedEmails: emailByProject.get(project.projectId) || [], linkedEvents: eventByProject.get(project.projectId) || [] }) }));
   const completed = new Set(decorated.filter((project) => isCompletedStatus(project.statusText || project.status)).map((project) => project.projectId).filter(Boolean));
-  const active = (item) => !item.projectId || !completed.has(item.projectId);
+  const active = (item) => !isCompletedStatus(item.statusText || item.status) && (!item.projectId || !completed.has(item.projectId));
   const projectById = new Map(decorated.filter((project) => project.projectId).map((project) => [project.projectId, project]));
   const todayEvents = events.filter((event) => isToday(event, windows, today));
   const weekDeadlines = decorated.filter((project) => active(project) && project.deadline >= today && before(project.deadline, windows.weekEnd));
   const actionableEmails = emails.filter((email) => active(email) && (email.isActionable || ACTIONABLE.has(email.category)));
   const warningProjects = decorated.filter((project) => active(project) && project.status !== "NORMAL");
-  const majorEvents = selectMajorEvents(events).filter((event) => within(event.start, windows.todayStart, windows.thirtyDayEnd));
+  const majorEvents = selectMajorEvents(events).filter((event) => active(event) && within(event.start, windows.todayStart, windows.thirtyDayEnd));
   const coreTasks = dedupeCandidates([
     ...warningProjects.map((project) => task(project.name, project, project.sources)),
-    ...actionableEmails.map((email) => task(email.subject || "이메일 확인", projectById.get(email.projectId), email.sources, email.category)),
-    ...todayEvents.filter(active).map((event) => task(event.title || "일정 확인", projectById.get(event.projectId), event.sources, undefined, true))
-  ]).sort(compare).slice(0, 3);
+    ...actionableEmails.map((email) => task(email.subject || "이메일 확인", projectById.get(email.projectId), email.sources, email.category, false, email.projectId)),
+    ...todayEvents.filter(active).map((event) => task(event.title || "일정 확인", projectById.get(event.projectId), event.sources, undefined, true, event.projectId))
+  ]).sort(compareCandidates).slice(0, 3);
   return { generatedAt: input.generatedAt || now.toISOString(), dataAsOf: input.dataAsOf || input.generatedAt || now.toISOString(), coreTasks, todayEvents, weekDeadlines, actionableEmails, warningProjects, majorEvents, collectionSummary: { calendar: events.length, gmail: emails.length, sheets: projects.length, ...(input.collectionSummary || {}) }, limitations: Array.isArray(input.limitations) ? [...input.limitations] : [] };
 }
 function attach(items, aliases) { return (Array.isArray(items) ? items : []).filter((item) => item && typeof item === "object").map((item) => { const linked = attachProjectId(item, aliases); return { ...linked, sources: sourcesOf(linked) }; }); }
 function sourcesOf(item) { return Array.isArray(item?.sources) ? item.sources : item?.source ? [item.source] : []; }
 function uniqueSources(sources) { const seen = new Set(); return sources.filter((source) => { if (!source || typeof source !== "object") return false; const key = `${source.sourceType || ""}|${source.sourceId || ""}|${source.sourceUrl || ""}`; if (seen.has(key)) return false; seen.add(key); return true; }); }
 function group(items) { const result = new Map(); for (const item of items) if (item.projectId) result.set(item.projectId, [...(result.get(item.projectId) || []), item]); return result; }
-function task(title, project, sources, category, event) { return { key: `${project?.projectId || "general"}|${title}`, title, projectId: project?.projectId, status: project?.status, deadline: project?.deadline, category, event, sources }; }
-function compare(left, right) { const rank = (value) => value === "RISK" ? 0 : value === "WARNING" ? 1 : 2; return rank(left.status) - rank(right.status) || daysUntil(left.deadline) - daysUntil(right.deadline) || (left.category === "ACTION_REQUIRED" ? -1 : 0) - (right.category === "ACTION_REQUIRED" ? -1 : 0) || Number(Boolean(left.event)) - Number(Boolean(right.event)) || `${left.projectId || ""}|${left.key}`.localeCompare(`${right.projectId || ""}|${right.key}`); }
+function task(title, project, sources, category, event, projectId) { const resolvedProjectId = project?.projectId || projectId; return { key: `${resolvedProjectId || "general"}|${title}`, title, projectId: resolvedProjectId, status: project?.status, deadline: project?.deadline, category, event, sources }; }
+export function compareCandidates(left, right) { const rank = (value) => value === "RISK" ? 0 : value === "WARNING" ? 1 : 2; return rank(left.status) - rank(right.status) || daysUntil(left.deadline) - daysUntil(right.deadline) || (left.category === "ACTION_REQUIRED" ? -1 : 0) - (right.category === "ACTION_REQUIRED" ? -1 : 0) || Number(Boolean(left.event)) - Number(Boolean(right.event)) || `${left.projectId || ""}|${left.key}`.localeCompare(`${right.projectId || ""}|${right.key}`) || sourceIdentity(left).localeCompare(sourceIdentity(right)); }
+function sourceIdentity(item) { return sourcesOf(item).map((source) => `${source.sourceType || ""}|${source.sourceId || ""}|${source.sourceUrl || ""}`).sort().join("|"); }
 function date(value) { const result = new Date(value); return Number.isFinite(result.getTime()) ? result : null; }
 function kstKey(value) { return new Date(value.getTime() + 32400000).toISOString().slice(0, 10); }
 function daysUntil(deadline, today = kstKey(new Date())) { const end = Date.parse(`${deadline}T00:00:00+09:00`), start = Date.parse(`${today}T00:00:00+09:00`); return Number.isFinite(end) && Number.isFinite(start) ? Math.ceil((end - start) / DAY) : Infinity; }
-function hasOverlap(events) { const sorted = [...events].sort((left, right) => Date.parse(left.start) - Date.parse(right.start)); return sorted.some((event, index) => index && Date.parse(event.start) < Date.parse(sorted[index - 1].end)); }
+function hasOverlap(events) { let latestEnd = -Infinity; for (const event of [...events].sort((left, right) => Date.parse(left.start) - Date.parse(right.start))) { const start = Date.parse(event.start), end = Date.parse(event.end); if (Number.isFinite(start) && start < latestEnd) return true; if (Number.isFinite(end)) latestEnd = Math.max(latestEnd, end); } return false; }
 function isToday(event, windows, today) { return event.allDay ? String(event.start).slice(0, 10) === today : within(event.start, windows.todayStart, windows.tomorrowStart); }
 function before(day, end) { return !end || Date.parse(`${day}T00:00:00+09:00`) < new Date(end).getTime(); }
 function within(value, start, end) { const time = Date.parse(value || ""); return Number.isFinite(time) && (!start || time >= new Date(start).getTime()) && (!end || time < new Date(end).getTime()); }
