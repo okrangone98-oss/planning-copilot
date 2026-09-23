@@ -54,3 +54,23 @@ test("loadBriefingConfig rejects an absolute repository secret path from an exte
     fs.rmSync(externalCwd, { recursive: true, force: true });
   }
 });
+
+test("loadBriefingConfig rejects a missing token path through a symlinked repository directory", () => {
+  const externalDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "office-config-"));
+  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const repositoryLink = path.join(externalDirectory, "repository-link");
+
+  try {
+    fs.symlinkSync(repositoryRoot, repositoryLink, "dir");
+
+    assert.throws(
+      () => loadBriefingConfig({
+        GOOGLE_OAUTH_CLIENT_SECRET_PATH: path.join(externalDirectory, "client-secret.json"),
+        GOOGLE_OAUTH_TOKEN_PATH: path.join(repositoryLink, "new-token.json")
+      }),
+      /repository/
+    );
+  } finally {
+    fs.rmSync(externalDirectory, { recursive: true, force: true });
+  }
+});

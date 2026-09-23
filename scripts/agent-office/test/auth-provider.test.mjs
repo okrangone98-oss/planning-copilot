@@ -16,8 +16,9 @@ class FakeOAuthClient {
     this.credentials = credentials;
   }
 
-  generateAuthUrl() {
-    return `http://example.test/authorize?redirect_uri=${encodeURIComponent(this.redirect)}`;
+  generateAuthUrl(options) {
+    this.authorizationOptions = options;
+    return `http://example.test/authorize?redirect_uri=${encodeURIComponent(this.redirect)}&state=${encodeURIComponent(options.state)}`;
   }
 
   async getToken() {
@@ -47,7 +48,8 @@ test("OAuthUserProvider uses the lazy client and secures an overwritten token", 
   console.error = (message) => {
     const authorizationUrl = new URL(message.replace("Google OAuth 승인 URL: ", ""));
     const redirect = new URL(authorizationUrl.searchParams.get("redirect_uri"));
-    http.get(`${redirect}?code=test-code`).on("error", () => {});
+    const state = authorizationUrl.searchParams.get("state");
+    http.get(`${redirect}?code=test-code&state=${encodeURIComponent(state)}`).on("error", () => {});
   };
 
   try {
@@ -59,7 +61,47 @@ test("OAuthUserProvider uses the lazy client and secures an overwritten token", 
     const client = await provider.getAuthorizedClient();
 
     assert.equal(client.credentials.access_token, "test-token");
+    assert.match(client.authorizationOptions.state, /^[A-Za-z0-9_-]+$/);
     assert.equal((await fs.stat(tokenPath)).mode & 0o777, 0o600);
+  } finally {
+    console.error = originalConsoleError;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("OAuthUserProvider rejects a loopback callback with mismatched state and closes the server", { timeout: 2_000 }, async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "office-auth-"));
+  const clientSecretPath = path.join(directory, "client-secret.json");
+  const tokenPath = path.join(directory, "token.json");
+  const originalConsoleError = console.error;
+  let redirect;
+
+  await fs.writeFile(clientSecretPath, JSON.stringify({
+    installed: { client_id: "test-client", client_secret: "test-secret" }
+  }));
+
+  console.error = (message) => {
+    const authorizationUrl = new URL(message.replace("Google OAuth 승인 URL: ", ""));
+    redirect = new URL(authorizationUrl.searchParams.get("redirect_uri"));
+    http.get(`${redirect}?code=test-code&state=wrong-state`).on("error", () => {});
+  };
+
+  try {
+    const provider = new OAuthUserProvider({
+      clientSecretPath,
+      tokenPath,
+      createOAuthClient: async (_installed, callbackRedirect) => new FakeOAuthClient(callbackRedirect)
+    });
+
+    await assert.rejects(provider.getAuthorizedClient(), /state/);
+
+    await new Promise((resolve, reject) => {
+      const request = http.get(redirect, () => reject(new Error("loopback server remained open")));
+      request.on("error", (error) => {
+        assert.equal(error.code, "ECONNREFUSED");
+        resolve();
+      });
+    });
   } finally {
     console.error = originalConsoleError;
     await fs.rm(directory, { recursive: true, force: true });

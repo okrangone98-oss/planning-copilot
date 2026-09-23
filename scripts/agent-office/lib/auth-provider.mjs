@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import http from "node:http";
+import { randomBytes } from "node:crypto";
 import { URL } from "node:url";
 
 export const READ_ONLY_SCOPES = [
@@ -69,44 +70,62 @@ export function createAuthProvider(config, mode = "oauth") {
 
 async function authorizeWithLoopback({ installed, scopes, tokenPath, createOAuthClient: oauthClientFactory = createOAuthClient }) {
   const server = http.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-
-  const { port } = server.address();
-  const redirect = `http://127.0.0.1:${port}/oauth2callback`;
-  const oauth2 = await oauthClientFactory(installed, redirect);
-  const authorizationUrl = oauth2.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: scopes
-  });
-  console.error(`Google OAuth 승인 URL: ${authorizationUrl}`);
-
-  const code = await new Promise((resolve, reject) => {
-    server.on("request", (request, response) => {
-      const callbackUrl = new URL(request.url, redirect);
-      if (callbackUrl.pathname !== "/oauth2callback") {
-        response.statusCode = 404;
-        response.end("Not found");
-        return;
-      }
-
-      const error = callbackUrl.searchParams.get("error");
-      const callbackCode = callbackUrl.searchParams.get("code");
-      response.end(error ? "OAuth 승인이 취소되었습니다." : "OAuth 승인이 완료되었습니다. 터미널로 돌아가세요.");
-      server.close();
-      if (error) reject(new Error(`OAuth 승인 실패: ${error}`));
-      else if (!callbackCode) reject(new Error("OAuth callback에 code가 없습니다."));
-      else resolve(callbackCode);
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
     });
-  });
-
-  const { tokens } = await oauth2.getToken(code);
-  oauth2.setCredentials(tokens);
-  await fs.mkdir(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
-  await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), { mode: 0o600 });
-  await fs.chmod(tokenPath, 0o600);
-  return oauth2;
+    const { port } = server.address();
+    const redirect = `http://127.0.0.1:${port}/oauth2callback`;
+    const oauth2 = await oauthClientFactory(installed, redirect);
+    const state = randomBytes(32).toString("base64url");
+    const authorizationUrl = oauth2.generateAuthUrl({
+      access_type: "offline",
+      prompt: "consent",
+      scope: scopes,
+      state
+    });
+    console.error(`Google OAuth 승인 URL: ${authorizationUrl}`);
+    const code = await new Promise((resolve, reject) => {
+      const fail = (error) => {
+        server.removeListener("error", fail);
+        reject(error);
+      };
+      server.once("error", fail);
+      server.on("request", (request, response) => {
+        const callbackUrl = new URL(request.url, redirect);
+        if (callbackUrl.pathname !== "/oauth2callback") {
+          response.statusCode = 404;
+          response.end("Not found");
+          return;
+        }
+        const callbackState = callbackUrl.searchParams.get("state");
+        if (callbackState !== state) {
+          response.statusCode = 400;
+          response.end("OAuth callback state가 일치하지 않습니다.");
+          fail(new Error("OAuth callback state가 일치하지 않습니다."));
+          return;
+        }
+        const error = callbackUrl.searchParams.get("error");
+        const callbackCode = callbackUrl.searchParams.get("code");
+        response.end(error ? "OAuth 승인이 취소되었습니다." : "OAuth 승인이 완료되었습니다. 터미널로 돌아가세요.");
+        if (error) fail(new Error(`OAuth 승인 실패: ${error}`));
+        else if (!callbackCode) fail(new Error("OAuth callback에 code가 없습니다."));
+        else {
+          server.removeListener("error", fail);
+          resolve(callbackCode);
+        }
+      });
+    });
+    const { tokens } = await oauth2.getToken(code);
+    oauth2.setCredentials(tokens);
+    await fs.mkdir(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+    await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+    await fs.chmod(tokenPath, 0o600);
+    return oauth2;
+  } finally {
+    if (server.listening) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
 }

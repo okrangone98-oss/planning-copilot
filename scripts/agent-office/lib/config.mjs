@@ -12,12 +12,22 @@ function canonicalPath(value) {
   }
 }
 
-
+function canonicalCandidate(value) {
+  const resolvedPath = path.resolve(value);
+  const missingSegments = [];
+  let existingPath = resolvedPath;
+  while (!fs.existsSync(existingPath)) {
+    const parentPath = path.dirname(existingPath);
+    if (parentPath === existingPath) break;
+    missingSegments.unshift(path.basename(existingPath));
+    existingPath = parentPath;
+  }
+  return path.join(canonicalPath(existingPath), ...missingSegments);
+}
 const REQUIRED_PATHS = [
   "GOOGLE_OAUTH_CLIENT_SECRET_PATH",
   "GOOGLE_OAUTH_TOKEN_PATH"
 ];
-
 function requiredPaths(env) {
   const missing = REQUIRED_PATHS.filter((name) => !env[name]);
   if (missing.length > 0) {
@@ -26,7 +36,7 @@ function requiredPaths(env) {
 }
 
 function externalPath(value, name) {
-  const resolvedPath = canonicalPath(path.resolve(value));
+  const resolvedPath = canonicalCandidate(value);
   const relativePath = path.relative(repositoryRoot, resolvedPath);
   const isInRepository = relativePath === "" ||
     (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath));
