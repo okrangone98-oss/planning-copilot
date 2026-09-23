@@ -1,4 +1,17 @@
+import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDirectory = path.dirname(fileURLToPath(import.meta.url));
+
+function canonicalPath(value) {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return value;
+  }
+}
+
 
 const REQUIRED_PATHS = [
   "GOOGLE_OAUTH_CLIENT_SECRET_PATH",
@@ -13,8 +26,8 @@ function requiredPaths(env) {
 }
 
 function externalPath(value, name) {
-  const resolvedPath = path.resolve(value);
-  const relativePath = path.relative(process.cwd(), resolvedPath);
+  const resolvedPath = canonicalPath(path.resolve(value));
+  const relativePath = path.relative(repositoryRoot, resolvedPath);
   const isInRepository = relativePath === "" ||
     (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath));
 
@@ -39,3 +52,5 @@ export function loadBriefingConfig(env = process.env) {
     outputDir: env.OFFICE_BRIEFING_OUTPUT_DIR || "reports/private"
   };
 }
+
+const repositoryRoot = canonicalPath(path.resolve(configDirectory, "../../.."));
