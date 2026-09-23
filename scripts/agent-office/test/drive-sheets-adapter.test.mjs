@@ -73,6 +73,50 @@ test("readProjectState uses the configured spreadsheet and requested sheet witho
   assert.equal(projects[0].source.sourceUrl, "https://docs.google.com/spreadsheets/d/configured/edit");
 });
 
+test("readProjectState maps the required normalized project-state header variants", async () => {
+  const headerVariants = {
+    name: ["사업", "프로젝트", "Project"],
+    deadline: ["기간", "행사일", "deadline"],
+    status: ["진행", "status"]
+  };
+
+  for (const [field, variants] of Object.entries(headerVariants)) {
+    for (const header of variants) {
+      const headers = ["사업명", "일정", "상태"];
+      headers[["name", "deadline", "status"].indexOf(field)] = ` ${header} `;
+      const projects = await readProjectState({
+        spreadsheetId: "configured",
+        sheetsApi: { spreadsheets: {
+          get: async () => ({ data: { sheets: [{ properties: { title: "전체사업" } }] } }),
+          values: { get: async () => ({ data: { values: [headers, ["웰컴센터", "2026-10-09", "준비 중"]] } }) }
+        } }
+      });
+
+      assert.equal(projects.length, 1, `${field} header ${header} should map after normalization`);
+      assert.equal(projects[0].name, "웰컴센터");
+      assert.equal(projects[0].deadline, "2026-10-09");
+      assert.equal(projects[0].statusText, "준비 중");
+    }
+  }
+});
+
+test("readProjectState searches the default project-state spreadsheet title when no ID or title is supplied", async () => {
+  const calls = [];
+  const projects = await readProjectState({
+    driveApi: { files: { list: async (params) => {
+      calls.push(params);
+      return { data: { files: [] } };
+    } } },
+    sheetsApi: {}
+  });
+
+  assert.deepEqual(projects, []);
+  assert.deepEqual(calls, [{
+    q: "name = '26 양터 전체사업 총괄표' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
+    fields: "files(id,name,webViewLink)"
+  }]);
+});
+
 test("readProjectState safely returns no projects for missing files, sheets, and malformed values", async () => {
   const noFile = await readProjectState({ driveApi: { files: { list: async () => ({ data: { files: [] } }) } }, sheetsApi: {}, spreadsheetTitle: "없음" });
   const noSheets = await readProjectState({ sheetsApi: { spreadsheets: { get: async () => ({ data: { sheets: [] } }) } }, spreadsheetId: "sheet-1" });

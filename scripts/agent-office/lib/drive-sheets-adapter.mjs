@@ -2,10 +2,11 @@ import { sourceRef } from "./contracts.mjs";
 
 const SPREADSHEET_MIME_TYPE = "application/vnd.google-apps.spreadsheet";
 const SHEET_FIELDS = "sheets.properties.title,spreadsheetUrl";
+const DEFAULT_SPREADSHEET_TITLE = "26 양터 전체사업 총괄표";
 const HEADER_VARIANTS = {
-  name: new Set(["사업명", "사업명칭", "프로젝트명"]),
-  deadline: new Set(["일정", "마감일", "마감", "기한", "일자"]),
-  status: new Set(["상태", "진행상태", "사업상태"])
+  name: new Set(["사업명", "사업명칭", "프로젝트명", "사업", "프로젝트", "Project"]),
+  deadline: new Set(["일정", "마감일", "마감", "기한", "일자", "기간", "행사일", "deadline"]),
+  status: new Set(["상태", "진행상태", "사업상태", "진행", "status"])
 };
 
 export async function readProjectState({ driveApi, sheetsApi, spreadsheetId, spreadsheetTitle, sheetName, detectedAt } = {}) {
@@ -57,11 +58,12 @@ async function selectSpreadsheet({ driveApi, spreadsheetId, spreadsheetTitle }) 
   if (typeof spreadsheetId === "string" && spreadsheetId) {
     return { id: spreadsheetId, url: "" };
   }
-  if (typeof spreadsheetTitle !== "string" || !spreadsheetTitle || typeof driveApi?.files?.list !== "function") return null;
+  const title = typeof spreadsheetTitle === "string" && spreadsheetTitle ? spreadsheetTitle : DEFAULT_SPREADSHEET_TITLE;
+  if (typeof driveApi?.files?.list !== "function") return null;
 
   try {
     const response = await driveApi.files.list({
-      q: `name = '${spreadsheetTitle.replace(/'/g, "\\'")}' and mimeType = '${SPREADSHEET_MIME_TYPE}' and trashed = false`,
+      q: `name = '${title.replace(/'/g, "\\'")}' and mimeType = '${SPREADSHEET_MIME_TYPE}' and trashed = false`,
       fields: "files(id,name,webViewLink)"
     });
     const file = response?.data?.files?.find((candidate) => typeof candidate?.id === "string" && candidate.id);
