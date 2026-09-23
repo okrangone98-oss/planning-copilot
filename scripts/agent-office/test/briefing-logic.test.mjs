@@ -48,23 +48,32 @@ test("buildDailyBriefing attaches aliases without mutating inputs and excludes c
   assert.equal(briefing.coreTasks.some((task) => task.projectId === "P-WELCOME-2026"), true);
 });
 
-test("buildDailyBriefing excludes completed work from new-work outputs but keeps today's calendar list", () => {
+test("buildDailyBriefing preserves status-only completion while keeping today's calendar list", () => {
+  const projects = [
+    { name: "ID 없는 완료 사업", status: "완료", deadline: "2026-09-25", source: { sourceId: "sheet-completed" } },
+    { projectId: "P-COMPLETED", name: "완료 사업", status: "완료", deadline: "2026-09-25", source: { sourceId: "sheet-completed-id" } }
+  ];
+  const emails = [{ projectId: "P-COMPLETED", subject: "완료 사업 확인", category: "ACTION_REQUIRED", source: { sourceId: "mail-completed" } }];
+  const events = [{ id: "event-completed", projectId: "P-COMPLETED", title: "완료 사업 성과공유회", start: "2026-09-24", end: "2026-09-24", allDay: true, source: { sourceId: "event-completed" } }];
+  const originalInput = structuredClone({ projects, emails, events });
+
   const briefing = buildDailyBriefing({
     now: "2026-09-24T00:00:00+09:00",
-    projects: [
-      { name: "ID 없는 완료 사업", statusText: "완료", deadline: "2026-09-25", source: { sourceId: "sheet-completed" } },
-      { projectId: "P-COMPLETED", name: "완료 사업", statusText: "완료", deadline: "2026-09-25", source: { sourceId: "sheet-completed-id" } }
-    ],
-    emails: [{ projectId: "P-COMPLETED", subject: "완료 사업 확인", category: "ACTION_REQUIRED", source: { sourceId: "mail-completed" } }],
-    events: [{ id: "event-completed", projectId: "P-COMPLETED", title: "완료 사업 성과공유회", start: "2026-09-24", end: "2026-09-24", allDay: true, source: { sourceId: "event-completed" } }]
+    projects,
+    emails,
+    events
   });
 
+  assert.equal(projects[1].status, "완료");
+  assert.deepEqual({ projects, emails, events }, originalInput);
+  assert.equal(computeProjectStatus({ status: "완료", deadline: "2026-09-25" }, { today: "2026-09-24" }), "NORMAL");
   assert.deepEqual(briefing.weekDeadlines, []);
   assert.deepEqual(briefing.actionableEmails, []);
   assert.deepEqual(briefing.warningProjects, []);
   assert.deepEqual(briefing.majorEvents, []);
   assert.equal(briefing.coreTasks.some((candidate) => candidate.projectId === "P-COMPLETED"), false);
   assert.deepEqual(briefing.todayEvents.map((event) => event.id), ["event-completed"]);
+  assert.equal(briefing.todayEvents[0].projectId, "P-COMPLETED");
 });
 
 test("computeProjectStatus finds a later event overlapping an earlier long event", () => {

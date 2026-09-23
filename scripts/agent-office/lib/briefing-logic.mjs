@@ -36,9 +36,14 @@ export function buildDailyBriefing(input = {}) {
   const emails = attach(input.emails || input.gmail, aliases);
   const events = attach(input.calendarEvents || input.events, aliases);
   const emailByProject = group(emails), eventByProject = group(events);
-  const decorated = projects.map((project) => ({ ...project, sources: sourcesOf(project), status: computeProjectStatus(project, { today, linkedEmails: emailByProject.get(project.projectId) || [], linkedEvents: eventByProject.get(project.projectId) || [] }) }));
-  const completed = new Set(decorated.filter((project) => isCompletedStatus(project.statusText || project.status)).map((project) => project.projectId).filter(Boolean));
-  const active = (item) => !isCompletedStatus(item.statusText || item.status) && (!item.projectId || !completed.has(item.projectId));
+  const completion = new WeakMap();
+  const decorated = projects.map((project) => {
+    const item = { ...project, sources: sourcesOf(project), status: computeProjectStatus(project, { today, linkedEmails: emailByProject.get(project.projectId) || [], linkedEvents: eventByProject.get(project.projectId) || [] }) };
+    completion.set(item, isCompletedStatus(project.statusText || project.status));
+    return item;
+  });
+  const completed = new Set(decorated.filter((project) => completion.get(project)).map((project) => project.projectId).filter(Boolean));
+  const active = (item) => !completion.get(item) && !isCompletedStatus(item.statusText || item.status) && (!item.projectId || !completed.has(item.projectId));
   const projectById = new Map(decorated.filter((project) => project.projectId).map((project) => [project.projectId, project]));
   const todayEvents = events.filter((event) => isToday(event, windows, today));
   const weekDeadlines = decorated.filter((project) => active(project) && project.deadline >= today && before(project.deadline, windows.weekEnd));
