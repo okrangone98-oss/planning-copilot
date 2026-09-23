@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createAuthProvider } from "./lib/auth-provider.mjs";
 import { buildDailyBriefing } from "./lib/briefing-logic.mjs";
 import { renderDailyBriefing } from "./lib/briefing-renderer.mjs";
@@ -51,7 +52,9 @@ export async function writeBriefing(outputDir, briefing, now, timezone = "Asia/S
     .formatToParts(now).reduce((value, part) => part.type === "year" || part.type === "month" || part.type === "day" ? { ...value, [part.type]: part.value } : value, {});
   const outputPath = path.join(outputDir, `${dateKey.year}-${dateKey.month}-${dateKey.day}-daily-briefing.md`);
   await fs.mkdir(outputDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(outputDir, 0o700);
   await fs.writeFile(outputPath, `${renderDailyBriefing(briefing)}\n`, { encoding: "utf8", mode: 0o600 });
+  await fs.chmod(outputPath, 0o600);
   return outputPath;
 }
 
@@ -75,4 +78,8 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+export function isCliEntrypoint(moduleUrl, executablePath) {
+  return moduleUrl === pathToFileURL(executablePath).href;
+}
+
+if (isCliEntrypoint(import.meta.url, process.argv[1])) main();

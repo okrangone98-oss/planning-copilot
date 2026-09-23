@@ -3,7 +3,33 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGoogleAdapters, runBriefing } from "../daily-briefing.mjs";
+import { pathToFileURL } from "node:url";
+import { createGoogleAdapters, isCliEntrypoint, runBriefing, writeBriefing } from "../daily-briefing.mjs";
+
+test("isCliEntrypoint accepts file URLs derived from Windows-native command paths without running OAuth", () => {
+  const windowsNativePath = "C:\\planning-copilot\\scripts\\agent-office\\daily-briefing.mjs";
+
+  assert.equal(isCliEntrypoint(pathToFileURL(windowsNativePath).href, windowsNativePath), true);
+});
+
+test("writeBriefing hardens existing report paths to owner-only permissions where supported", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Windows does not provide POSIX permission bits");
+    return;
+  }
+  const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), "office-briefing-permissions-"));
+  t.after(() => fs.rm(outputDir, { recursive: true, force: true }));
+  const now = new Date("2026-09-24T12:00:00+09:00");
+  const reportPath = path.join(outputDir, "2026-09-24-daily-briefing.md");
+  await fs.chmod(outputDir, 0o777);
+  await fs.writeFile(reportPath, "previous report", { mode: 0o666 });
+  await fs.chmod(reportPath, 0o666);
+
+  await writeBriefing(outputDir, {}, now);
+
+  assert.equal((await fs.stat(outputDir)).mode & 0o777, 0o700);
+  assert.equal((await fs.stat(reportPath)).mode & 0o777, 0o600);
+});
 
 test("runBriefing composes injected readers and writes one KST report without OAuth or external writes", async (t) => {
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), "office-control-tower-"));
