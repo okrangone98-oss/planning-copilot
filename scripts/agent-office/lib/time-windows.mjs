@@ -28,6 +28,6 @@ export function getTimeWindows(now = new Date(), timezone = "Asia/Seoul") {
     tomorrowStart: kstMidnight(tomorrowKey),
     sevenDayEnd: kstMidnight(addDays(todayKey, 7)),
     thirtyDayEnd: kstMidnight(addDays(todayKey, 30)),
-    weekEnd: kstMidnight(addDays(todayKey, daysUntilNextMonday + 1))
+    weekEnd: kstMidnight(addDays(todayKey, daysUntilNextMonday))
   };
 }

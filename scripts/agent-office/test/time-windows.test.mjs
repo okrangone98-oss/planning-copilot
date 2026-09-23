@@ -13,5 +13,5 @@ test("getTimeWindows uses Asia/Seoul midnight for today and future windows", () 
 
 test("getTimeWindows returns a week boundary that excludes next week", () => {
   const windows = getTimeWindows(new Date("2026-09-24T12:00:00+09:00"), "Asia/Seoul");
-  assert.equal(windows.weekEnd.toISOString(), "2026-09-28T15:00:00.000Z");
+  assert.equal(windows.weekEnd.toISOString(), "2026-09-27T15:00:00.000Z");
 });
