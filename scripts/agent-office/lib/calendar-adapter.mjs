@@ -16,7 +16,8 @@ export async function readCalendarEvents({ calendarApi, calendarId, now, timezon
     maxResults: 2500
   });
 
-  return (response?.data?.items || []).map((event) => normalizeCalendarEvent(event || {}, detectedAt));
+  const items = response?.data?.items;
+  return (Array.isArray(items) ? items : []).map((event) => normalizeCalendarEvent(event || {}, detectedAt));
 }
 
 export function selectMajorEvents(events, keywords = DEFAULT_MAJOR_EVENT_KEYWORDS) {

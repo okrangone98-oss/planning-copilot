@@ -27,6 +27,22 @@ test("readCalendarEvents requests the 30-day source window and preserves source 
   assert.equal(events[0].source.sourceId, "evt-1");
 });
 
+test("readCalendarEvents returns an empty list when the Calendar response items are malformed", async () => {
+  const calendarApi = {
+    events: { list: async () => ({ data: { items: { unexpected: "object" } } }) }
+  };
+
+  const events = await readCalendarEvents({
+    calendarApi,
+    calendarId: "primary",
+    now: new Date("2026-09-24T12:00:00+09:00"),
+    timezone: "Asia/Seoul",
+    detectedAt: "2026-09-24T03:00:00.000Z"
+  });
+
+  assert.deepEqual(events, []);
+});
+
 test("selectMajorEvents includes all-day and keyword events but removes duplicate ids", () => {
   const events = [
     { id: "all-day", title: "내부 점검", allDay: true, durationMinutes: 60 },
