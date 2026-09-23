@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { MockProvider, OAuthUserProvider } from "../lib/auth-provider.mjs";
+import { MockProvider, OAuthUserProvider, READ_ONLY_SCOPES } from "../lib/auth-provider.mjs";
 
 class FakeOAuthClient {
   constructor(redirect) {
@@ -106,4 +106,34 @@ test("OAuthUserProvider rejects a loopback callback with mismatched state and cl
     console.error = originalConsoleError;
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+
+test("OAuthUserProvider rejects web-only OAuth credentials", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "office-auth-"));
+  const clientSecretPath = path.join(directory, "client-secret.json");
+  const tokenPath = path.join(directory, "token.json");
+
+  await fs.writeFile(clientSecretPath, JSON.stringify({
+    web: { client_id: "test-client", client_secret: "test-secret" }
+  }));
+  await fs.writeFile(tokenPath, JSON.stringify({}));
+
+  try {
+    const provider = new OAuthUserProvider({ clientSecretPath, tokenPath });
+    await assert.rejects(provider.getAuthorizedClient(), /installed/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("OAuthUserProvider rejects write scopes supplied to its constructor", () => {
+  assert.throws(
+    () => new OAuthUserProvider({
+      clientSecretPath: "/outside/client-secret.json",
+      tokenPath: "/outside/token.json",
+      scopes: [...READ_ONLY_SCOPES, "https://www.googleapis.com/auth/gmail.modify"]
+    }),
+    /read-only/
+  );
 });

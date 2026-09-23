@@ -16,12 +16,31 @@ function canonicalCandidate(value) {
   const resolvedPath = path.resolve(value);
   const missingSegments = [];
   let existingPath = resolvedPath;
-  while (!fs.existsSync(existingPath)) {
-    const parentPath = path.dirname(existingPath);
-    if (parentPath === existingPath) break;
-    missingSegments.unshift(path.basename(existingPath));
-    existingPath = parentPath;
+
+  while (true) {
+    let stat;
+    try {
+      stat = fs.lstatSync(existingPath);
+    } catch {
+      const parentPath = path.dirname(existingPath);
+      if (parentPath === existingPath) break;
+      missingSegments.unshift(path.basename(existingPath));
+      existingPath = parentPath;
+      continue;
+    }
+
+    if (stat.isSymbolicLink()) {
+      try {
+        existingPath = fs.realpathSync.native(existingPath);
+      } catch {
+        throw new Error("OAuth credential path contains an unresolved symlink.");
+      }
+      continue;
+    }
+
+    break;
   }
+
   return path.join(canonicalPath(existingPath), ...missingSegments);
 }
 const REQUIRED_PATHS = [

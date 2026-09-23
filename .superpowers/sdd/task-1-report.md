@@ -97,3 +97,22 @@ TDD evidence:
 Required verification:
 - `timeout 60s npm run office:test` passed 8 tests with 0 failures.
 - `node --check scripts/agent-office/lib/auth-provider.mjs` and `node --check scripts/agent-office/lib/config.mjs` passed.
+
+
+## Task 1 latest review fixes
+
+Status: DONE
+
+Fixes applied:
+- `canonicalCandidate` now walks with `lstatSync`, resolves valid symlink components, and rejects dangling or otherwise unresolved symlinks before token writes. Existing containment protection for symlinked parents remains intact, while missing external non-symlink paths remain allowed.
+- OAuth now accepts only `credentials.installed`; web-only client-secret JSON fails with a clear installed-credentials error because this MVP supports only the loopback installed-app flow.
+- `OAuthUserProvider` validates optional scopes as a non-empty array whose values all appear in `READ_ONLY_SCOPES`; write scopes are rejected at construction.
+
+TDD evidence:
+- RED: the dangling final token-symlink test failed with `Missing expected exception.` before the source fix. The web-only and write-scope regressions were added before implementation; the web fixture was then adjusted to include a valid token so the legacy behavior failed without opening an interactive callback.
+- GREEN: `node --test --test-name-pattern='dangling external token symlink|web-only OAuth credentials|write scopes' scripts/agent-office/test/*.test.mjs` passed 3 matching tests with 0 failures.
+
+Required verification:
+- `timeout 60s npm run office:test`: PASS — 11 tests passed, 0 failed, 0 skipped; duration `244.877067 ms`; exit status 0.
+- `node --check scripts/agent-office/lib/config.mjs`: PASS — exit status 0 with no output.
+- `node --check scripts/agent-office/lib/auth-provider.mjs`: PASS — exit status 0 with no output.

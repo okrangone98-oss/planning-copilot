@@ -11,6 +11,14 @@ export const READ_ONLY_SCOPES = [
   "https://www.googleapis.com/auth/spreadsheets.readonly"
 ];
 
+function validateReadOnlyScopes(scopes) {
+  if (!Array.isArray(scopes) || scopes.length === 0 || scopes.some((scope) => !READ_ONLY_SCOPES.includes(scope))) {
+    throw new Error("OAuth scopes must be a non-empty array of read-only scopes.");
+  }
+
+  return scopes;
+}
+
 async function createOAuthClient(installed, redirect) {
   const { google } = await import("googleapis");
   return new google.auth.OAuth2(installed.client_id, installed.client_secret, redirect);
@@ -30,16 +38,16 @@ export class OAuthUserProvider {
   constructor({ clientSecretPath, tokenPath, scopes = READ_ONLY_SCOPES, port = 0, createOAuthClient: oauthClientFactory = createOAuthClient }) {
     this.clientSecretPath = clientSecretPath;
     this.tokenPath = tokenPath;
-    this.scopes = scopes;
+    this.scopes = validateReadOnlyScopes(scopes);
     this.port = port;
     this.createOAuthClient = oauthClientFactory;
   }
 
   async getAuthorizedClient() {
     const credentials = JSON.parse(await fs.readFile(this.clientSecretPath, "utf8"));
-    const installed = credentials.installed || credentials.web;
+    const installed = credentials.installed;
     if (!installed) {
-      throw new Error("OAuth Client Secret JSON에 installed 또는 web 설정이 없습니다.");
+      throw new Error("OAuth Client Secret JSON requires installed credentials; web credentials are not supported.");
     }
 
     const redirect = `http://127.0.0.1:${this.port || 0}/oauth2callback`;
