@@ -17,16 +17,32 @@ test("readRecentEmails uses the 48-hour Gmail query and normalizes headers", asy
   const calls = [];
   const gmailApi = {
     users: { messages: {
-      list: async (params) => { calls.push(params); return { data: { messages: [{ id: "msg-1" }] } }; },
-      get: async () => ({ data: { id: "msg-1", threadId: "thread-1", snippet: "확인 부탁드립니다", labelIds: ["INBOX"], payload: { headers: [
+      list: async (params) => {
+        calls.push({ method: "list", params });
+        return { data: { messages: [{ id: "msg-1" }] } };
+      },
+      get: async (params) => {
+        calls.push({ method: "get", params });
+        return { data: { id: "msg-1", threadId: "thread-1", snippet: "확인 부탁드립니다", labelIds: ["INBOX"], payload: { headers: [
         { name: "Subject", value: "자료 확인 요청" },
         { name: "From", value: "partner@example.com" },
         { name: "Date", value: "Thu, 24 Sep 2026 10:00:00 +0900" }
-      ] } } })
+        ] } } };
+      }
     } }
   };
-  const emails = await readRecentEmails({ gmailApi, now: new Date("2026-09-24T12:00:00+09:00"), detectedAt: "2026-09-24T03:00:00.000Z" });
-  assert.match(calls[0].q, /after:/);
+  const now = new Date("2026-09-24T12:00:00+09:00");
+  const emails = await readRecentEmails({ gmailApi, now, detectedAt: "2026-09-24T03:00:00.000Z" });
+  const expectedAfter = Math.floor((now.getTime() - (48 * 60 * 60 * 1000)) / 1000);
+  assert.deepEqual(calls, [
+    { method: "list", params: { userId: "me", q: `after:${expectedAfter}` } },
+    { method: "get", params: {
+      userId: "me",
+      id: "msg-1",
+      format: "metadata",
+      metadataHeaders: ["Subject", "From", "Date", "List-Unsubscribe"]
+    } }
+  ]);
   assert.equal(emails[0].subject, "자료 확인 요청");
   assert.equal(emails[0].source.sourceId, "msg-1");
 });
