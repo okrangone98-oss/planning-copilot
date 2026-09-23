@@ -26,11 +26,12 @@ export class MockProvider {
 }
 
 export class OAuthUserProvider {
-  constructor({ clientSecretPath, tokenPath, scopes = READ_ONLY_SCOPES, port = 0 }) {
+  constructor({ clientSecretPath, tokenPath, scopes = READ_ONLY_SCOPES, port = 0, createOAuthClient: oauthClientFactory = createOAuthClient }) {
     this.clientSecretPath = clientSecretPath;
     this.tokenPath = tokenPath;
     this.scopes = scopes;
     this.port = port;
+    this.createOAuthClient = oauthClientFactory;
   }
 
   async getAuthorizedClient() {
@@ -41,12 +42,17 @@ export class OAuthUserProvider {
     }
 
     const redirect = `http://127.0.0.1:${this.port || 0}/oauth2callback`;
-    const oauth2 = new google.auth.OAuth2(installed.client_id, installed.client_secret, redirect);
+    const oauth2 = await this.createOAuthClient(installed, redirect);
     try {
       oauth2.setCredentials(JSON.parse(await fs.readFile(this.tokenPath, "utf8")));
       return oauth2;
     } catch {
-      return authorizeWithLoopback({ installed, scopes: this.scopes, tokenPath: this.tokenPath });
+      return authorizeWithLoopback({
+        installed,
+        scopes: this.scopes,
+        tokenPath: this.tokenPath,
+        createOAuthClient: this.createOAuthClient
+      });
     }
   }
 }
@@ -61,7 +67,7 @@ export function createAuthProvider(config, mode = "oauth") {
   });
 }
 
-async function authorizeWithLoopback({ installed, scopes, tokenPath }) {
+async function authorizeWithLoopback({ installed, scopes, tokenPath, createOAuthClient: oauthClientFactory = createOAuthClient }) {
   const server = http.createServer();
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -70,7 +76,7 @@ async function authorizeWithLoopback({ installed, scopes, tokenPath }) {
 
   const { port } = server.address();
   const redirect = `http://127.0.0.1:${port}/oauth2callback`;
-  const oauth2 = new google.auth.OAuth2(installed.client_id, installed.client_secret, redirect);
+  const oauth2 = await oauthClientFactory(installed, redirect);
   const authorizationUrl = oauth2.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -101,5 +107,6 @@ async function authorizeWithLoopback({ installed, scopes, tokenPath }) {
   oauth2.setCredentials(tokens);
   await fs.mkdir(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
   await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+  await fs.chmod(tokenPath, 0o600);
   return oauth2;
 }

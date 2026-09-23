@@ -20,3 +20,13 @@ test("loadBriefingConfig applies safe read-only defaults", () => {
   assert.equal(config.outputDir, "reports/private");
   assert.equal(config.sheetName, "");
 });
+
+test("loadBriefingConfig rejects OAuth paths inside the repository", () => {
+  assert.throws(
+    () => loadBriefingConfig({
+      GOOGLE_OAUTH_CLIENT_SECRET_PATH: "./client-secret.json",
+      GOOGLE_OAUTH_TOKEN_PATH: "/outside/google-token.json"
+    }),
+    /repository/
+  );
+});

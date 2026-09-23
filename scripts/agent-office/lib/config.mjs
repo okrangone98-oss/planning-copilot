@@ -1,3 +1,5 @@
+import path from "node:path";
+
 const REQUIRED_PATHS = [
   "GOOGLE_OAUTH_CLIENT_SECRET_PATH",
   "GOOGLE_OAUTH_TOKEN_PATH"
@@ -10,12 +12,25 @@ function requiredPaths(env) {
   }
 }
 
+function externalPath(value, name) {
+  const resolvedPath = path.resolve(value);
+  const relativePath = path.relative(process.cwd(), resolvedPath);
+  const isInRepository = relativePath === "" ||
+    (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath));
+
+  if (isInRepository) {
+    throw new Error(`${name} must be outside the repository.`);
+  }
+
+  return resolvedPath;
+}
+
 export function loadBriefingConfig(env = process.env) {
   requiredPaths(env);
 
   return {
-    clientSecretPath: env.GOOGLE_OAUTH_CLIENT_SECRET_PATH,
-    tokenPath: env.GOOGLE_OAUTH_TOKEN_PATH,
+    clientSecretPath: externalPath(env.GOOGLE_OAUTH_CLIENT_SECRET_PATH, "GOOGLE_OAUTH_CLIENT_SECRET_PATH"),
+    tokenPath: externalPath(env.GOOGLE_OAUTH_TOKEN_PATH, "GOOGLE_OAUTH_TOKEN_PATH"),
     calendarId: env.GOOGLE_CALENDAR_ID || "primary",
     spreadsheetId: env.PROJECT_STATE_SPREADSHEET_ID || "",
     sheetName: env.PROJECT_STATE_SHEET_NAME || "",
