@@ -10,7 +10,9 @@
     "sheets:create": "node scripts/google-sheets-agent.mjs",
     "docs:verify": "node scripts/verify-document-extraction.mjs",
     "check": "tsc --noEmit && vite build && node --check scripts/google-sheets-agent.mjs",
-    "office:nightly": "node scripts/agent-office/nightly-report.mjs"
+    "office:nightly": "node scripts/agent-office/nightly-report.mjs",
+    "office:test": "node --test scripts/agent-office/test/*.test.mjs",
+    "office:briefing": "node scripts/agent-office/daily-briefing.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
