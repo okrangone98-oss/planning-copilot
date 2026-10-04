@@ -17,7 +17,7 @@ const MOCK_CONFIG = {
   timezone: "Asia/Seoul"
 };
 
-export async function runBriefing({ mode = "oauth", config, now = new Date(), adapters, provider, googleClientFactory } = {}) {
+export async function runBriefing({ mode = "oauth", config, now = new Date(), adapters, provider, googleClientFactory, writeOutput = true, outputFileName } = {}) {
   const resolvedConfig = config || (mode === "mock" ? MOCK_CONFIG : loadBriefingConfig());
   const resolvedAdapters = adapters || (mode === "mock"
     ? mockAdapters()
@@ -30,7 +30,7 @@ export async function runBriefing({ mode = "oauth", config, now = new Date(), ad
     loadAliases(resolvedConfig.aliasConfigPath)
   ]);
   const briefing = buildDailyBriefing({ now, calendarEvents, emails, projects, aliases, detectedAt, timezone: resolvedConfig.timezone });
-  const outputPath = await writeBriefing(resolvedConfig.outputDir, briefing, now, resolvedConfig.timezone);
+  const outputPath = writeOutput ? await writeBriefing(resolvedConfig.outputDir, briefing, now, resolvedConfig.timezone, outputFileName) : null;
   return { briefing, outputPath };
 }
 
@@ -47,10 +47,11 @@ export async function createGoogleAdapters(client, config, googleClientFactory) 
   };
 }
 
-export async function writeBriefing(outputDir, briefing, now, timezone = "Asia/Seoul") {
+export async function writeBriefing(outputDir, briefing, now, timezone = "Asia/Seoul", outputFileName) {
   const dateKey = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" })
     .formatToParts(now).reduce((value, part) => part.type === "year" || part.type === "month" || part.type === "day" ? { ...value, [part.type]: part.value } : value, {});
-  const outputPath = path.join(outputDir, `${dateKey.year}-${dateKey.month}-${dateKey.day}-daily-briefing.md`);
+  const defaultFileName = `${dateKey.year}-${dateKey.month}-${dateKey.day}-daily-briefing.md`;
+  const outputPath = path.join(outputDir, outputFileName || defaultFileName);
   await fs.mkdir(outputDir, { recursive: true, mode: 0o700 });
   await fs.chmod(outputDir, 0o700);
   await fs.writeFile(outputPath, `${renderDailyBriefing(briefing)}\n`, { encoding: "utf8", mode: 0o600 });

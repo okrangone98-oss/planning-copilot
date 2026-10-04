@@ -1,5 +1,6 @@
 import { emptyProject, type ApprovalItem, type ArchiveData, type KnowledgeDoc, type ModelSettings, type OfficeResult, type ProjectData, type ProjectMemoryEntry } from "../types";
 import { defaultModelSettings } from "./modelRouter";
+import { sanitizeModelSettings } from "./modelSafety.mjs";
 
 const STORAGE_KEY = "planningCopilotProject";
 const KNOWLEDGE_KEY = "planningCopilotKnowledgeDocs";
@@ -77,14 +78,16 @@ export function saveOfficeSession(command: string, result: OfficeResult | null) 
 
 export function loadModelSettings(): ModelSettings {
   try {
-    return { ...defaultModelSettings, ...JSON.parse(localStorage.getItem(MODEL_SETTINGS_KEY) || "{}") };
+    const saved = JSON.parse(localStorage.getItem(MODEL_SETTINGS_KEY) || "{}");
+    return sanitizeModelSettings(saved, defaultModelSettings);
   } catch {
-    return defaultModelSettings;
+    return { ...defaultModelSettings };
   }
 }
 
 export function saveModelSettings(settings: ModelSettings) {
-  localStorage.setItem(MODEL_SETTINGS_KEY, JSON.stringify(settings));
+  // 구버전 브라우저 설정에 있던 클라우드 비밀키를 다시 보존하지 않도록 허용 목록만 저장한다.
+  localStorage.setItem(MODEL_SETTINGS_KEY, JSON.stringify(sanitizeModelSettings(settings, defaultModelSettings)));
 }
 
 export function loadApprovalItems(): ApprovalItem[] {
