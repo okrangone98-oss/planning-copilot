@@ -1,5 +1,6 @@
 import { agentRoles, getAgentRole } from "../data/agentRoles";
 import type { AgentDraft, AgentId, AgentTask, MorningReport, OfficeResult, PromptPackage } from "../types";
+import { runOfficeCore } from "./agentOfficeCore.mjs";
 
 type OfficeMode = "simulation" | "llm";
 
@@ -23,26 +24,7 @@ const agentTriggerKeywords: Record<AgentId, string[]> = {
 const fallbackCommand = "다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘";
 
 export function runOffice(command: string, options: OfficeRunOptions = {}): OfficeResult {
-  const normalizedCommand = normalizeCommand(command);
-  const createdAt = options.createdAt || new Date().toISOString();
-  const mode = options.mode || "simulation";
-  const assignedAgents = prioritizeAgents(normalizedCommand);
-  const tasks = createTasks(normalizedCommand, assignedAgents);
-  const drafts = createDrafts(normalizedCommand, tasks, mode);
-  const promptPackage = createPromptPackage(normalizedCommand, tasks, drafts);
-  const report: MorningReport = {
-    command: normalizedCommand,
-    createdAt,
-    highlights: createHighlights(normalizedCommand, assignedAgents),
-    drafts: drafts.filter((draft) => draft.agentId !== "chief"),
-    nextActions: createNextActions(normalizedCommand),
-    markdown: ""
-  };
-  const result: OfficeResult = { tasks, drafts, report, promptPackage };
-
-  report.markdown = createReportMarkdown(result);
-
-  return result;
+  return runOfficeCore(command, options);
 }
 
 export function callLLM(prompt: string): string {

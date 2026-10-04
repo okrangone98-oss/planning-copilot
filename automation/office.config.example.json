@@ -12,6 +12,22 @@
   ],
   "maxAgentRuns": 7,
   "allowExternalSend": false,
+  "googleWorkspaceBriefing": {
+    "oauthClientSecretPathEnv": "GOOGLE_OAUTH_CLIENT_SECRET_PATH (outside repository)",
+    "oauthTokenPathEnv": "GOOGLE_OAUTH_TOKEN_PATH (outside repository)",
+    "calendarId": "primary",
+    "projectStateSpreadsheetId": "",
+    "projectStateSpreadsheetTitleFallback": "26 양터 전체사업 총괄표",
+    "projectAliasConfigPath": "automation/project-aliases.example.json",
+    "scopes": [
+      "gmail.readonly",
+      "calendar.readonly",
+      "drive.readonly",
+      "spreadsheets.readonly"
+    ],
+    "outputDir": "reports/private",
+    "writeBoundary": "Writes exactly one local Markdown report; Google Workspace write operations are forbidden."
+  },
   "outputPolicy": {
     "drafts": "private",
     "publicReports": "reports/public-after-review",

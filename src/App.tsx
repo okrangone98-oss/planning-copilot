@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { agentRoles } from "./data/agentRoles";
+import { ControlTowerView } from "./components/ControlTowerView";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
 import { generateDraftText } from "./lib/draft";
 import { extractTextFromFile } from "./lib/fileText";
 import { absorbModelResponse, buildModelPrompt } from "./lib/prompts";
-import { modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
+import { listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
+import { buildOfficeContext, buildOfficeModelPrompt } from "./lib/agentOfficePrompt.mjs";
 import { roleSummary, runOffice } from "./lib/agentOffice";
+import { clearControlTowerState, loadControlTowerState, saveControlTowerApproval, saveControlTowerSnapshot } from "./lib/controlTowerStorage";
 import {
   clearProject,
   createArchive,
@@ -28,50 +31,51 @@ import {
   saveProjectMemory
 } from "./lib/storage";
 import { buildMermaid } from "./lib/visuals";
-import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type KnowledgeDoc, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
+import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type KnowledgeDoc, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
 
 const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: string }> }> = [
   {
-    title: "AI 운영",
+    title: "업무 홈",
     items: [
       { id: "agentOffice", label: "AI 사무국" },
-      { id: "modelSettings", label: "모델 설정" },
-      { id: "approvalInbox", label: "승인함" },
-      { id: "projectMemory", label: "프로젝트 기억" }
+      { id: "controlTower", label: "업무 관제탑" }
     ]
   },
   {
-    title: "자료·분석",
-    items: [
-      { id: "notice", label: "공고 해석" },
-      { id: "ragRoom", label: "사례 모으기" },
-      { id: "sample", label: "샘플 분해" },
-      { id: "aiBridge", label: "AI 질문" }
-    ]
-  },
-  {
-    title: "기획 설계",
+    title: "프로젝트",
     items: [
       { id: "cowork", label: "질문 받기" },
       { id: "idea", label: "아이디어 인터뷰" },
       { id: "problem", label: "문제정의" },
       { id: "logic", label: "논리모형" },
       { id: "metrics", label: "성과지표" },
-      { id: "execution", label: "실행설계" }
+      { id: "execution", label: "실행설계" },
+      { id: "blueprint", label: "서비스 블루프린트" }
     ]
   },
   {
-    title: "산출물",
+    title: "자료·근거",
     items: [
+      { id: "notice", label: "공고 해석" },
+      { id: "ragRoom", label: "사례 모으기" },
+      { id: "sample", label: "샘플 분해" },
+      { id: "projectMemory", label: "프로젝트 기억" }
+    ]
+  },
+  {
+    title: "산출물·검토",
+    items: [
+      { id: "draft", label: "초안 조립" },
       { id: "visuals", label: "시각자료" },
-      { id: "blueprint", label: "서비스 블루프린트" },
-      { id: "draft", label: "초안 조립" }
+      { id: "approvalInbox", label: "승인함" },
+      { id: "aiBridge", label: "외부 AI 질문" }
     ]
   },
   {
-    title: "연결·관리",
+    title: "설정·연결",
     items: [
-      { id: "integrations", label: "연결 허브" },
+      { id: "modelSettings", label: "모델 설정" },
+      { id: "integrations", label: "프로젝트 링크" },
       { id: "driveBackup", label: "백업" }
     ]
   }
@@ -218,6 +222,7 @@ export default function App() {
   const [project, setProject] = useState<ProjectData>(() => loadProject());
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(() => loadKnowledgeDocs());
   const [section, setSection] = useState<SectionId>("agentOffice");
+  const [expandedNavGroup, setExpandedNavGroup] = useState("업무 홈");
   const [toast, setToast] = useState("");
   const [knowledgeTitle, setKnowledgeTitle] = useState("");
   const [knowledgeType, setKnowledgeType] = useState("");
@@ -230,9 +235,12 @@ export default function App() {
   const [modelTestPrompt, setModelTestPrompt] = useState("오늘 할 일을 5개 체크리스트로 정리해줘.");
   const [modelTestResult, setModelTestResult] = useState<ModelRunResult | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaModelsBusy, setOllamaModelsBusy] = useState(false);
   const [approvalItems, setApprovalItems] = useState<ApprovalItem[]>(() => loadApprovalItems());
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryEntry[]>(() => loadProjectMemory());
   const [memoryNote, setMemoryNote] = useState("");
+  const [controlTowerState, setControlTowerState] = useState<ControlTowerState>(() => loadControlTowerState());
 
   const sectionTitle = useMemo(() => navItems.find((item) => item.id === section)?.label || "", [section]);
 
@@ -243,6 +251,11 @@ export default function App() {
   useEffect(() => {
     saveKnowledgeDocs(knowledgeDocs);
   }, [knowledgeDocs]);
+
+  useEffect(() => {
+    const activeGroup = navGroups.find((group) => group.items.some((item) => item.id === section));
+    if (activeGroup) setExpandedNavGroup(activeGroup.title);
+  }, [section]);
 
   useEffect(() => {
     if (!toast) return;
@@ -412,20 +425,73 @@ export default function App() {
     navigator.clipboard.writeText(text).then(() => notify(message));
   };
 
-  const runAgentOffice = () => {
-    if (!officeCommand.trim()) {
+  const runAgentOffice = async (command = officeCommand) => {
+    const normalizedCommand = command.trim();
+    if (!normalizedCommand) {
       notify("AI 사무국에 맡길 명령을 입력해 주세요.");
       return;
     }
-    const result = runOffice(officeCommand);
-    setOfficeResult(result);
-    notify("AI 사무국 보고서를 만들었습니다.");
+    if (modelBusy) return;
+    setOfficeCommand(normalizedCommand);
+
+    const result = runOffice(normalizedCommand);
+    if (modelSettings.provider === "simulation") {
+      result.execution = { mode: "simulation", status: "completed", contextSources: ["사용자 명령"] };
+      setOfficeResult(result);
+      notify("템플릿 모드 보고서를 만들었습니다.");
+      return;
+    }
+
+    const context = buildOfficeContext(project, searchKnowledgeDocs(knowledgeDocs, normalizedCommand, 3));
+    const prompt = buildOfficeModelPrompt({ command: normalizedCommand, tasks: result.tasks, context });
+    const modelName = modelSettings.ollamaModel.trim() || "이름 미입력";
+    setModelBusy(true);
+    try {
+      const modelResult = await runModelPrompt(prompt, modelSettings);
+      if (!modelResult.ok) throw new Error(modelResult.error || "Ollama 실행에 실패했습니다.");
+      result.execution = { mode: "ollama", status: "completed", model: modelName, contextSources: context.sourceLabels };
+      result.report.markdown = formatOllamaOfficeReport(normalizedCommand, modelName, context.sourceLabels, modelResult.output, context.truncated);
+      setOfficeResult(result);
+      notify("Ollama가 통합 초안을 만들었습니다. 실행 전 내용을 검토해 주세요.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ollama 실행에 실패했습니다.";
+      result.execution = { mode: "ollama", status: "failed", model: modelName, contextSources: context.sourceLabels, error: message };
+      result.report.markdown = formatOllamaOfficeFailure(normalizedCommand, modelName, message, result.report.markdown);
+      setOfficeResult(result);
+      notify(`Ollama 실행 실패: ${message}`);
+    } finally {
+      setModelBusy(false);
+    }
   };
 
   const useQuickOfficeCommand = (command: string) => {
     setOfficeCommand(command);
-    setOfficeResult(runOffice(command));
-    notify("예시 명령으로 사무국 보고서를 만들었습니다.");
+    void runAgentOffice(command);
+  };
+
+  const importControlSnapshot = (snapshot: ControlTowerSnapshot) => {
+    try {
+      setControlTowerState(saveControlTowerSnapshot(snapshot));
+      notify("실행 기록을 가져왔습니다.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "실행 기록을 저장하지 못했습니다.");
+    }
+  };
+
+  const updateControlApproval = (id: string, status: ControlTowerApprovalStatus) => {
+    try {
+      setControlTowerState(saveControlTowerApproval(controlTowerState.snapshot?.run.id || "", id, status));
+      notify(status === "approved" ? "브라우저에 승인 상태를 기록했습니다." : "브라우저에 보류 상태를 기록했습니다.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "승인 상태를 저장하지 못했습니다.");
+    }
+  };
+
+  const clearControlSnapshot = () => {
+    if (!window.confirm("이 브라우저에 저장한 관제탑 실행 기록을 지울까요?")) return;
+    clearControlTowerState();
+    setControlTowerState({ snapshot: null, approvals: {} });
+    notify("관제탑 실행 기록을 지웠습니다.");
   };
 
   const sendOfficePromptToAiBridge = () => {
@@ -473,12 +539,30 @@ export default function App() {
   const updateModelSettings = (patch: Partial<ModelSettings>) => setModelSettings((current) => ({ ...current, ...patch }));
 
   const runSelectedModel = async (prompt: string) => {
+    if (modelBusy) return;
     setModelBusy(true);
-    const result = await runModelPrompt(prompt, modelSettings);
-    setModelTestResult(result);
-    setModelBusy(false);
-    notify(result.ok ? `${modelLabel(result.provider)} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
-    return result;
+    try {
+      const result = await runModelPrompt(prompt, modelSettings);
+      setModelTestResult(result);
+      notify(result.ok ? `${modelLabel(result.provider)} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
+      return result;
+    } finally {
+      setModelBusy(false);
+    }
+  };
+
+  const refreshOllamaModels = async () => {
+    if (ollamaModelsBusy) return;
+    setOllamaModelsBusy(true);
+    try {
+      const models = await listOllamaModels(modelSettings);
+      setOllamaModels(models);
+      notify(models.length ? `Ollama 모델 ${models.length}개를 확인했습니다.` : "설치된 Ollama 모델이 없습니다.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Ollama 모델 목록을 가져오지 못했습니다.");
+    } finally {
+      setOllamaModelsBusy(false);
+    }
   };
 
   const addApprovalItem = (item: Omit<ApprovalItem, "id" | "status" | "createdAt" | "updatedAt">, status: ApprovalStatus = "draft") => {
@@ -507,7 +591,10 @@ export default function App() {
 
   const saveCurrentMemory = () => {
     const title = project.projectName || officeResult?.report.command || "이름 없는 프로젝트";
-    const summary = memoryNote.trim() || project.aiSynthesis || officeResult?.report.highlights.join("\n") || project.draftOutput || "저장할 프로젝트 메모가 없습니다.";
+    const reportMemory = officeResult?.execution?.status === "failed" ? ""
+      : officeResult?.execution?.mode === "ollama" ? officeResult.report.markdown
+        : officeResult?.report.highlights.join("\n");
+    const summary = memoryNote.trim() || project.aiSynthesis || reportMemory || project.draftOutput || "";
     if (!summary.trim()) {
       notify("저장할 프로젝트 기억이 없습니다.");
       return;
@@ -518,7 +605,7 @@ export default function App() {
         projectName: project.projectName || "미지정 프로젝트",
         title,
         summary,
-        source: officeResult ? "AI 사무국" : "수동 메모",
+        source: officeResult?.execution?.mode === "ollama" && officeResult.execution.status === "completed" ? "Ollama 통합 초안" : officeResult ? "템플릿 또는 수동 검토 메모" : "수동 메모",
         createdAt: new Date().toISOString()
       },
       ...current
@@ -545,26 +632,31 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar" aria-label="작업 단계">
+      <aside className="sidebar" aria-label="업무 영역">
         <div className="brand-block">
           <p className="eyebrow">Planning Copilot</p>
-          <h1>사업계획서 코워크 에이전트</h1>
+          <h1>로컬기획 사무국</h1>
         </div>
         <TextInput label="프로젝트명" value={project.projectName} onChange={(projectName) => updateProject({ projectName })} placeholder="예: 생활문화 혁신 지원사업" />
-        <nav className="step-nav" aria-label="작성 단계">
+        <nav className="step-nav" aria-label="업무 영역">
           {navGroups.map((group) => (
             <section className="nav-group" key={group.title}>
-              <div className="nav-group-title">
+              <button
+                className={`nav-group-toggle ${group.items.some((item) => item.id === section) ? "is-current" : ""}`}
+                type="button"
+                aria-expanded={expandedNavGroup === group.title}
+                onClick={() => setExpandedNavGroup((current) => current === group.title ? "" : group.title)}
+              >
                 <span>{group.title}</span>
-                <small>{group.items.length}</small>
-              </div>
-              <div className="nav-group-items">
+                <span className="nav-group-meta"><small>{group.items.length}</small><i aria-hidden="true" /></span>
+              </button>
+              {expandedNavGroup === group.title && <div className="nav-group-items">
                 {group.items.map((item) => (
-                  <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => setSection(item.id)}>
+                  <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => { setSection(item.id); setExpandedNavGroup(group.title); }}>
                     {item.label}
                   </button>
                 ))}
-              </div>
+              </div>}
             </section>
           ))}
         </nav>
@@ -581,7 +673,7 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">React + TypeScript</p>
+            <p className="eyebrow">{project.projectName || "새 프로젝트"}</p>
             <h2>{sectionTitle}</h2>
           </div>
           <div className="topbar-actions">
@@ -594,18 +686,27 @@ export default function App() {
           </div>
         </header>
 
-        <div className="workflow-strip" aria-label="권장 사용 순서">
-          <button type="button" onClick={() => setSection("notice")}>1. 공고문 분석</button>
-          <button type="button" onClick={() => setSection("ragRoom")}>2. 사례 찾기</button>
-          <button type="button" onClick={() => setSection("aiBridge")}>3. AI 질문 만들기</button>
-          <button type="button" onClick={() => setSection("draft")}>4. 초안 조립</button>
-        </div>
+        {section === "controlTower" && (
+          <Panel title="업무 관제탑" description="로컬 하네스의 실행 기록을 가져와 단계, 알림, 산출물과 검토 대상을 한곳에서 확인합니다.">
+            <ControlTowerView
+              state={controlTowerState}
+              onImport={importControlSnapshot}
+              onApprovalChange={updateControlApproval}
+              onClear={clearControlSnapshot}
+              onNavigate={setSection}
+            />
+          </Panel>
+        )}
 
         {section === "agentOffice" && (
-          <Panel title="AI 로컬기획 사무국" description="명령 한 줄을 역할별 업무와 아침 보고서로 바꿉니다. 현재는 API 키 없이 동작하는 시뮬레이션 모드입니다.">
+          <Panel title="AI 로컬기획 사무국" description="명령을 업무 단위로 나누고, 템플릿 또는 내 컴퓨터의 Ollama로 검토 가능한 통합 초안을 만듭니다.">
+            <div className="model-status-bar office-mode-notice">
+              <strong>현재 실행 경로: {modelLabel(modelSettings.provider)}</strong>
+              <span>{modelSafetyNote(modelSettings)}</span>
+            </div>
             <div className="coach-bar">
-              <div><strong>Chief Agent 실행</strong><span>입력한 명령을 기획, 리서치, 콘텐츠, 행정문서, 메일, 검수 업무로 나눕니다.</span></div>
-              <button className="primary-button" type="button" onClick={runAgentOffice}>사무국 실행</button>
+              <div><strong>업무 요청</strong><span>역할은 검토 관점을 정리하는 용도입니다. Ollama를 선택하면 단일 모델 호출이 최종 보고서를 작성합니다.</span></div>
+              <button className="primary-button" type="button" onClick={() => { void runAgentOffice(); }} disabled={modelBusy}>{modelBusy ? "Ollama 실행 중" : "사무국 실행"}</button>
             </div>
             <div className="quick-command-grid" aria-label="빠른 명령 예시">
               {quickOfficeCommands.map((command) => (
@@ -622,7 +723,7 @@ export default function App() {
               wide
               placeholder="다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘"
               onKeyDown={(event) => {
-                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") runAgentOffice();
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") void runAgentOffice();
               }}
             />
             {officeResult ? (
@@ -647,7 +748,7 @@ export default function App() {
         )}
 
         {section === "modelSettings" && (
-          <Panel title="모델 라우터 설정" description="무료 API와 로컬 LLM을 상황에 맞게 고릅니다. 민감한 자료는 Ollama 같은 로컬 모델을 우선 사용하세요.">
+          <Panel title="모델 설정" description="브라우저에 API 키를 저장하지 않습니다. 실제 모델 사용은 loopback 주소의 Ollama만 지원하고, 기본값은 안전한 템플릿 모드입니다.">
             <div className="model-status-bar">
               <strong>현재 경로: {modelLabel(modelSettings.provider)}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
@@ -661,12 +762,21 @@ export default function App() {
               ))}
             </div>
             <div className="form-grid">
-              <TextInput label="Ollama 주소" value={modelSettings.ollamaBaseUrl} onChange={(ollamaBaseUrl) => updateModelSettings({ ollamaBaseUrl })} placeholder="http://127.0.0.1:11434" />
-              <TextInput label="Ollama 모델" value={modelSettings.ollamaModel} onChange={(ollamaModel) => updateModelSettings({ ollamaModel })} placeholder="llama3.1" />
-              <TextInput label="Gemini API 키" value={modelSettings.geminiApiKey} onChange={(geminiApiKey) => updateModelSettings({ geminiApiKey })} placeholder="브라우저에만 저장" />
-              <TextInput label="Gemini 모델" value={modelSettings.geminiModel} onChange={(geminiModel) => updateModelSettings({ geminiModel })} placeholder="gemini-1.5-flash" />
-              <TextInput label="GitHub Models 토큰" value={modelSettings.githubToken} onChange={(githubToken) => updateModelSettings({ githubToken })} placeholder="브라우저에만 저장" />
-              <TextInput label="GitHub Models 모델" value={modelSettings.githubModel} onChange={(githubModel) => updateModelSettings({ githubModel })} placeholder="openai/gpt-4o-mini" />
+              {modelSettings.provider === "ollama" && <>
+                <TextInput label="Ollama 로컬 주소" value={modelSettings.ollamaBaseUrl} onChange={(ollamaBaseUrl) => updateModelSettings({ ollamaBaseUrl })} placeholder="http://127.0.0.1:11434" />
+                <TextInput label="Ollama 모델 이름" value={modelSettings.ollamaModel} onChange={(ollamaModel) => updateModelSettings({ ollamaModel })} placeholder="예: llama3.1" />
+                <div className="ollama-model-controls">
+                  <button className="secondary-button" type="button" onClick={() => { void refreshOllamaModels(); }} disabled={ollamaModelsBusy}>{ollamaModelsBusy ? "모델 확인 중" : "설치된 모델 확인"}</button>
+                  {ollamaModels.length > 0 && <label className="field">
+                    <span>설치 모델 선택</span>
+                    <select value={modelSettings.ollamaModel} onChange={(event) => updateModelSettings({ ollamaModel: event.target.value })}>
+                      {!ollamaModels.includes(modelSettings.ollamaModel) && modelSettings.ollamaModel && <option value={modelSettings.ollamaModel}>{modelSettings.ollamaModel} · 목록 외 입력</option>}
+                      <option value="">모델 선택</option>
+                      {ollamaModels.map((model) => <option key={model} value={model}>{model}</option>)}
+                    </select>
+                  </label>}
+                </div>
+              </>}
               <Field label="모델 테스트 프롬프트" value={modelTestPrompt} onChange={setModelTestPrompt} rows={6} wide />
             </div>
             <div className="draft-actions bridge-actions">
@@ -826,13 +936,13 @@ export default function App() {
         )}
 
         {section === "integrations" && (
-          <Panel title="Jira, Notion, 스프레드시트를 한곳에 둡니다" description="처음에는 링크로 연결하고, 나중에 자동 생성/동기화로 확장합니다.">
+          <Panel title="프로젝트 링크" description="외부 서비스 링크와 메모를 이 프로젝트에 보관합니다. API 동기화나 자동 생성을 수행하지 않습니다.">
             <div className="form-grid">
               <TextInput label="Jira 작업 링크" value={project.jiraUrl} onChange={(jiraUrl) => updateProject({ jiraUrl })} type="url" placeholder="https://your-domain.atlassian.net/browse/..." />
               <TextInput label="Notion 페이지 링크" value={project.notionUrl} onChange={(notionUrl) => updateProject({ notionUrl })} type="url" placeholder="https://www.notion.so/..." />
               <TextInput label="Google Sheet 링크" value={project.spreadsheetUrl} onChange={(spreadsheetUrl) => updateProject({ spreadsheetUrl })} type="url" placeholder="https://docs.google.com/spreadsheets/..." />
               <TextInput label="Google Drive 폴더 링크" value={project.driveFolderUrl} onChange={(driveFolderUrl) => updateProject({ driveFolderUrl })} type="url" placeholder="https://drive.google.com/drive/folders/..." />
-              <Field label="연결 메모" value={project.integrationMemo} onChange={(integrationMemo) => updateProject({ integrationMemo })} rows={6} wide placeholder="예: Jira는 할 일, Notion은 회의 기록, Sheet는 지표, Drive는 원본 문서 보관" />
+              <Field label="링크 메모" value={project.integrationMemo} onChange={(integrationMemo) => updateProject({ integrationMemo })} rows={6} wide placeholder="예: Jira는 할 일, Notion은 회의 기록, Sheet는 지표, Drive는 원본 문서 보관" />
             </div>
             <div className="integration-grid">
               <div className="integration-card"><strong>Jira</strong><span>작업 티켓과 진행상태</span><LinkButton href={project.jiraUrl} label="Jira 열기" /></div>
@@ -841,8 +951,8 @@ export default function App() {
               <div className="integration-card"><strong>Drive</strong><span>공고문, 원본 사례, 제출 파일</span><LinkButton href={project.driveFolderUrl} label="Drive 열기" /></div>
             </div>
             <div className="open-source-note">
-              <strong>다음 확장</strong>
-              <span>Jira API로 작업 자동 생성, Notion 데이터베이스 저장, Google Sheet 지표 자동 업데이트까지 확장할 수 있습니다. 현재 환경에서는 Notion 검색 커넥터는 보이지만, Jira 전용 커넥터는 별도 연결이 필요합니다.</span>
+              <strong>현재 범위</strong>
+              <span>현재는 링크 저장과 외부 페이지 열기만 지원합니다. Jira·Notion·Sheets·Drive 데이터의 자동 읽기, 쓰기, 동기화는 구현되어 있지 않습니다.</span>
             </div>
           </Panel>
         )}
@@ -921,9 +1031,21 @@ function OfficeResultView({
   const activeAgentIds = Array.from(new Set(result.tasks.map((task) => task.agentId)));
   const activeRoles = agentRoles.filter((role) => activeAgentIds.includes(role.id));
   const visibleDrafts = result.drafts.filter((draft) => draft.agentId !== "chief");
+  const execution = result.execution;
 
   return (
     <div className="office-results">
+      <div className={`office-execution-note ${execution?.status === "failed" ? "has-error" : ""}`} role={execution?.status === "failed" ? "alert" : "status"}>
+        <strong>{execution?.mode === "ollama"
+          ? execution.status === "completed" ? `Ollama 단일 실행 완료 · ${execution.model || "모델"}` : "Ollama 실행 실패"
+          : execution?.mode === "simulation" ? "규칙 기반 템플릿 결과" : "이전 저장 세션 · 실행 경로 확인 불가"}</strong>
+        <span>{execution?.mode === "ollama"
+          ? execution.status === "completed"
+            ? "실제 모델이 생성한 내용은 아침 보고서입니다. 작업 분해와 역할별 초안은 규칙 기반 참고 자료이며, 병렬 에이전트 실행이 아닙니다."
+            : `${execution.error || "모델 응답을 받지 못했습니다."} 아래 역할별 초안은 템플릿 결과이며 실제 모델 생성물이 아닙니다.`
+          : "AI 모델을 호출하지 않았습니다. 역할 분배와 각 초안은 규칙 기반 예시입니다."}</span>
+        {execution?.contextSources.length ? <small>{execution.mode === "ollama" ? "Ollama 입력 자료" : "템플릿 입력"}: {execution.contextSources.join(" · ")}</small> : null}
+      </div>
       <section className="office-action-bar" aria-label="사무국 결과 활용">
         <div>
           <strong>다음 작업으로 바로 보내기</strong>
@@ -975,7 +1097,7 @@ function OfficeResultView({
       </section>
 
       <section className="office-block">
-        <div className="office-block-title"><span>③ 에이전트별 초안</span></div>
+        <div className="office-block-title"><span>{execution?.mode === "ollama" ? "③ 역할별 참고 템플릿" : "③ 역할별 템플릿 초안"}</span></div>
         <div className="office-draft-list">
           {visibleDrafts.map((draft) => (
             <article className="office-draft" key={draft.taskId}>
@@ -996,7 +1118,7 @@ function OfficeResultView({
 
       <section className="office-block">
         <div className="office-block-title">
-          <span>⑤ GPT 질문 패키지</span>
+          <span>⑤ 외부 AI 질문 패키지 · 선택</span>
           <button className="secondary-button" type="button" onClick={onCopyPrompt}>통합 질문 복사</button>
         </div>
         <div className="prompt-package">
@@ -1018,6 +1140,15 @@ function OfficeResultView({
       </section>
     </div>
   );
+}
+
+function formatOllamaOfficeReport(command: string, model: string, sources: string[], output: string, truncated: boolean) {
+  const sourceLines = sources.length ? sources.map((source) => `- ${source}`).join("\n") : "- 사용자 명령만 사용";
+  return `# AI 사무국 통합 보고서\n\n- 요청: ${command}\n- 실행 경로: Ollama 로컬 모델 ${model} · 단일 호출\n- 입력 자료:\n${sourceLines}${truncated ? "\n- 안내: 입력 길이 제한에 따라 일부 자료가 생략됨" : ""}\n\n---\n\n${output.trim()}\n\n---\n\n> 검토 전 초안입니다. 정책·일정·예산·기관 정보와 출처 표시를 확인한 뒤 사용하세요. 외부 발송·게시·제출은 수행하지 않았습니다.\n`;
+}
+
+function formatOllamaOfficeFailure(command: string, model: string, error: string, templateReport: string) {
+  return `# Ollama 통합 초안 생성 실패\n\n- 요청: ${command}\n- 모델: ${model}\n- 오류: ${error}\n\n> 아래 내용은 규칙 기반 템플릿 보고서이며 Ollama가 생성한 결과가 아닙니다. 연결과 모델 이름을 확인한 뒤 다시 실행하세요.\n\n---\n\n${templateReport}`;
 }
 
 function draftStatusLabel(draft: AgentDraft) {

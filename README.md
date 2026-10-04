@@ -8,6 +8,8 @@
 
 https://okrangone98-oss.github.io/planning-copilot/
 
+현재 메뉴 구성, 템플릿/로컬 모델 사용, 검토·백업 순서는 [실무 사용 안내](docs/practical-product-usage.md)를 참고하세요. 로컬 실행 기록과 관제탑 연동은 [하네스 운영 안내](docs/agent-office-harness.md)에 정리했습니다.
+
 ## 실행 방법
 
 개발 중에는 아래 명령으로 실행합니다.

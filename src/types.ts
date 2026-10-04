@@ -17,8 +17,70 @@ export type SectionId =
   | "metrics"
   | "execution"
   | "blueprint"
-  | "draft";
+  | "draft"
+  | "controlTower";
 
+export type HarnessJobType = "daily-briefing" | "agent-office-command";
+export type HarnessStatus = "QUEUED" | "RUNNING" | "WAITING_APPROVAL" | "SUCCEEDED" | "NEEDS_ATTENTION" | "FAILED" | "CANCELLED";
+export type ControlTowerApprovalStatus = "approved" | "blocked";
+
+export type HarnessStepSummary = {
+  id: string;
+  label: string;
+  status: HarnessStatus;
+  message?: string;
+};
+
+export type HarnessAlert = {
+  id: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+};
+
+export type ApprovalItemSnapshot = {
+  id: string;
+  title: string;
+  summary: string;
+  status: "pending" | "approved" | "blocked";
+  artifactId?: string;
+};
+
+export type ArtifactRef = {
+  id: string;
+  name: string;
+  mediaType: string;
+  path: string;
+};
+
+export type SanitizedSourceRef = {
+  sourceType: "gmail" | "calendar" | "drive" | "sheets" | "agent-office" | "local";
+  sourceUrl: string;
+  projectId?: string;
+  detectedAt?: string;
+};
+
+export type ControlTowerSnapshot = {
+  schemaVersion: "1.0";
+  generatedAt: string;
+  run: {
+    id: string;
+    jobType: HarnessJobType;
+    status: HarnessStatus;
+    startedAt: string;
+    finishedAt?: string;
+    summary: string;
+  };
+  steps: HarnessStepSummary[];
+  alerts: HarnessAlert[];
+  approvals: ApprovalItemSnapshot[];
+  artifacts: ArtifactRef[];
+  sources: SanitizedSourceRef[];
+};
+
+export type ControlTowerState = {
+  snapshot: ControlTowerSnapshot | null;
+  approvals: Record<string, ControlTowerApprovalStatus>;
+};
 
 export type AgentId =
   | "chief"
@@ -80,19 +142,23 @@ export type OfficeResult = {
   drafts: AgentDraft[];
   report: MorningReport;
   promptPackage: PromptPackage;
+  execution?: OfficeExecution;
 };
 
+export type OfficeExecution = {
+  mode: "simulation" | "ollama";
+  status: "completed" | "failed";
+  model?: string;
+  contextSources: string[];
+  error?: string;
+};
 
-export type ModelProvider = "simulation" | "ollama" | "gemini" | "github-models" | "manual-gpt";
+export type ModelProvider = "simulation" | "ollama";
 
 export type ModelSettings = {
   provider: ModelProvider;
   ollamaBaseUrl: string;
   ollamaModel: string;
-  geminiApiKey: string;
-  geminiModel: string;
-  githubToken: string;
-  githubModel: string;
 };
 
 export type ModelRunResult = {
