@@ -643,4 +643,4 @@ export const KORDOC_FILL_CONTRACT = [
 ];
 
 export const KORDOC_FILL_HINT =
-  "값을 실제 .hwpx 양식에 넣는 일은 브라우저만으로는 안 됩니다. kordoc fill(원본 서식 유지)이나 patch(서식 유지 편집)를 로컬에서 실행하거나, 내 컴퓨터에 띄운 브릿지에 맡기세요.";
+  "양식에 값을 넣는 일은 이제 브라우저 안에서 끝납니다. 로컬 kordoc fill(원본 서식 유지)이나 patch(서식 유지 편집)는 터미널·브릿지를 쓰는 사람을 위한 보조 수단입니다.";

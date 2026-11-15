@@ -3,7 +3,6 @@ import { downloadTextFile, loadHwpxBridgeEndpoint, safeFileName, saveHwpxBridgeE
 import { interpretBridgeResponse } from "../lib/hwpxBridge.mjs";
 import {
   KORDOC_FILL_CONTRACT,
-  KORDOC_FILL_HINT,
   buildKordocFillCommand,
   buildKordocFillPayload,
   buildKordocFillValues,
@@ -11,12 +10,40 @@ import {
   kordocFillJsonText,
   type FormField
 } from "../lib/kordocFormSpec.mjs";
+import {
+  filledFileName,
+  patchHwpxBytes,
+  summarizeFill,
+  type FilledEntry,
+  type HwpxPatchResult,
+  type SkippedEntry
+} from "../lib/browserHwpxFiller.mjs";
 
-function base64ToBlob(base64: string) {
+function base64ToBytes(base64: string) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return new Blob([bytes], { type: "application/vnd.hancom.hwpx" });
+  return bytes;
+}
+
+function bytesToBlob(bytes: Uint8Array) {
+  // Blob 은 ArrayBuffer 를 요구한다 — 넘겨받은 뷰와 무관한 사본을 만들어 넘긴다.
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new Blob([copy], { type: "application/hwp+zip" });
+}
+
+function base64ToBlob(base64: string) {
+  return bytesToBlob(base64ToBytes(base64));
+}
+
+function downloadBytes(bytes: Uint8Array, fileName: string) {
+  const url = URL.createObjectURL(bytesToBlob(bytes));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export function KordocFillPanel({
@@ -35,8 +62,10 @@ export function KordocFillPanel({
   notify: (message: string) => void;
 }) {
   const [endpoint, setEndpoint] = useState(() => loadHwpxBridgeEndpoint());
-  const [busy, setBusy] = useState<"" | "fill" | "patch">("");
+  const [busy, setBusy] = useState<"" | "fill" | "patch" | "browser">("");
   const [bridgeNote, setBridgeNote] = useState<{ tone: "ok" | "error" | "info"; text: string } | null>(null);
+  const [browserNote, setBrowserNote] = useState<{ tone: "ok" | "error" | "info"; text: string } | null>(null);
+  const [browserResult, setBrowserResult] = useState<HwpxPatchResult | null>(null);
 
   const fill = useMemo(() => buildKordocFillValues({ fields, values }), [fields, values]);
   const jsonText = useMemo(() => kordocFillJsonText(fill.values), [fill.values]);
@@ -48,6 +77,41 @@ export function KordocFillPanel({
   const uniqueKeys = Object.keys(fill.values).length;
   const hasFile = Boolean(fileBase64) && /\.(hwpx|hwp)$/i.test(fileName || "");
   const canPatch = Boolean(markdown.trim()) && hasFile;
+  const downloadName = filledFileName(fileName);
+
+  /** 브라우저 안에서 양식 .hwpx를 채워 바로 내려받는다 — 터미널·브릿지 없이. */
+  const downloadInBrowser = async () => {
+    if (!hasFile) {
+      setBrowserNote({ tone: "error", text: "채울 .hwpx 양식 파일이 없습니다. 양식 파일을 올리거나 연습 양식을 불러와 주세요." });
+      return;
+    }
+    if (!count) {
+      setBrowserNote({ tone: "error", text: "아직 넣을 값이 없습니다. 자유 텍스트로 칸을 채우거나 내 사업 정보를 입력해 주세요." });
+      return;
+    }
+    setBusy("browser");
+    setBrowserNote({ tone: "info", text: "브라우저에서 양식 서식을 그대로 두고 값을 넣는 중입니다." });
+    try {
+      const result = await patchHwpxBytes({ bytes: base64ToBytes(fileBase64), values: fill.values });
+      setBrowserResult(result);
+      if (!result.filled.length) {
+        setBrowserNote({
+          tone: "error",
+          text: "값이 들어갈 칸을 양식 안에서 찾지 못했습니다. 아래 표의 ‘들어갈 자리’를 보고 칸 이름을 양식과 같게 맞춰 주세요."
+        });
+        return;
+      }
+      downloadBytes(result.bytes, downloadName);
+      const summary = summarizeFill(result);
+      setBrowserNote({ tone: "ok", text: `${summary} ${downloadName} 파일을 내려받았습니다.` });
+      notify(`${summary} ${downloadName} 파일을 내려받았습니다. 한글에서 열어 서식을 확인하세요.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      setBrowserNote({ tone: "error", text: `양식을 채우지 못했습니다: ${reason}` });
+    } finally {
+      setBusy("");
+    }
+  };
 
   const copyJson = () => {
     if (!count) {
@@ -143,14 +207,77 @@ export function KordocFillPanel({
   };
 
   return (
-    <section className="hwpx-block kordoc-fill" aria-label="kordoc 채우기 데이터">
+    <section className="hwpx-block kordoc-fill" aria-label="양식에 값 넣어 hwpx로 내려받기">
       <div className="hwpx-head">
         <div>
-          <h3>5 · kordoc 채우기 데이터로 양식에 넣기</h3>
-          <p>{KORDOC_FILL_HINT}</p>
+          <h3>5 · 양식에 값 넣고 .hwpx로 내려받기</h3>
+          <p>
+            위에서 채운 칸 값을 원본 양식의 같은 칸에 넣어 <strong>.hwpx 파일로 바로 내려받습니다</strong>. 글꼴·표 테두리·문단
+            모양은 원본 그대로이고, 채우지 않은 칸도 원본 글자 그대로 남습니다. 파일은 이 브라우저 안에서만 만들어집니다.
+          </p>
         </div>
-        <span className="badge is-info">로컬 실행</span>
+        <span className="badge is-info">브라우저 안에서 완결</span>
       </div>
+
+      <div className="browser-hwpx-action">
+        <div className="browser-hwpx-copy">
+          <strong>브라우저에서 바로 .hwpx 내려받기</strong>
+          <span>
+            {hasFile
+              ? `${fileName} · 채울 칸 ${count}개${uniqueKeys !== count ? ` (kordoc 키 ${uniqueKeys}개)` : ""}`
+              : "먼저 .hwpx 양식 파일을 올리거나 연습 양식을 불러와 주세요."}
+          </span>
+        </div>
+        <button
+          className="primary-button browser-hwpx-button"
+          type="button"
+          onClick={() => { void downloadInBrowser(); }}
+          disabled={busy !== "" || !hasFile || !count}
+        >
+          {busy === "browser" ? "만드는 중" : ".hwpx 바로 내려받기"}
+        </button>
+      </div>
+      {!count && (
+        <p className="block-note">
+          아직 넣을 값이 없습니다. 4번 ‘자유 텍스트로 칸 채우기’에서 칸을 채우면 여기에 값이 모입니다.
+        </p>
+      )}
+      {browserNote && (
+        <p className={`hwpx-note is-${browserNote.tone}`} role={browserNote.tone === "error" ? "alert" : "status"}>{browserNote.text}</p>
+      )}
+
+      {browserResult && (browserResult.filled.length > 0 || browserResult.skipped.length > 0 || browserResult.unmatched.length > 0) && (
+        <details className="setup-details browser-hwpx-result" open={browserResult.skipped.length > 0 || browserResult.unmatched.length > 0}>
+          <summary>
+            채운 칸 {browserResult.filled.length}개
+            {browserResult.skipped.length ? ` · 그대로 둔 칸 ${browserResult.skipped.length}개` : ""}
+            {browserResult.unmatched.length ? ` · 못 찾은 값 ${browserResult.unmatched.length}개` : ""}
+          </summary>
+          <ul className="browser-hwpx-list">
+            {browserResult.filled.slice(0, 40).map((item: FilledEntry, index: number) => (
+              <li key={`${item.key}-${index}`}>
+                <strong>{item.label}</strong>
+                <span>{String(item.value).replace(/\n/g, " / ")}</span>
+                <small>{item.where}</small>
+              </li>
+            ))}
+            {browserResult.skipped.slice(0, 20).map((item: SkippedEntry, index: number) => (
+              <li key={`skip-${item.label}-${index}`} className="is-skipped">
+                <strong>{item.label}</strong>
+                <span>{item.reason}</span>
+                <small>{item.where}{item.current ? ` · 지금 값: ${item.current.slice(0, 40)}` : ""}</small>
+              </li>
+            ))}
+            {browserResult.unmatched.map((label: string) => (
+              <li key={`unmatched-${label}`} className="is-skipped">
+                <strong>{label}</strong>
+                <span>양식에서 이 이름의 칸을 찾지 못했습니다</span>
+                <small>양식의 칸 이름과 같게 맞추면 들어갑니다</small>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="kordoc-fill-stats">
         <span className="template-badge is-ready">채울 칸 {count}개</span>
@@ -183,69 +310,73 @@ export function KordocFillPanel({
         </div>
       ) : (
         <p className="block-note">
-          아직 채울 값이 없습니다. 위에서 자유 텍스트로 칸을 채우면 여기에 kordoc 채우기 데이터가 만들어집니다.
+          아직 채울 값이 없습니다. 위에서 자유 텍스트로 칸을 채우면 여기에 값이 모입니다.
         </p>
       )}
 
-      <div className="draft-actions kordoc-fill-actions">
-        <button className="secondary-button" type="button" onClick={copyJson} disabled={!count}>채움값 JSON 복사</button>
-        <button className="secondary-button" type="button" onClick={downloadJson} disabled={!count}>채움값.json 내려받기</button>
-        <button className="secondary-button" type="button" onClick={() => copyCommand(command, "kordoc fill")} disabled={!command}>fill 명령 복사</button>
-        <button className="secondary-button" type="button" onClick={() => copyCommand(patchCommand, "kordoc patch")} disabled={!patchCommand}>patch 명령 복사</button>
-      </div>
-
-      <div className="hwpx-command">
-        <code>{command || "npx -y kordoc fill 양식.hwpx -j 채움값.json -o 양식-채움.hwpx"}</code>
-        <button className="secondary-button small" type="button" onClick={() => copyCommand(command, "kordoc fill")} disabled={!command}>복사</button>
-      </div>
-      <p className="block-note">
-        fill 은 원본 양식의 글꼴·표 서식을 그대로 두고 빈 칸만 채웁니다. patch 는 지금 만든 채운 문서(.md)를 원본에 반영합니다
-        {markdown.trim() ? ` (지금 결과: ${editedFile})` : " — 먼저 ‘이 양식에 맞춰 채우기’로 결과를 만들어 주세요"}.
-      </p>
-
-      <details className="hwpx-bridge">
-        <summary>내 컴퓨터 브릿지로 바로 채우기</summary>
-        <div className="hwpx-bridge-body">
-          <p className="block-note">
-            kordoc을 돌리는 작은 서버(브릿지)를 띄워 두었다면 주소만 넣고 .hwpx를 바로 받을 수 있습니다.
-            양식 파일은 브릿지(내 컴퓨터)로만 전송되고, 이 앱 서버나 외부로는 나가지 않습니다.
-          </p>
-          <label className="field wide">
-            <span>브릿지 주소</span>
-            <input
-              value={endpoint}
-              placeholder="http://127.0.0.1:8787/kordoc"
-              onChange={(event) => {
-                setEndpoint(event.target.value);
-                saveHwpxBridgeEndpoint(event.target.value);
-              }}
-            />
-          </label>
-          <div className="draft-actions">
-            <button className="primary-button" type="button" onClick={() => { void sendThroughBridge("fill"); }} disabled={busy !== "" || !count || !hasFile}>
-              {busy === "fill" ? "채우는 중" : "브릿지로 채우기"}
-            </button>
-            <button className="secondary-button" type="button" onClick={() => { void sendThroughBridge("patch"); }} disabled={busy !== "" || !canPatch}>
-              {busy === "patch" ? "반영 중" : "브릿지로 patch"}
-            </button>
-          </div>
-          {!hasFile && <p className="block-note">붙여넣은 양식은 파일이 없어 fill로 채울 수 없습니다. 양식을 .hwpx로 올리거나 연습 양식을 불러와 주세요.</p>}
-          {bridgeNote && (
-            <p className={`hwpx-note is-${bridgeNote.tone}`} role={bridgeNote.tone === "error" ? "alert" : "status"}>{bridgeNote.text}</p>
-          )}
-          <details className="setup-details">
-            <summary>브릿지가 받는 요청 형식</summary>
-            <ul id="kordoc-fill-contract" className="hwpx-contract">
-              {KORDOC_FILL_CONTRACT.map((line) => <li key={line}>{line}</li>)}
-            </ul>
-            <p className="block-note">이 저장소의 <code>scripts/kordoc-bridge.mjs</code> 를 실행하면 위 형식을 그대로 받습니다: <code>node scripts/kordoc-bridge.mjs</code></p>
-          </details>
+      <details className="setup-details local-hwpx-options">
+        <summary>로컬 kordoc CLI·브릿지로 채우기 (보조)</summary>
+        <p className="block-note">
+          내 컴퓨터에서 kordoc을 돌리는 쪽이 편할 때만 쓰세요. 위의 ‘.hwpx 바로 내려받기’와 결과는 같습니다.
+          fill 은 원본 양식의 글꼴·표 서식을 그대로 두고 빈 칸만 채웁니다. patch 는 지금 만든 채운 문서(.md)를 원본에 반영합니다
+          {markdown.trim() ? ` (지금 결과: ${editedFile})` : " — 먼저 ‘이 양식에 맞춰 채우기’로 결과를 만들어 주세요"}.
+        </p>
+        <div className="draft-actions kordoc-fill-actions">
+          <button className="secondary-button" type="button" onClick={copyJson} disabled={!count}>채움값 JSON 복사</button>
+          <button className="secondary-button" type="button" onClick={downloadJson} disabled={!count}>채움값.json 내려받기</button>
+          <button className="secondary-button" type="button" onClick={() => copyCommand(command, "kordoc fill")} disabled={!command}>fill 명령 복사</button>
+          <button className="secondary-button" type="button" onClick={() => copyCommand(patchCommand, "kordoc patch")} disabled={!patchCommand}>patch 명령 복사</button>
         </div>
-      </details>
 
-      <details className="setup-details kordoc-fill-json">
-        <summary>kordoc으로 넘길 채움값 JSON 보기</summary>
-        <textarea className="draft-output" rows={12} readOnly value={jsonText} aria-label="kordoc 채움값 JSON" />
+        <div className="hwpx-command">
+          <code>{command || "npx -y kordoc fill 양식.hwpx -j 채움값.json -o 양식-채움.hwpx"}</code>
+          <button className="secondary-button small" type="button" onClick={() => copyCommand(command, "kordoc fill")} disabled={!command}>복사</button>
+        </div>
+
+        <details className="hwpx-bridge">
+          <summary>내 컴퓨터 브릿지로 바로 채우기</summary>
+          <div className="hwpx-bridge-body">
+            <p className="block-note">
+              kordoc을 돌리는 작은 서버(브릿지)를 띄워 두었다면 주소만 넣고 .hwpx를 바로 받을 수 있습니다.
+              양식 파일은 브릿지(내 컴퓨터)로만 전송되고, 이 앱 서버나 외부로는 나가지 않습니다.
+            </p>
+            <label className="field wide">
+              <span>브릿지 주소</span>
+              <input
+                value={endpoint}
+                placeholder="http://127.0.0.1:8787/kordoc"
+                onChange={(event) => {
+                  setEndpoint(event.target.value);
+                  saveHwpxBridgeEndpoint(event.target.value);
+                }}
+              />
+            </label>
+            <div className="draft-actions">
+              <button className="primary-button" type="button" onClick={() => { void sendThroughBridge("fill"); }} disabled={busy !== "" || !count || !hasFile}>
+                {busy === "fill" ? "채우는 중" : "브릿지로 채우기"}
+              </button>
+              <button className="secondary-button" type="button" onClick={() => { void sendThroughBridge("patch"); }} disabled={busy !== "" || !canPatch}>
+                {busy === "patch" ? "반영 중" : "브릿지로 patch"}
+              </button>
+            </div>
+            {!hasFile && <p className="block-note">붙여넣은 양식은 파일이 없어 fill로 채울 수 없습니다. 양식을 .hwpx로 올리거나 연습 양식을 불러와 주세요.</p>}
+            {bridgeNote && (
+              <p className={`hwpx-note is-${bridgeNote.tone}`} role={bridgeNote.tone === "error" ? "alert" : "status"}>{bridgeNote.text}</p>
+            )}
+            <details className="setup-details">
+              <summary>브릿지가 받는 요청 형식</summary>
+              <ul id="kordoc-fill-contract" className="hwpx-contract">
+                {KORDOC_FILL_CONTRACT.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+              <p className="block-note">이 저장소의 <code>scripts/kordoc-bridge.mjs</code> 를 실행하면 위 형식을 그대로 받습니다: <code>node scripts/kordoc-bridge.mjs</code></p>
+            </details>
+          </div>
+        </details>
+
+        <details className="setup-details kordoc-fill-json">
+          <summary>kordoc으로 넘길 채움값 JSON 보기</summary>
+          <textarea className="draft-output" rows={12} readOnly value={jsonText} aria-label="kordoc 채움값 JSON" />
+        </details>
       </details>
 
       <p className="block-note">

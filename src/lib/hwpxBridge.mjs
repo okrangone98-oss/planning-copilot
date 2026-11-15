@@ -1,11 +1,12 @@
-// 한글(.hwpx) 변환 브릿지 — 브라우저 앱은 .hwpx를 직접 만들지 않는다.
+// 한글(.hwpx) 변환 브릿지 — Markdown 초안을 새 .hwpx 문서 서식으로 만드는 일은 kordoc CLI가 한다.
+// (올린 양식에 값을 채우는 일과 결과보고 문서 만들기는 앱 안에서 직접 한다: src/lib/browserHwpxFiller.mjs · reportHwpx.mjs)
 // kordoc CLI 명령어를 만들어 주고, 사용자가 로컬 브릿지(HTTP)를 띄워 두면 그쪽으로 Markdown을 보낸다.
-// 원칙: 되는 것과 안 되는 것을 섞지 않는다. 브라우저만으로는 변환되지 않는다고 화면에 그대로 적는다.
+// 원칙: 되는 것과 안 되는 것을 섞지 않는다. 이 화면의 변환은 브라우저만으로 되지 않는다고 그대로 적는다.
 
 export const KORDOC_PACKAGE = "kordoc";
 export const KORDOC_DOCS_URL = "https://github.com/chrisryugj/kordoc";
 export const HWPX_BRIDGE_HINT =
-  "이 앱은 브라우저에서만 돌아가므로 .hwpx 파일을 직접 만들지 않습니다. 아래 명령을 내 컴퓨터 터미널에서 실행하거나, 로컬 브릿지를 띄워 두고 그 주소로 변환을 맡기세요.";
+  "Markdown 초안을 새 .hwpx 문서 서식으로 만드는 일은 kordoc이 합니다. 아래 명령을 내 컴퓨터 터미널에서 실행하거나, 로컬 브릿지를 띄워 두고 그 주소로 변환을 맡기세요. (올린 양식에 값을 채우거나 결과보고를 만드는 일은 이 앱 안에서 바로 됩니다.)";
 
 /** kordoc generate --preset 에 넣는 공문서 서식. 실제 kordoc CLI가 받는 값만 둔다. */
 export const KORDOC_PRESETS = [

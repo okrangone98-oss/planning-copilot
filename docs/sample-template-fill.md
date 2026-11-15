@@ -77,5 +77,5 @@ npm run check
 ## 다음 단계
 
 1. 로컬 `kordoc` 연동(별도 로컬 도우미): HWP5·OCR·병합 셀 보존, PDF 표 복원
-2. HWPX 병합 셀 좌표(`cellAddr`·`cellSpan`) 반영
-3. 채운 결과를 HWPX로 되돌려 서식까지 유지하는 내보내기
+2. ~~HWPX 병합 셀 좌표(`cellAddr`·`cellSpan`) 반영~~ → 반영됨
+3. ~~채운 결과를 HWPX로 되돌려 서식까지 유지하는 내보내기~~ → `src/lib/browserHwpxFiller.mjs` 로 브라우저 안에서 끝남([kordoc 양식 규격 채우기](kordoc-smart-fill.md) 3장)

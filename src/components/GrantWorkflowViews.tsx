@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { GrantBudgetLine, GrantChecklistItem, GrantPlan, GrantPreset, ProjectData } from "../types";
 import { budgetSummary, checklistSummary, emptyBudgetLine, formatWon, groupChecklist, lineAmount, reportSummary, toText } from "../lib/grantWorkflow.mjs";
 import { attendanceReport, expenseSummary, type ProjectWork } from "../lib/projectOperations.mjs";
+import { buildReportDocument, buildReportHwpxBytes, reportFileName, reportTemplateUrl } from "../lib/reportHwpx.mjs";
 import { BudgetImportPanel } from "./BudgetImportPanel";
 
 type GrantViewProps = {
@@ -651,6 +652,37 @@ export function GrantReportView({
   const attendance = useMemo(() => attendanceReport(work), [work]);
   const ledger = useMemo(() => expenseSummary(work, plan), [work, plan]);
   const [targetSection, setTargetSection] = useState("");
+  const [hwpxBusy, setHwpxBusy] = useState(false);
+  const [hwpxNote, setHwpxNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  /** 결과보고를 한글 문서(.hwpx)로 내려받는다 — 템플릿부터 만들기까지 전부 이 브라우저에서. */
+  const downloadReportHwpx = async () => {
+    setHwpxBusy(true);
+    setHwpxNote(null);
+    try {
+      const response = await fetch(reportTemplateUrl(document.baseURI), { cache: "no-store" });
+      if (!response.ok) throw new Error(`템플릿을 불러오지 못했습니다(HTTP ${response.status})`);
+      const baseBytes = new Uint8Array(await response.arrayBuffer());
+      const document_ = buildReportDocument({ plan, project, work });
+      const { bytes } = await buildReportHwpxBytes({ baseBytes, document: document_ });
+      const fileName = reportFileName({ plan, project });
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      const url = URL.createObjectURL(new Blob([copy], { type: "application/hwp+zip" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      setHwpxNote({ tone: "ok", text: `${fileName} 파일을 내려받았습니다. 한글에서 열어 섹션·수치를 확인하세요.` });
+      notify(`${fileName} 파일을 내려받았습니다.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      setHwpxNote({ tone: "error", text: `결과보고 .hwpx를 만들지 못했습니다: ${reason}` });
+    } finally {
+      setHwpxBusy(false);
+    }
+  };
 
   const suggestedSection = useMemo(() => {
     const sections = plan.reportSections || [];
@@ -743,6 +775,19 @@ export function GrantReportView({
       <div className="grant-progress" role="progressbar" aria-valuenow={summary.percent} aria-valuemin={0} aria-valuemax={100} aria-label="결과보고 작성률">
         <i style={{ width: `${summary.percent}%` }} />
       </div>
+
+      <div className="coach-bar pc-report-hwpx">
+        <div>
+          <strong>결과보고를 한글 문서로 내려받기</strong>
+          <span>지금 쓴 섹션과 회차·예산 자동 집계를 한글 결과보고서 한 장으로 묶습니다. 파일은 이 브라우저 안에서 만들어지고, 받은 뒤 직접 보관하세요.</span>
+        </div>
+        <button className="primary-button" type="button" onClick={() => { void downloadReportHwpx(); }} disabled={hwpxBusy}>
+          {hwpxBusy ? "만드는 중" : ".hwpx 내려받기"}
+        </button>
+      </div>
+      {hwpxNote && (
+        <p className={`hwpx-note is-${hwpxNote.tone}`} role={hwpxNote.tone === "error" ? "alert" : "status"}>{hwpxNote.text}</p>
+      )}
 
       <div className="coach-bar">
         <div><strong>프로젝트 입력값으로 초안 채우기</strong><span>문제정의·실행설계·성과지표에 적어 둔 내용을 비어 있는 섹션에만 넣습니다. 기존 글은 건드리지 않습니다.</span></div>
