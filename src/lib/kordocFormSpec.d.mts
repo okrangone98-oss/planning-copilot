@@ -37,7 +37,7 @@ export type FormField = {
   context: string;
 };
 
-export type FillEntry = { key: string; value: string | string[]; label: string; sectionTitle: string; where: string };
+export type FillEntry = { key: string; value: string | string[]; label: string; sectionTitle: string; where: string; /** 이 값이 들어가는 칸(FormField) id — 검토 표에서 값을 고칠 때 쓴다. */ fieldId?: string };
 
 export type FillValuesResult = {
   values: Record<string, string | string[]>;

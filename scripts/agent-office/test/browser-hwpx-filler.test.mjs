@@ -18,7 +18,7 @@ const ROOT = path.resolve(import.meta.dirname, "../../..");
 const PRACTICE = path.join(ROOT, "public/practice/plan-practice-form.hwpx");
 
 /** 라벨 | 값 두 칸짜리 행을 가진 최소 표 문단 XML. */
-function tableXml(rows) {
+function tableElement(rows) {
   const cells = rows.map((row, rowIndex) => `<hp:tr>${row.map((cell, colIndex) => {
     const header = rowIndex === 0 ? 0 : 0;
     return `<hp:tc name="" header="${header}" hasMargin="0" protect="0" editable="1" dirty="0" borderFillIDRef="12">`
@@ -27,8 +27,32 @@ function tableXml(rows) {
       + `<hp:cellAddr colAddr="${colIndex}" rowAddr="${rowIndex}"/><hp:cellSpan colSpan="1" rowSpan="1"/>`
       + `<hp:cellSz width="1000" height="500"/><hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>`;
   }).join("")}</hp:tr>`).join("");
-  return `<hp:p paraPrIDRef="10" styleIDRef="0"><hp:run charPrIDRef="17"><hp:tbl id="1" rowCnt="${rows.length}" colCnt="${rows[0].length}" cellSpacing="0" borderFillIDRef="1">`
-    + `<hp:sz width="1000" widthRelTo="ABSOLUTE" height="1000" heightRelTo="ABSOLUTE" protect="0"/>${cells}</hp:tbl></hp:run></hp:p>`;
+  return `<hp:tbl id="1" rowCnt="${rows.length}" colCnt="${rows[0].length}" cellSpacing="0" borderFillIDRef="1">`
+    + `<hp:sz width="1000" widthRelTo="ABSOLUTE" height="1000" heightRelTo="ABSOLUTE" protect="0"/>${cells}</hp:tbl>`;
+}
+
+function tableXml(rows) {
+  return `<hp:p paraPrIDRef="10" styleIDRef="0"><hp:run charPrIDRef="17">${tableElement(rows)}</hp:run></hp:p>`;
+}
+
+/** 레이아웃 칸(1×1 표) 안에 라벨/값 표를 하나 넣은 문서 — 실제 기관 양식에서 흔한 모양. */
+function layoutCellWithNestedTable(innerRows, outerLabel = "구분", outerValue = "") {
+  const inner = tableElement(innerRows);
+  const layoutCell = `<hp:tc name="" header="0" hasMargin="0" protect="0" editable="1" dirty="0" borderFillIDRef="12">`
+    + `<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">`
+    + `<hp:p paraPrIDRef="9" styleIDRef="0"><hp:run charPrIDRef="17"><hp:t>${outerLabel}</hp:t></hp:run></hp:p>`
+    + `<hp:p paraPrIDRef="10" styleIDRef="0"><hp:run charPrIDRef="17">${inner}</hp:run></hp:p></hp:subList>`
+    + `<hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="2" rowSpan="1"/>`
+    + `<hp:cellSz width="2000" height="900"/><hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>`;
+  const headerCells = `<hp:tc name="" header="0" hasMargin="0" protect="0" editable="1" dirty="0" borderFillIDRef="12">`
+    + `<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">`
+    + `<hp:p paraPrIDRef="9" styleIDRef="0"><hp:run charPrIDRef="17"><hp:t>${outerValue}</hp:t></hp:run></hp:p></hp:subList>`
+    + `<hp:cellAddr colAddr="1" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/>`
+    + `<hp:cellSz width="1000" height="500"/><hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>`;
+  const outer = `<hp:tbl id="9" rowCnt="1" colCnt="2" cellSpacing="0" borderFillIDRef="1">`
+    + `<hp:sz width="3000" widthRelTo="ABSOLUTE" height="1000" heightRelTo="ABSOLUTE" protect="0"/>`
+    + `<hp:tr>${layoutCell}${headerCells}</hp:tr></hp:tbl>`;
+  return `<hp:p paraPrIDRef="10" styleIDRef="0"><hp:run charPrIDRef="17">${outer}</hp:run></hp:p>`;
 }
 
 function sectionXml(body) {
@@ -137,6 +161,45 @@ test("patchSectionXml fills a column-header table row by row with array values",
   assert.deepEqual(textsOf(result.xml), ["성명", "소속", "김하나", "", "이두나", ""]);
 });
 
+test("patchSectionXml fills a label/value table nested inside a layout cell", () => {
+  // Codex 리뷰: 레이아웃 칸 안쪽 표를 건너뛰어 다운로드 때 대상 칸을 못 찾던 문제
+  const xml = sectionXml(layoutCellWithNestedTable([["사업명", ""], ["수행기관", ""]]));
+  const result = patchSectionXml(xml, { 사업명: "2027 양양 시군역량강화사업", 수행기관: "양양군농촌활성화지원센터" });
+  assert.equal(result.filled.length, 2);
+  assert.deepEqual(result.filled.map((item) => item.key).sort(), ["수행기관", "사업명"].sort());
+  // 안쪽 표는 바깥 표와 따로 세어 2번 표로 잡힌다
+  assert.ok(result.filled.every((item) => item.where.startsWith("2번 표")));
+  const texts = textsOf(result.xml);
+  assert.ok(texts.includes("2027 양양 시군역량강화사업"));
+  assert.ok(texts.includes("양양군농촌활성화지원센터"));
+  // 표 구조는 그대로 — 안쪽 표도 행·칸 수가 늘거나 줄지 않는다
+  assert.equal((result.xml.match(/<hp:tbl /g) || []).length, 2);
+  assert.equal((result.xml.match(/<hp:tr>/g) || []).length, (xml.match(/<hp:tr>/g) || []).length);
+});
+
+test("patchSectionXml keeps each table's row collection isolated when tables nest", () => {
+  // 바깥 표의 라벨/값 칸과 안쪽 표의 라벨/값 칸이 서로의 행으로 새지 않는다
+  const xml = sectionXml(layoutCellWithNestedTable([["성명", "소속"], ["", ""], ["", ""]]));
+  const filled = patchSectionXml(xml, { 성명: ["김하나", "이두나"] });
+  assert.equal(filled.filled.length, 2);
+  assert.deepEqual(filled.filled.map((item) => item.value), ["김하나", "이두나"]);
+  // 안쪽 표의 행 주소는 2행·3행 — 바깥 표 행과 섞이지 않는다
+  assert.deepEqual(filled.filled.map((item) => item.where), ["2번 표 · 2행 1열", "2번 표 · 3행 1열"]);
+  assert.equal((filled.xml.match(/<hp:tbl /g) || []).length, 2);
+});
+
+test("patchSectionXml reads inline line breaks and tabs inside a cell as spacing", () => {
+  // 실제 기관 양식(2027 시군역량강화 예비계획서)은 라벨 칸에 <hp:lineBreak/> 를 쓴다.
+  const xml = sectionXml(tableXml([["항목", "내용"], ["사업비<hp:lineBreak/>(천원)", ""], ["사업기간<hp:tab/>", ""]]));
+  const result = patchSectionXml(xml, { "사업비(천원)": "400,000", "사업기간": "2027. 1. ~ 12." });
+  assert.equal(result.filled.length, 2, JSON.stringify(result.filled));
+  const texts = textsOf(result.xml);
+  assert.ok(texts.includes("400,000"));
+  assert.ok(texts.includes("2027. 1. ~ 12."));
+  // 라벨 칸의 원래 글자는 그대로 둔다(줄바꿈 요소도 보존)
+  assert.match(result.xml, /사업비<hp:lineBreak\/>/);
+});
+
 test("createFillCursors keeps array order and merges labels that normalize the same", () => {
   const cursors = createFillCursors({ "추진 내용": ["가", "나"], "추진내용": "다" });
   const cursor = cursors.get("추진내용");
@@ -183,6 +246,19 @@ test("patchHwpxBytes reports values that have no place in the form", async () =>
   const result = await patchHwpxBytes({ bytes, values: { 사업명: "새 사업", 존재하지않는칸: "값" } });
   assert.deepEqual(result.unmatched, ["존재하지않는칸"]);
   assert.equal(result.filled.length, 1);
+});
+
+test("patchHwpxBytes counts a value that found an already-filled cell as kept, not unmatched", async () => {
+  // 원본 칸을 그대로 둔 값까지 ‘자리를 못 찾은 값’으로 보여 주면 화면 안내가 틀린다.
+  const zip = new JSZip();
+  zip.file("mimetype", "application/hwp+zip");
+  zip.file("Contents/section0.xml", sectionXml(tableXml([["구분", "내용"], ["사업명", "작년 사업명"]])));
+  const bytes = await zip.generateAsync({ type: "uint8array" });
+  const result = await patchHwpxBytes({ bytes, values: { 사업명: "새 사업명", 수행기관: "양양군농촌활성화지원센터" } });
+  assert.equal(result.filled.length, 0);
+  assert.deepEqual(result.skipped.map((item) => item.label), ["사업명"]);
+  // 사업명은 라벨도 칸도 있고 원본 값을 지키기로 했다 — 못 찾은 값은 수행기관 하나뿐이다
+  assert.deepEqual(result.unmatched, ["수행기관"]);
 });
 
 test("patchHwpxBytes rejects an empty file with a readable message", async () => {

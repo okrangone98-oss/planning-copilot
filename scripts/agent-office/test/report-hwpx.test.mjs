@@ -168,6 +168,95 @@ test("buildReportHwpxBytes refuses a missing template or a template without a bo
   await assert.rejects(() => buildReportHwpxBytes({ baseBytes: bytes, document: buildReportDocument({ plan: PLAN }) }), /본문\(Contents\/section0\.xml\)이 없습니다/);
 });
 
+test("buildReportDocument keeps expenses without a budget line in the breakdown (Codex review #2)", () => {
+  const work = {
+    ...WORK,
+    expenses: [
+      ...WORK.expenses,
+      // 비목 id가 지워진 지출 — 합계에는 들어가지만 세부내역에서 빠지던 경우
+      { id: "e2", budgetLineId: "", amount: 500, vendor: "문구점", description: "현수막", spentAt: "2026-04-02", status: "paid", evidenceChecked: false, evidenceType: "", note: "" }
+    ]
+  };
+  const document = buildReportDocument({ plan: PLAN, work });
+  const rows = document.budget.rows;
+  const unassigned = rows.filter((row) => row[0] === "비목 미지정");
+  assert.equal(unassigned.length, 1);
+  assert.match(unassigned[0][1], /지출 1건/);
+  assert.equal(unassigned[0][4], "500");
+  // 세부내역 집행 합계 = 표의 합계 행
+  const spentSum = rows.reduce((sum, row) => sum + Number(String(row[4] || "0").replace(/,/g, "")), 0);
+  assert.equal(spentSum, 500500);
+  assert.equal(document.budget.total[4], "500,500");
+  // 합이 맞으므로 불일치 경고는 없다
+  assert.deepEqual(document.warnings, []);
+
+  // 다시 읽힌 문서에도 비목 미지정 줄과 합계가 함께 남는다
+  const xml = renderReportBodyXml(document);
+  assert.ok(xml.includes("비목 미지정"));
+  assert.ok(xml.includes("500,500"));
+});
+
+test("buildReportDocument still writes a breakdown when no budget lines exist", () => {
+  const plan = { ...PLAN, budgetLines: [] };
+  const work = {
+    ...WORK,
+    expenses: [{
+      id: "e9", budgetLineId: null, amount: 500, vendor: "문구점", description: "현수막", spentAt: "2026-04-02", status: "paid", evidenceChecked: true, evidenceType: "카드", note: ""
+    }]
+  };
+  const document = buildReportDocument({ plan, work });
+  assert.ok(document.budget, "예산 세부내역 표가 사라지면 안 된다");
+  assert.equal(document.budget.rows.length, 1);
+  assert.equal(document.budget.rows[0][0], "비목 미지정");
+  assert.equal(document.budget.total[3], "0");
+  assert.equal(document.budget.total[4], "500");
+});
+
+test("buildReportDocument marks unentered attendance instead of reporting a confirmed zero (Codex review #3)", () => {
+  const work = {
+    ...WORK,
+    sessions: [
+      { id: "s1", sequence: 1, title: "1회차", startAt: "2026-11-20T14:00", venue: "", instructorName: "", trackAttendance: true, capacity: null, registered: null, attended: null, status: "done", notes: "" },
+      { id: "s2", sequence: 2, title: "2회차", startAt: "2026-12-05T10:00", venue: "", instructorName: "", trackAttendance: true, capacity: null, registered: null, attended: 6, status: "done", notes: "" }
+    ]
+  };
+  const document = buildReportDocument({ plan: PLAN, work });
+  const summary = Object.fromEntries(document.summary.map((row) => [row.label, row.value]));
+  assert.match(summary["참석 연인원"], /^6명 \(완료 회차 6명\)/);
+  assert.match(summary["참석 연인원"], /적지 않은 1회차는 합계에서 뺌/);
+  assert.ok(!/^0명/.test(summary["참석 연인원"]));
+  const xml = renderReportBodyXml(document);
+  assert.ok(xml.includes("0명으로 세지 않음"));
+
+  // 모두 적힌 경우에는 경고 문구 없이 합계만 적는다
+  const complete = buildReportDocument({
+    plan: PLAN,
+    work: { ...WORK, sessions: [
+      { ...WORK.sessions[0], attended: 12 },
+      { ...WORK.sessions[1], attended: 6, status: "done" }
+    ] }
+  });
+  const completeSummary = Object.fromEntries(complete.summary.map((row) => [row.label, row.value]));
+  assert.equal(completeSummary["참석 연인원"], "18명 (완료 회차 18명)");
+});
+
+test("buildReportDocument tells a written zero apart from a missing amount", () => {
+  const work = {
+    ...WORK,
+    expenses: [
+      { id: "e1", budgetLineId: "b1", amount: 0, vendor: "", description: "무상 대여", spentAt: "2026-04-01", status: "pending", evidenceChecked: false, evidenceType: "", note: "" },
+      { id: "e2", budgetLineId: "b2", amount: 100000, vendor: "", description: "재료", spentAt: "2026-04-02", status: "planned", evidenceChecked: false, evidenceType: "", note: "" }
+    ]
+  };
+  const document = buildReportDocument({ plan: PLAN, work });
+  const byItem = Object.fromEntries(document.budget.rows.map((row) => [row[1], row]));
+  // 계획은 있지만 집행하지 않은 칸은 빈칸이 아니라 '0'
+  assert.equal(byItem["외래강사비"][4], "0");
+  assert.equal(byItem["재료비"][4], "0");
+  assert.equal(document.budget.total[4], "0");
+  assert.deepEqual(document.warnings, []);
+});
+
 test("reportFileName and reportTemplateUrl build safe paths", () => {
   assert.equal(reportFileName({ plan: PLAN }), "2026 양양 관광두레 플러스-결과보고.hwpx");
   assert.equal(reportFileName({ plan: { programName: '가/나:*?"<>|' } }), "가 나-결과보고.hwpx");

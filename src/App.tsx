@@ -814,6 +814,13 @@ export default function App() {
     document: { text: string; blocks: SampleBlock[]; format: string },
     fileName: string
   ) => {
+    // 이미 채운 칸 값·붙여넣은 자료·AI 초안이 있으면 사용자가 확인하기 전에 지우지 않는다.
+    const hasTypedWork = Object.values(templateSession.fieldValues || {}).some((value) => String(value ?? "").trim())
+      || Boolean(templateSession.result.trim())
+      || Boolean(templateSession.smartText.trim());
+    if (hasTypedWork && !window.confirm("이 화면에 이미 채운 칸 값·붙여넣은 자료·초안이 있습니다. 새 양식으로 바꾸면 그것들이 지워집니다. 그래도 바꿀까요?")) {
+      return false;
+    }
     const schema: TemplateSchema = parseSampleTemplate({
       text: document.text,
       blocks: document.blocks,
@@ -834,9 +841,10 @@ export default function App() {
     setSmartError("");
     if (!summary.sections && !summary.tables && !summary.slots) {
       notify("양식 구조를 찾지 못했습니다. 목차 번호와 표를 확인하거나 내용을 붙여넣어 보세요.");
-      return;
+      return true;
     }
     notify(`${fileName} 구조를 읽었습니다. 섹션 ${summary.sections}개 · 표 ${summary.tables}개 · 작성 항목 ${summary.slots}개`);
+    return true;
   };
 
   const parseTemplateFile = (file: File) => {
@@ -850,7 +858,8 @@ export default function App() {
       .then((document) => {
         if (document.warning) notify(document.warning);
         if (!document.text) return;
-        applyTemplateDocument(document, file.name);
+        // 양식을 바꾸지 않기로 했으면 지금 작업(값·자료·파일)을 그대로 둘다.
+        if (!applyTemplateDocument(document, file.name)) return;
         // kordoc fill/patch 에 넘길 원본 — HWPX만 실제 채우기가 된다. 저장소에는 남기지 않는다.
         if (/\.hwpx$/i.test(file.name)) {
           void readFileBase64(file).then((base64) => setTemplateFileData({ name: file.name, base64 }));
@@ -868,6 +877,11 @@ export default function App() {
       return;
     }
     applyTemplateDocument({ text, blocks: [], format: "markdown" }, "붙여넣은 양식");
+  };
+
+  /** 3단계 검토 표에서 칸 값을 직접 고친다 — 잘못 배치된 칸을 다운로드 전에 바로잡는 길. */
+  const setTemplateFieldValue = (fieldId: string, value: string) => {
+    updateTemplateSession({ fieldValues: { ...templateSession.fieldValues, [fieldId]: value } });
   };
 
   /** 프로젝트·예산 화면에 이미 있는 값을 양식 프로필로 가져온다. 직접 쓴 값은 덮어쓰지 않는다. */
@@ -1056,12 +1070,12 @@ export default function App() {
       const file = new File([blob], PRACTICE_TEMPLATE_FILE, { type: blob.type || "application/vnd.hancom.hwpx" });
       const document_ = await extractDocument(file);
       if (!document_.text) throw new Error("연습 양식이 비어 있습니다.");
-      applyTemplateDocument(document_, file.name);
+      if (!applyTemplateDocument(document_, file.name)) return;
       const base64 = await readFileBase64(file);
       setTemplateFileData({ name: file.name, base64 });
       notify(`${PRACTICE_TEMPLATE_LABEL}을(를) 불러왔습니다. ${PRACTICE_TEMPLATE_NOTE}`);
     } catch {
-      applyTemplateDocument({ text: PRACTICE_TEMPLATE_TEXT, blocks: [], format: "markdown" }, "연습 양식(글자)");
+      if (!applyTemplateDocument({ text: PRACTICE_TEMPLATE_TEXT, blocks: [], format: "markdown" }, "연습 양식(글자)")) return;
       setTemplateFileData({ name: "", base64: "" });
       notify("연습 양식 파일을 불러오지 못해 같은 내용을 글자로 읽었습니다. 실제 .hwpx로 채우려면 양식 파일을 올려 주세요.");
     } finally {
@@ -2440,6 +2454,7 @@ export default function App() {
               onSmartClear={clearSmartText}
               onSmartLeftoversToDraft={sendSmartLeftoversToDraft}
               fillValues={templateSession.fieldValues}
+              onFillValueChange={setTemplateFieldValue}
               piiGuard={(
                 <PiiGuardNotice
                   text={templatePromptPreview}

@@ -45,9 +45,13 @@ const NUMERIC_VALUE_RE = /^제?\d+(?:[.,]\d+)*[십백천만억조]*(?:원|명|�
 /** 서술형 문장 어미 — 칸에 든 안내 문구를 라벨로 오인하지 않는다 */
 const SENTENCE_ENDING_RE = /(?:입니다|합니다|습니다|하세요|십시오|시오|바랍니다|바람|할 것|할것|하며|하고|한다|된다|됨|음|임)$/;
 
-/** 라벨 정규화 — kordoc normalizeLabel. 콜론·공백·괄호·가운뎃점을 걷고 비교한다. */
+/** 라벨 정규화 — kordoc normalizeLabel. 앞 번호와 콜론·공백·괄호·가운뎃점을 걷고 비교한다. */
 export function normalizeFormLabel(label) {
-  return String(label ?? "").trim().replace(/<\/?su[bp]>/g, "").replace(/[:：\s()（）·]/g, "");
+  return String(label ?? "").trim()
+    // “1. 기관명 :”·“① 성명”·“가) 주소” 처럼 항목 번호가 붙은 라벨도 같은 칸으로 본다.
+    .replace(/^(?:[①-⑳]|\(?\d{1,3}[).]|[가-힣][).])\s*/, "")
+    .replace(/<\/?su[bp]>/g, "")
+    .replace(/[:：\s()（）·]/g, "");
 }
 
 /** 값이 비었거나 밑줄·괄호 빈칸·대시 같은 자리표시뿐 — kordoc isBlankValue */
@@ -82,6 +86,8 @@ export function isFormLabelCell(text) {
     return true;
   }
   if (/^[가-힣A-Za-z\s]+[:：]$/.test(trimmed)) return true;
+  // “1. 기관명 :”처럼 항목 번호가 붙은 라벨 칸
+  if (/^(?:[①-⑳]|\(?\d{1,3}[).]|[가-힣][).])\s*[가-힣A-Za-z\s]{1,20}[:：]$/.test(trimmed)) return true;
   if (/^[A-Za-z][A-Za-z\s./&-]*$/.test(trimmed) && trimmed.length <= 20) {
     const words = trimmed.toLowerCase().split(/[\s/&]+/).filter((word) => word && !ENGLISH_STOPWORDS.has(word));
     if (words.length >= 1 && words.length <= 3 && words.every((word) => ENGLISH_LABEL_WORDS.has(word.replace(/\.$/, "")))) return true;
@@ -540,11 +546,11 @@ export function buildKordocFillValues({ fields, values }) {
     if (Array.isArray(entry.value)) {
       warnings.push(`‘${entry.key}’ 칸이 ${entry.value.length}곳이라 값 ${entry.value.length}개를 등장 순서대로 넣습니다. 순서를 확인해 주세요.`);
       fieldsInEntry.forEach((field, index) => {
-        rows.push({ key: entry.key, value: entry.value[index], label: field.label, sectionTitle: field.sectionTitle, where: whereOf(field) });
+        rows.push({ key: entry.key, value: entry.value[index], label: field.label, sectionTitle: field.sectionTitle, where: whereOf(field), fieldId: field.id });
       });
     } else {
       for (const field of fieldsInEntry) {
-        rows.push({ key: entry.key, value: entry.value, label: field.label, sectionTitle: field.sectionTitle, where: whereOf(field) });
+        rows.push({ key: entry.key, value: entry.value, label: field.label, sectionTitle: field.sectionTitle, where: whereOf(field), fieldId: field.id });
       }
     }
   }

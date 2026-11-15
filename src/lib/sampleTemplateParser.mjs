@@ -198,8 +198,30 @@ function looksLikeHeader(cells) {
   if (cells.some((cell) => !cell)) return false;
   if (cells.every((cell) => /^[\d.,%()\-~]+$/.test(cell))) return false;
   if (cells.some((cell) => cell.length > 40)) return false;
+  // 라벨 | 값 한 쌍뿐인 첫 줄을 머리글로 걷어 내면 첫 항목(라벨과 값)을 통째로 잃는다.
+  if (looksLikeLabelValueRow(cells)) return false;
   const shortCells = cells.filter((cell) => cell.length <= 14).length;
   return shortCells >= Math.ceil(cells.length / 2);
+}
+
+/**
+ * 두 칸짜리 첫 줄이 ‘라벨 | 값’ 짝인가 — 머리글과 구분한다.
+ * 라벨은 짧은 낱말이고, 값 칸은 더 길거나 숫자·영문·기관명 같은 내용을 담는다.
+ * (예: 청구서의 첫 줄 `소속 및 직위 | 양양군 농촌활성화지원센터 / 사무국장`)
+ */
+function looksLikeLabelValueRow(cells) {
+  if (cells.length !== 2) return false;
+  const [label, value] = cells;
+  if (!label || !value) return false;
+  if (label.length > 14) return false;
+  if (/\d/.test(label)) return false;
+  if (looksLikeHeaderCellLabel(value)) return false;
+  return value.length > 14 || /\d/.test(value) || /[A-Za-z]{3,}/.test(value) || /[/·,]/.test(value);
+}
+
+/** 값 칸이 머리글처럼 짧은 낱말인가 — 그러면 라벨/값 짝이 아니라 열 머리 행이다. */
+function looksLikeHeaderCellLabel(value) {
+  return value.length <= 14 && !/\d/.test(value);
 }
 
 function normalizeRows(rows, width) {
