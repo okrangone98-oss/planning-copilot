@@ -1247,6 +1247,7 @@ export default function App() {
     setTemplateSession(createEmptyTemplateSession());
     setTemplateError("");
     setCarryoverUserChoice(null);
+    setCarryoverAutoState(null);
     notify("읽은 양식을 지웠습니다.");
   };
 
@@ -1260,41 +1261,57 @@ export default function App() {
   /* ── 전년도 결과보고서 양식 이양 ───────────────────────── */
 
   const currentYear = new Date().getFullYear();
-  /** 올린 양식이 작년 결과보고서인지 — 저장된 양식에서 다시 계산하므로 새로고침 뒤에도 유지된다 */
+  /** 올릴 때의 원본 양식 — 값이 채워진 뒤에도 전년도 값 목록이 흔들리지 않게 여기서 본다 */
+  const carryoverSourceSchema = templateSession.sourceSchema || templateSession.schema;
+  /** 올린 양식이 작년 결과보고서인지 — 원본 양식에서 계산하므로 새로고침 뒤에도 유지된다 */
   const carryoverDetection = useMemo(
     () =>
-      templateSession.schema
+      carryoverSourceSchema
         ? detectPreviousYearDocument({
-            schema: templateSession.schema,
-            fileName: templateSession.schema.fileName,
+            schema: carryoverSourceSchema,
+            fileName: carryoverSourceSchema.fileName,
             currentYear
           })
         : null,
-    [templateSession.schema, currentYear]
+    [carryoverSourceSchema, currentYear]
   );
+  /** 이 세션에서 마지막으로 감지한 값 — 사용자가 직접 정하기 전까지는 이것을 따른다 */
+  const [carryoverAutoState, setCarryoverAutoState] = useState<boolean | null>(null);
+  // 이양 자동 여부는 양식을 올린 시점(또는 저장된 작업을 다시 여는 시점)에 한 번만 정한다.
+  // 값을 채워 감지 결과가 바뀌어도 모드가 저절로 꺼지지 않는다.
+  useEffect(() => {
+    if (carryoverAutoState === null && carryoverDetection) {
+      setCarryoverAutoState(carryoverDetection.suggested);
+    }
+  }, [carryoverDetection, carryoverAutoState]);
   /** 사용자가 토글로 직접 정하지 않았으면 감지 결과를 따른다 */
-  const carryoverEnabled = carryoverUserChoice === null ? Boolean(carryoverDetection?.suggested) : carryoverUserChoice;
+  const carryoverEnabled = carryoverUserChoice === null ? Boolean(carryoverAutoState) : carryoverUserChoice;
+  /** 원본 양식의 칸 목록 — 칸 id는 현재 양식과 같은 순서라 그대로 대응된다 */
+  const carryoverSourceFields = useMemo(
+    () => (carryoverSourceSchema ? extractFormFields(carryoverSourceSchema) : []),
+    [carryoverSourceSchema]
+  );
   /** 이양 대상 칸 — 원본에 적힌 전년도 값(연도·날짜·금액·인원)이 있는 칸 */
   const carryoverPlan = useMemo(
     () =>
       carryoverEnabled
-        ? buildCarryoverPlan({ fields: templateFields, currentYear, sourceYear: carryoverDetection?.sourceYear ?? undefined })
+        ? buildCarryoverPlan({ fields: carryoverSourceFields, currentYear, sourceYear: carryoverDetection?.sourceYear ?? undefined })
         : { rows: [], counts: { total: 0, strong: 0, weak: 0 } },
-    [carryoverEnabled, templateFields, carryoverDetection, currentYear]
+    [carryoverEnabled, carryoverSourceFields, carryoverDetection, currentYear]
   );
   /** 갈아끼우지 못해 전년도 값이 남아 있는 칸 — 3단계 배지·사전 점검이 쓴다 */
   const carryoverLeftover = useMemo(
     () =>
       carryoverEnabled
         ? findLeftoverYearValues({
-            fields: templateFields,
+            fields: carryoverSourceFields,
             values: templateSession.fieldValues,
             planRows: carryoverPlan.rows,
             currentYear,
             sourceYear: carryoverDetection?.sourceYear ?? undefined
           })
         : { rows: [], counts: { total: 0, strong: 0, weak: 0 } },
-    [carryoverEnabled, templateFields, templateSession.fieldValues, carryoverPlan, carryoverDetection, currentYear]
+    [carryoverEnabled, carryoverSourceFields, templateSession.fieldValues, carryoverPlan, carryoverDetection, currentYear]
   );
   const carryoverClassified = useMemo(
     () =>
