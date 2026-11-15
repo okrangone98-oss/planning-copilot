@@ -282,6 +282,21 @@ function collectBodyParagraphs(root) {
   return paragraphs;
 }
 
+/* ────────────────────────── 전년도 값 교체(양식 이양) ────────────────────────── */
+
+/**
+ * 이 칸의 지금 값을 덮어써도 되는가 — 양식 이양 모드에서만 쓴다.
+ * 이양 계획이 정한 ‘라벨 키 → 바꾸기 전 글자’ 목록에 정확히 일치할 때만 허용한다.
+ * 같은 라벨이라도 글자가 다르면(사람이 이미 고친 칸) 건드리지 않는다.
+ */
+function overwriteAllowed(overwrites, key, text) {
+  if (!key || !overwrites) return false;
+  const allowed = overwrites instanceof Map ? overwrites.get(key) : overwrites[String(key)];
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return false;
+  return Array.isArray(allowed) && allowed.includes(trimmed);
+}
+
 /* ────────────────────────── 채우기 값 ────────────────────────── */
 
 /**
@@ -467,7 +482,7 @@ function applyTextEdits(paragraph, edits, splices) {
  * 본문 문단 하나의 채우기 편집을 계획한다.
  * "라벨: 값" 인라인 세그먼트가 먼저고, 남은 자리 표시(`{{라벨}}`·`[입력]`·`___`)를 뒤에서 채운다.
  */
-function planInlineWrite(xml, paragraph, cursors, filled, where) {
+function planInlineWrite(xml, paragraph, cursors, filled, where, mayOverwrite) {
   const runs = textRuns(paragraph);
   if (!runs.length) return [];
   // 인라인 요소는 같은 길이의 빈칸으로 바꿔 두어, 편집 위치(offset)가 원문과 계속 맞게 한다.
@@ -480,17 +495,21 @@ function planInlineWrite(xml, paragraph, cursors, filled, where) {
   for (const segment of segments) {
     const valueText = text.slice(segment.valueStart, segment.valueEnd);
     const state = fillableValueState(valueText);
-    if (!state.fillable) continue;
-    const label = (state.label || segment.extLabel || segment.label || "").trim();
-    if (!label) continue;
     // ‘강사 성명’처럼 수식어가 붙은 라벨은 ‘성명’ 키로도 찾는다.
+    const label = (state.label || segment.extLabel || segment.label || "").trim();
+    if (!state.fillable) {
+      // 전년도 값이 적힌 문장도 이양 계획이 같은 글자로 짚으면 갈아끼운다.
+      const overwriteKey = matchKey(label, cursors) || (segment.label && segment.label !== label ? matchKey(segment.label, cursors) : undefined);
+      if (!overwriteKey || !mayOverwrite(overwriteKey, valueText)) continue;
+    }
+    if (!label) continue;
     const key = matchKey(label, cursors) || (segment.label && segment.label !== label ? matchKey(segment.label, cursors) : undefined);
     if (!key) continue;
     const value = consumeValue(cursors.get(key));
     if (value === undefined) continue;
     edits.push({ start: segment.valueStart, end: segment.valueEnd, text: value });
     consumed.add(key);
-    filled.push({ key, label, value, where, kind: "inline" });
+    filled.push({ key, label, value, where, kind: "inline", replaced: state.fillable ? undefined : valueText.trim() });
   }
 
   // 남은 자리 표시 — 인라인에서 이미 채운 자리는 건너뛴다.
@@ -539,6 +558,11 @@ function planInlineWrite(xml, paragraph, cursors, filled, where) {
 export function patchSectionXml(xml, values, options = {}) {
   const source = String(xml ?? "");
   const cursors = options.cursors instanceof Map ? options.cursors : createFillCursors(values);
+  const overwrites = options.overwrites instanceof Map ? options.overwrites : null;
+  const overwriteObject = !overwrites && options.overwrites && typeof options.overwrites === "object" ? options.overwrites : null;
+  const mayOverwrite = (key, text) =>
+    (overwrites && overwriteAllowed(overwrites, key, text))
+    || (overwriteObject && overwriteAllowed(overwriteObject, key, text));
   const root = parseHwpxXml(source);
   const tables = collectTables(root, source);
   const splices = [];
@@ -607,7 +631,9 @@ export function patchSectionXml(xml, values, options = {}) {
         for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
           const cell = rows[rowIndex].cells.find((item) => item.colAddr === headerCell.colAddr);
           if (!cell) continue;
-          if (!fillableValueState(cell.text).fillable) continue;
+          const cellState = fillableValueState(cell.text);
+          // 전년도 값이 적힌 칸 — 이양 계획이 같은 글자로 짚은 칸만 갈아끼운다.
+          if (!cellState.fillable && !mayOverwrite(key, cell.text)) continue;
           if (!cursor.array && cursor.index > 0) break;
           const value = consumeValue(cursor);
           if (value === undefined) break;
@@ -616,6 +642,7 @@ export function patchSectionXml(xml, values, options = {}) {
             key,
             label: labelText,
             value,
+            replaced: cellState.fillable ? undefined : cell.text.trim(),
             where: `${table.index + 1}번 표 · ${rowIndex + 1}행 ${cell.colAddr + 1}열`,
             kind: "column"
           });
@@ -645,7 +672,8 @@ export function patchSectionXml(xml, values, options = {}) {
         if (isBandLabelPair(table, cells, labelCell, valueCell)) continue;
         const state = fillableValueState(valueText);
         const where = `${table.index + 1}번 표 · ${row.index + 1}행 ${valueCell.colAddr + 1}열`;
-        if (!state.fillable) {
+        const canOverwrite = !state.fillable && mayOverwrite(key, valueText);
+        if (!state.fillable && !canOverwrite) {
           skipped.push({ label: labelText, key, reason: "칸에 이미 값이 있어 그대로 두었습니다", current: valueText, where });
           continue;
         }
@@ -657,7 +685,7 @@ export function patchSectionXml(xml, values, options = {}) {
         const value = consumeValue(cursor);
         if (value === undefined) continue;
         if (!planCellWrite(valueCell, value, splices)) continue;
-        filled.push({ key, label: labelText.replace(/[:：]\s*$/, ""), value, where, kind: "cell" });
+        filled.push({ key, label: labelText.replace(/[:：]\s*$/, ""), value, replaced: canOverwrite ? valueText.trim() : undefined, where, kind: "cell" });
       }
     }
   }
@@ -684,7 +712,7 @@ export function patchSectionXml(xml, values, options = {}) {
     seen.add(paragraph);
     const where = `본문 ${paragraphIndex + 1}번째 문단`;
     paragraphIndex += 1;
-    const edits = planInlineWrite(source, paragraph, cursors, filled, where);
+    const edits = planInlineWrite(source, paragraph, cursors, filled, where, mayOverwrite);
     if (edits.length) applyTextEdits(paragraph, edits, splices);
   }
 
@@ -713,7 +741,7 @@ function applySplices(source, splices) {
  * .hwpx 바이트 전체를 값으로 채워 새 .hwpx 바이트를 만든다.
  * ZIP 안의 섹션 XML만 바뀌고 나머지 엔트리는 그대로다. mimetype 은 압축하지 않고 맨 앞에 둔다(HWPX 규칙).
  */
-export async function patchHwpxBytes({ bytes, values, jszip } = {}) {
+export async function patchHwpxBytes({ bytes, values, jszip, overwrites } = {}) {
   const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (!input.length) throw new Error("채울 .hwpx 파일이 없습니다. 양식 파일을 올리거나 연습 양식을 불러와 주세요.");
   const JSZip = jszip || (await import("jszip")).default;
@@ -729,7 +757,7 @@ export async function patchHwpxBytes({ bytes, values, jszip } = {}) {
   const edited = new Map();
   for (const name of targets) {
     const xml = await zip.file(name).async("text");
-    const result = patchSectionXml(xml, values, { cursors });
+    const result = patchSectionXml(xml, values, { cursors, overwrites });
     filled.push(...result.filled.map((item) => ({ ...item, section: name })));
     skipped.push(...result.skipped.map((item) => ({ ...item, section: name })));
     if (result.changed) edited.set(name, result.xml);
@@ -783,7 +811,9 @@ export function summarizeFill(result) {
   const filledCount = (result?.filled || []).length; // 채운 칸 수
   const skippedCount = (result?.skipped || []).length;
   const unmatchedCount = (result?.unmatched || []).length;
+  const replacedCount = (result?.filled || []).filter((item) => item && item.replaced).length; // 전년도 값을 바꾼 칸 수
   const parts = [`${filledCount}칸을 채웠습니다`];
+  if (replacedCount) parts.push(`전년도 값 ${replacedCount}칸을 올해 값으로 바꿨습니다`);
   if (skippedCount) parts.push(`${skippedCount}칸은 원본 값을 그대로 두었습니다`);
   if (unmatchedCount) parts.push(`${unmatchedCount}개 값은 들어갈 칸을 찾지 못했습니다`);
   return `${parts.join(" · ")}.`;

@@ -8,6 +8,26 @@ import {
   type TemplateProfile,
   type TemplateSchema
 } from "../lib/sampleTemplateParser.mjs";
+import {
+  PLAN_SOURCE_ACCEPT,
+  PLAN_SOURCE_HINT,
+  type PlanSourceResult
+} from "../lib/hwpxSourceExtractor.mjs";
+import {
+  CARRYOVER_MODE_HINT,
+  CARRYOVER_LEFTOVER_LABEL,
+  CARRYOVER_REPLACED_LABEL,
+  type CarryoverDetection,
+  type CarryoverLeftover
+} from "../lib/yearCarryover.mjs";
+import {
+  MATERIALS_ACCEPT,
+  MATERIALS_HINT,
+  PHOTO_ACCEPT,
+  PHOTO_HINT,
+  type PhotoCaptions,
+  type SpreadsheetMaterial
+} from "../lib/reportMaterials.mjs";
 import { HwpxExportPanel } from "./HwpxExportPanel";
 import { SmartTextPanel } from "./SmartTextPanel";
 import { KordocFillPanel } from "./KordocFillPanel";
@@ -55,6 +75,34 @@ const FLOW_STEPS = [
   { no: "④", title: "HWPX 다운로드", hint: "원본 서식 그대로" }
 ];
 
+/** 출석·지출 표를 파일 없이 붙여넣는 작은 칸 */
+function MaterialPasteBox({ onApply }: { onApply: (text: string) => void }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="template-paste-body">
+      <TemplateField
+        label="출석·지출 표 (붙여넣기)"
+        value={text}
+        onChange={setText}
+        rows={6}
+        wide
+        placeholder={"일자 | 참석인원 | 활동\n2026-03-02 | 18 | 창업 기초 강좌\n--- 또는 ---\n적요 | 금액 | 비목\n강사비 이체 | 1,200,000 | 인건비"}
+      />
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => {
+          if (!text.trim()) return;
+          onApply(text);
+          setText("");
+        }}
+      >
+        붙여넣은 표 세어 넣기
+      </button>
+    </div>
+  );
+}
+
 export function TemplateFillView({
   schema,
   profile,
@@ -100,7 +148,23 @@ export function TemplateFillView({
   onFillValueChange,
   onLoadProjectData,
   projectDataNote,
-  projectDataStale
+  projectDataStale,
+  planSource = null,
+  planSourceBusy = false,
+  onPickPlanSource,
+  materialResult = null,
+  materialFileName = "",
+  onPickMaterialFile,
+  onApplyMaterialText,
+  photoCaptions = null,
+  onPickPhotoFiles,
+  carryoverDetection = null,
+  carryoverEnabled = false,
+  onCarryoverToggle,
+  carryoverPlanCounts,
+  carryoverLeftover,
+  carryoverById = null,
+  carryoverOverwrites = null
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -149,6 +213,27 @@ export function TemplateFillView({
   onLoadProjectData: () => void;
   projectDataNote: string;
   projectDataStale: boolean;
+  /** 올해 추진계획서(.hwpx) 재료 */
+  planSource?: PlanSourceResult | null;
+  planSourceBusy?: boolean;
+  onPickPlanSource?: (file: File) => void;
+  /** 출석·지출 자료(CSV/TSV·붙여넣기) */
+  materialResult?: SpreadsheetMaterial | null;
+  materialFileName?: string;
+  onPickMaterialFile?: (file: File) => void;
+  onApplyMaterialText?: (text: string, fileName?: string) => void;
+  /** 활동사진 캡션 */
+  photoCaptions?: PhotoCaptions | null;
+  onPickPhotoFiles?: (files: FileList | null) => void;
+  /** 전년도 양식 이양 */
+  carryoverDetection?: CarryoverDetection | null;
+  carryoverEnabled?: boolean;
+  onCarryoverToggle?: (enabled: boolean) => void;
+  carryoverPlanCounts?: { total: number; strong: number; weak: number };
+  carryoverLeftover?: CarryoverLeftover | null;
+  /** 양식 이양 배지·덮어쓰기 목록 — 3·4단계 패널로 넘긴다 */
+  carryoverById?: Record<string, { status: string; label: string; previous: string; next: string; strength: string; reason: string }> | null;
+  carryoverOverwrites?: Record<string, string[]> | null;
 }) {
   const [pasteText, setPasteText] = useState("");
   const [showStructure, setShowStructure] = useState(false);
@@ -394,6 +479,33 @@ export function TemplateFillView({
         </section>
       )}
 
+      {schema && carryoverDetection && (carryoverDetection.suggested || carryoverEnabled) && (
+        <section className={`carryover-bar ${carryoverEnabled ? "is-on" : ""}`} aria-label="전년도 양식 이양">
+          <label className="carryover-toggle">
+            <input
+              type="checkbox"
+              checked={carryoverEnabled}
+              onChange={(event) => onCarryoverToggle?.(event.target.checked)}
+            />
+            <span>
+              <strong>전년도 양식 이양</strong>
+              <small>{CARRYOVER_MODE_HINT}</small>
+            </span>
+          </label>
+          <p className="carryover-reason">{carryoverDetection.reason}</p>
+          {carryoverEnabled && Boolean(carryoverPlanCounts?.total) && (
+            <p className="carryover-counts" role="status">
+              이양 대상 칸 <strong>{carryoverPlanCounts?.total ?? 0}개</strong>
+              {carryoverLeftover?.counts?.total ? (
+                <span className="template-badge is-warn">{CARRYOVER_LEFTOVER_LABEL} {carryoverLeftover.counts.total}개</span>
+              ) : (
+                <span className="template-badge is-ready">올해 값 준비</span>
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
       {schema && (
         <SmartTextPanel
           fields={fields}
@@ -417,6 +529,123 @@ export function TemplateFillView({
         />
       )}
 
+      {schema && (
+        <section className="grant-block report-materials" aria-label="결과보고 재료 파일">
+          <div className="grant-block-head">
+            <div>
+              <strong>재료 파일 — 계획서 · 출석·지출 · 활동사진</strong>
+              <span>올해 자료를 파일으로 올리면 2단계 글 뒤에 자동으로 이어 붙입니다. 직접 쓴 글은 지우지 않습니다.</span>
+            </div>
+          </div>
+          <div className="material-rows">
+            <div className="material-row">
+              <div className="material-row-head">
+                <strong>올해 추진계획서 (.hwpx)</strong>
+                <label className="file-pick">
+                  {planSourceBusy ? "읽는 중" : "계획서 파일 선택"}
+                  <input
+                    type="file"
+                    accept={PLAN_SOURCE_ACCEPT}
+                    disabled={planSourceBusy}
+                    aria-label="올해 추진계획서 올리기"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) onPickPlanSource?.(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <small>{PLAN_SOURCE_HINT}</small>
+              {planSource && planSource.ok && (
+                <p className="material-result" role="status">
+                  <span className="template-badge is-ready">항목 {planSource.counts.total}줄</span>
+                  라벨 {planSource.counts.labels} · 예산 {planSource.counts.budgetLines} · 일정 {planSource.counts.scheduleLines} · 본문 {planSource.counts.paragraphs}
+                  {planSource.counts.truncated ? " · 길어서 앞부분만 넣음" : ""}
+                  <small className="material-note">계획서의 숫자는 계획값입니다 — 실적 칸(참석 인원·집행액)은 출석·지출 자료의 값을 쓰세요.</small>
+                </p>
+              )}
+            </div>
+
+            <div className="material-row">
+              <div className="material-row-head">
+                <strong>출석현황 · 지출내역 (CSV/TSV)</strong>
+                <label className="file-pick">
+                  자료 파일 선택
+                  <input
+                    type="file"
+                    accept={MATERIALS_ACCEPT}
+                    aria-label="출석·지출 자료 올리기"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) onPickMaterialFile?.(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <small>{MATERIALS_HINT}</small>
+              {materialResult?.line && (
+                <p className="material-result" role="status">
+                  <span className="template-badge is-ready">{materialResult.kind === "attendance" ? "출석" : "지출"} {materialResult.rows}행</span>
+                  {materialResult.line}
+                  {materialFileName ? <small>읽은 파일: {materialFileName}</small> : null}
+                </p>
+              )}
+              {onApplyMaterialText && (
+                <details className="setup-details material-paste">
+                  <summary>파일 없이 표를 붙여넣기</summary>
+                  <MaterialPasteBox onApply={(text) => onApplyMaterialText(text, "붙여넣은 표")} />
+                </details>
+              )}
+            </div>
+
+            <div className="material-row">
+              <div className="material-row-head">
+                <strong>활동사진 (캡션 만들기)</strong>
+                <label className="file-pick">
+                  사진 파일 선택
+                  <input
+                    type="file"
+                    accept={PHOTO_ACCEPT}
+                    multiple
+                    aria-label="활동사진 올리기"
+                    onChange={(event) => {
+                      onPickPhotoFiles?.(event.target.files);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <small>{PHOTO_HINT}</small>
+              {photoCaptions && photoCaptions.lines.length > 0 && (
+                <div className="material-result">
+                  <p role="status">
+                    <span className="template-badge is-ready">캡션 {photoCaptions.lines.length}줄</span>
+                    2단계 글에 넣었습니다. 사진 파일 자체는 내려받은 문서를 한글에서 열어 넣어 주세요.
+                  </p>
+                  <ul className="photo-caption-list">
+                    {photoCaptions.lines.slice(0, 12).map((line) => (
+                      <li key={line.fileName}>
+                        <span className="photo-caption-date">{line.date || "날짜 미확인"}</span>
+                        <span className="photo-caption-title">{line.title || "활동 사진"}</span>
+                        <small>{line.fileName}</small>
+                      </li>
+                    ))}
+                    {photoCaptions.lines.length > 12 && <li className="template-more">… {photoCaptions.lines.length - 12}개 더 있음</li>}
+                  </ul>
+                  {photoCaptions.warnings.length > 0 && (
+                    <ul className="template-warnings">
+                      {photoCaptions.warnings.slice(0, 4).map((warning) => <li key={warning}>{warning}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {schema && filledCount > 0 && (
         <p className="pc-notice is-success" role="status">
           2단계에서 <strong>{filledCount}칸</strong>을 채웠습니다. 아래 3단계에서 칸별 값을 확인하고, 잘못 들어간 값은 그 자리에서 고쳐 주세요.
@@ -436,6 +665,9 @@ export function TemplateFillView({
           lowConfidenceIds={lowConfidenceIds}
           leftovers={smartResult?.leftovers || []}
           schema={schema}
+          carryoverById={carryoverEnabled ? carryoverById : null}
+          carryoverOverwrites={carryoverEnabled ? carryoverOverwrites : null}
+          carryoverPreflight={carryoverEnabled && carryoverLeftover ? { leftover: carryoverLeftover } : null}
         />
       )}
 

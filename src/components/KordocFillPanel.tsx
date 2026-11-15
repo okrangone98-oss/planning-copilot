@@ -27,6 +27,12 @@ import {
   type HwpxPatchResult,
   type SkippedEntry
 } from "../lib/browserHwpxFiller.mjs";
+import {
+  CARRYOVER_LEFTOVER_LABEL,
+  CARRYOVER_REPLACED_LABEL,
+  type CarryoverLeftover,
+  type CarryoverPlan
+} from "../lib/yearCarryover.mjs";
 import { AutoGrowTextarea } from "./AutoGrowTextarea";
 
 function base64ToBytes(base64: string) {
@@ -77,7 +83,10 @@ export function KordocFillPanel({
   autoFieldIds,
   lowConfidenceIds,
   leftovers = [],
-  schema = null
+  schema = null,
+  carryoverById = null,
+  carryoverOverwrites = null,
+  carryoverPreflight = null
 }: {
   fields: FormField[];
   values: Record<string, string>;
@@ -95,6 +104,12 @@ export function KordocFillPanel({
   leftovers?: Array<{ id?: string; text?: string }>;
   /** 병합 칸·양식 제목처럼 양식 자체를 봐야 하는 점검에 쓴다. */
   schema?: TemplateSchema | null;
+  /** 양식 이양 — 칸마다 붙일 전년도 값 배지(교체·잔존) */
+  carryoverById?: Record<string, { status: string; label: string; previous: string; next: string; strength: string; reason: string }> | null;
+  /** 양식 이양 — 이 칸의 작년 값은 같은 글자면 갈아끼워도 된다(라벨 키 → 이전 글자들) */
+  carryoverOverwrites?: Record<string, string[]> | null;
+  /** 사전 점검에 넘길 이양 정보(잔존 점검) */
+  carryoverPreflight?: { plan?: CarryoverPlan | null; leftover?: CarryoverLeftover | null } | null;
 }) {
   const [endpoint, setEndpoint] = useState(() => loadHwpxBridgeEndpoint());
   const [busy, setBusy] = useState<"" | "fill" | "patch" | "browser">("");
@@ -148,9 +163,10 @@ export function KordocFillPanel({
         leftovers,
         schema,
         title: schema?.title || fileName || "",
-        hasFile
+        hasFile,
+        carryover: carryoverPreflight
       }),
-    [fields, values, autoFieldIds, lowConfidenceIds, leftovers, schema, fileName, hasFile]
+    [fields, values, autoFieldIds, lowConfidenceIds, leftovers, schema, fileName, hasFile, carryoverPreflight]
   );
   const blockIds = useMemo(() => preflight.items.filter((item) => item.level === "block").map((item) => item.id).join(","), [preflight]);
 
@@ -183,7 +199,7 @@ export function KordocFillPanel({
     setBusy("browser");
     setBrowserNote({ tone: "info", text: "브라우저에서 양식 서식을 그대로 두고 값을 넣는 중입니다." });
     try {
-      const result = await patchHwpxBytes({ bytes: base64ToBytes(fileBase64), values: fill.values });
+      const result = await patchHwpxBytes({ bytes: base64ToBytes(fileBase64), values: fill.values, overwrites: carryoverOverwrites || undefined });
       setBrowserResult(result);
       if (!result.filled.length) {
         setBrowserNote({
@@ -364,9 +380,17 @@ export function KordocFillPanel({
                   const status = row?.status ?? "manual";
                   const label = row?.statusLabel ?? "값 있음";
                   const note = row?.note && status === "check" ? row.note : "";
+                  const carry = entry.fieldId ? carryoverById?.[entry.fieldId] : undefined;
                   return (
                     <tr key={`${entry.key}-${entry.fieldId ?? index}-${index}`} className={status === "check" ? "is-check" : ""}>
-                      <td data-label="칸">{entry.label}</td>
+                      <td data-label="칸">
+                        {entry.label}
+                        {carry && (
+                          <span className={`fill-status is-${carry.status === "replaced" ? "auto" : "check"} carryover-badge`}>
+                            {carry.status === "replaced" ? CARRYOVER_REPLACED_LABEL : CARRYOVER_LEFTOVER_LABEL}
+                          </span>
+                        )}
+                      </td>
                       <td data-label="넣을 값">
                         {editable && entry.fieldId ? (
                           <div className="fill-value-cell">

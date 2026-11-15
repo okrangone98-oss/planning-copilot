@@ -241,7 +241,8 @@ export function buildDownloadPreflight({
   leftovers = [],
   schema = null,
   title = "",
-  hasFile = false
+  hasFile = false,
+  carryover = null
 } = {}) {
   const rows = classifyFields({ fields, values, autoFieldIds, lowConfidenceIds });
   const stats = summarizeFieldStatuses(rows);
@@ -371,6 +372,22 @@ export function buildDownloadPreflight({
       detail: originalRows.slice(0, 3).map((row) => `‘${row.label}’: ${row.originalValue.slice(0, 30)}`).join(" · "),
       fix: "자동으로 덮어쓰지 않습니다. 바꿔야 하는 칸이면 한글에서 고치거나, 원본 양식의 그 칸을 비우고 다시 올려 주세요.",
       fieldIds: originalRows.map((row) => row.fieldId)
+    });
+  }
+
+  // 양식 이양 — 작년 문서를 갈아끼울 때만 나오는 점검. 바꾸지 못한 전년도 값을 눈에 보이게 남긴다.
+  const leftoverRows = Array.isArray(carryover?.leftover?.rows) ? carryover.leftover.rows : [];
+  if (leftoverRows.length) {
+    const strongRows = leftoverRows.filter((row) => row.strength === "strong");
+    add({
+      id: "carryover-leftover",
+      level: "manual",
+      title: `전년도 값 잔존 확인 필요 ${leftoverRows.length}개`,
+      detail: leftoverRows.slice(0, 4).map((row) => `‘${row.label}’: ${String(row.next || row.previous).slice(0, 30)}`).join(" · "),
+      fix: strongRows.length
+        ? "올해 값으로 바꾸지 못한 칸입니다. 3단계 표에서 값을 고치거나, 작년 값이 그대로인 칸을 한글에서 직접 고쳐 주세요."
+        : "금액·인원이 작년 그대로인 칸입니다. 올해 실적인지 3단계 표에서 확인해 주세요.",
+      fieldIds: leftoverRows.map((row) => row.fieldId)
     });
   }
 
