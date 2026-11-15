@@ -451,7 +451,21 @@ export function KordocFillPanel({
                     {TYPE_HINT[row.type] && <small className="fill-blank-type">{TYPE_HINT[row.type]}</small>}
                   </div>
                   {row.status === "original" ? (
-                    <p className="fill-blank-original">지금 적힌 값: {row.originalValue.slice(0, 80)}</p>
+                    carryoverById?.[row.fieldId] ? (
+                      // 양식 이양 — 전년도 값이 적힌 칸은 여기에 바로 올해 값을 적어 갈아끼울 수 있다.
+                      <>
+                        <p className="fill-blank-original">전년도 값: {carryoverById[row.fieldId].previous || row.originalValue.slice(0, 80)}</p>
+                        <AutoGrowTextarea
+                          className="kordoc-fill-input"
+                          value={values[row.fieldId] ?? ""}
+                          ariaLabel={`${row.label} 칸에 넣을 올해 값`}
+                          placeholder="올해 값을 적으면 내려받을 때 이 자리를 갈아끼웁니다"
+                          onChange={(next) => onValueChange?.(row.fieldId, next)}
+                        />
+                      </>
+                    ) : (
+                      <p className="fill-blank-original">지금 적힌 값: {row.originalValue.slice(0, 80)}</p>
+                    )
                   ) : editable ? (
                     <AutoGrowTextarea
                       className="kordoc-fill-input"
