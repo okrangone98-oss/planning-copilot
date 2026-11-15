@@ -70,12 +70,21 @@ export function copyProjectWork(fromId: string, toId: string) {
     dependsOn: task.dependsOn.map((id) => taskIds.get(id)).filter((id): id is string => Boolean(id))
   }));
 
+  // 지출도 새 id를 받고, 회차를 가리키던 참조는 복제된 회차 id로 바꾼다.
+  // 비목 id는 예산도 함께 복제되므로 그대로 둔다(같은 계획 행을 가리킨다).
+  const expenses = work.expenses.map((expense) => ({
+    ...expense,
+    id: `exp_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`,
+    sessionId: expense.sessionId ? sessionIds.get(expense.sessionId) || "" : ""
+  }));
+
   const next = sanitizeProjectWork(
     {
       ...work,
       projectId: toId,
       sessions,
       tasks: withDeps,
+      expenses,
       changes: [],
       revisions: work.revisions,
       generations: work.generations
