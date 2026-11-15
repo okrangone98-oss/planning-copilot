@@ -895,8 +895,10 @@ export default function App() {
     setTemplateError("");
     // 새 양식에서는 이양 여부를 다시 감지에 맡긴다 — 사용자가 직접 고른 적이 있어도 새 양식이면 초기화.
     setCarryoverUserChoice(null);
+    setCarryoverAutoState(null);
     updateTemplateSession({
       schema,
+      sourceSchema: schema,
       result: "",
       fieldValues: {},
       profile: normalizeProfile({ ...templateSession.profile, projectName: templateSession.profile.projectName || project.projectName })
