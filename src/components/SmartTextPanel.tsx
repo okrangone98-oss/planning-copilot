@@ -36,7 +36,10 @@ export function SmartTextPanel({
   onToggle,
   onToggleAll,
   clear,
-  onSendLeftoversToDraft
+  onSendLeftoversToDraft,
+  onLoadProjectData,
+  projectDataNote,
+  projectDataStale
 }: {
   fields: FormField[];
   text: string;
@@ -53,6 +56,12 @@ export function SmartTextPanel({
   onToggleAll: (checked: boolean) => void;
   clear: () => void;
   onSendLeftoversToDraft: () => void;
+  /** 이 사업에 적힌 계획·예산·회차·지출·결과보고를 이 칸에 한 번에 넣는다. */
+  onLoadProjectData: () => void;
+  /** 마지막으로 불러온 사업 데이터 설명(불러온 시각·항목 수·비어 있는 항목). */
+  projectDataNote: string;
+  /** 불러온 뒤 사업 데이터가 바뀌었는지 */
+  projectDataStale: boolean;
 }) {
   const summary = useMemo(() => summarizeSmartMap(result, selected), [result, selected]);
   const rows = result?.rows || [];
@@ -81,6 +90,27 @@ export function SmartTextPanel({
           )}
         </div>
       </div>
+
+      <div className="smart-text-digest-row">
+        <button className="secondary-button" type="button" onClick={onLoadProjectData}>
+          {text.trim() ? "현재 사업 데이터 다시 불러오기" : "현재 사업 데이터 불러오기"}
+        </button>
+        <span>
+          이 사업의 사업명·기관·기간·비목별 예산과 집행·회차·참석 인원·결과보고에 쓴 글을 아래 칸에 그대로 넣습니다.
+          직접 쓴 글이 있으면 지우지 않고 뒤에 이어 붙이며, 빈 항목은 0으로 채우지 않고 비워 둡니다.
+        </span>
+      </div>
+
+      {projectDataNote && (
+        <p className={`smart-text-digest-note ${projectDataStale ? "is-stale" : ""}`} role="status">
+          <span>{projectDataNote}</span>
+          {projectDataStale && (
+            <button className="ghost-light-button small" type="button" onClick={onLoadProjectData}>
+              최신 값으로 다시 불러오기
+            </button>
+          )}
+        </p>
+      )}
 
       {!fields.length && (
         <p className="block-note">먼저 ①단계에서 양식을 읽어야 칸을 알 수 있습니다. 양식을 올리거나 연습 양식을 불러와 주세요.</p>
@@ -175,6 +205,7 @@ function SmartTextRow({ row, checked, onToggle }: { row: AssignmentRow; checked:
           <strong>{row.label}</strong>
           <span className="template-slot-kind is-blank">{TYPE_LABEL[row.type] || "글"}</span>
           {row.source === "ai" && <span className="template-slot-kind">AI</span>}
+          {row.merged && <span className="template-slot-kind">여러 곳에서 모음 · 확인 필요</span>}
           <small>{row.where}</small>
         </div>
         <p className="smart-text-row-value">{row.proposed}</p>

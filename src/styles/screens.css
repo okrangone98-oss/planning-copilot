@@ -1916,6 +1916,48 @@
   color: var(--c-text-3);
 }
 
+/* 2단계 — 이 사업 데이터를 한 번에 불러오는 줄 */
+.smart-text-digest-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--stack-s);
+}
+
+.smart-text-digest-row span {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.smart-text-digest-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--stack-s);
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-s);
+  background: var(--c-info-tint);
+  color: var(--c-info-tint-text);
+  font-size: var(--fs-caption);
+  line-height: 1.5;
+}
+
+.smart-text-digest-note span {
+  flex: 1 1 240px;
+  min-width: 0;
+  word-break: keep-all;
+}
+
+.smart-text-digest-note.is-stale {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
 .smart-text-hint span {
   flex: 1 1 260px;
   min-width: 0;

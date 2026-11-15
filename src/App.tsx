@@ -27,6 +27,7 @@ import {
   type TemplateSchema
 } from "./lib/sampleTemplateParser.mjs";
 import { createEmptyTemplateSession, loadTemplateSession, saveTemplateSession, type TemplateSession } from "./lib/templateStorage";
+import { buildProjectDataText, digestLoadedNote, mergeDigestIntoText, projectDataSignature, textSignature } from "./lib/projectDataReuse.mjs";
 import { applyFieldValues, extractFormFields } from "./lib/kordocFormSpec.mjs";
 import {
   buildSmartTextPrompt,
@@ -87,11 +88,13 @@ import {
 } from "./lib/projectWorkspace.mjs";
 import {
   appendChanges,
+  attendanceReport,
   buildChangeEntries,
   buildGenerationPreview,
   createEmptyProjectWork,
   createRevision,
   evidenceGap,
+  expenseSummary,
   isProjectWorkEmpty,
   projectDigest,
   type ChangeLogEntry,
@@ -887,6 +890,12 @@ export default function App() {
   /** 프로젝트·예산 화면에 이미 있는 값을 양식 프로필로 가져온다. 직접 쓴 값은 덮어쓰지 않는다. */
   const collectProjectProfile = (): TemplateProfile => {
     const budget = budgetSummary(grantPlan);
+    // 예산은 편성만이 아니라 지출 원장의 집행·잔액까지, 인원은 회차에 적힌 값까지 함께 넘긴다.
+    const ledger = expenseSummary(work, grantPlan);
+    const attendance = attendanceReport(work);
+    const budgetText = ledger.total.plan > 0
+      ? `총 ${formatWon(ledger.total.plan)}${ledger.expenseCount ? ` (집행 ${formatWon(ledger.total.spent)} · 잔액 ${formatWon(ledger.total.balance)})` : ""}`
+      : budget.total > 0 ? `총 ${formatWon(budget.total)}` : "";
     const schedule = [
       grantPlan.schedule?.projectStart ? `시작 ${grantPlan.schedule.projectStart}` : "",
       grantPlan.schedule?.projectEnd ? `종료 ${grantPlan.schedule.projectEnd}` : "",
@@ -895,11 +904,11 @@ export default function App() {
     const current = templateSession.profile;
     return normalizeProfile({
       ...current,
-      projectName: current.projectName || project.projectName,
+      projectName: current.projectName || project.projectName || activeMeta?.name || "",
       organization: current.organization || grantPlan.agency,
-      audience: current.audience || project.targetUsers,
+      audience: current.audience || project.targetUsers || (attendance.tracked ? `참여 ${attendance.attended}명(회차에 적힌 값 기준)` : ""),
       summary: current.summary || [project.coreIdea, project.problemSituation, project.fieldEvidence].filter(Boolean).join("\n").slice(0, 700),
-      budget: current.budget || (budget.total > 0 ? `총 ${formatWon(budget.total)}` : ""),
+      budget: current.budget || budgetText,
       schedule: current.schedule || schedule,
       evidence: current.evidence || project.requirements,
       notes: current.notes || project.evaluationFocus
@@ -910,6 +919,64 @@ export default function App() {
     updateTemplateSession({ profile: collectProjectProfile() });
     notify("프로젝트 입력값을 가져왔습니다. 빈 항목은 직접 채워 주세요.");
   };
+
+  /**
+   * 2단계(자료 붙여넣기)에 이 사업의 계획·예산·회차·지출·결과보고를 한 번에 넣는다.
+   * 이미 쓴 글이 있으면 지우지 않고 뒤에 이어 붙이며(확인 후), 앞서 불러온 블록은 중복 없이 최신 값으로 바꾼다.
+   */
+  const useProjectDataForTemplate = () => {
+    const digest = buildProjectDataText({ meta: activeMeta, plan: grantPlan, work, project });
+    if (!digest.text.trim()) {
+      notify("이 사업에는 아직 불러올 값이 없습니다. 홈·사업계획·예산·회차 중 하나를 먼저 적어 주세요.");
+      return;
+    }
+    const merged = mergeDigestIntoText({
+      existing: templateSession.smartText,
+      block: digest.text,
+      previousBlock: templateSession.digest?.block
+    });
+    if (merged.needsConfirm
+      && !window.confirm("2단계에 이미 붙여넣은 글이 있습니다. 그 글은 그대로 두고 이 사업 데이터를 뒤에 이어 붙일까요? (취소하면 아무것도 바뀌지 않습니다)")) {
+      return;
+    }
+    updateTemplateSession({
+      smartText: merged.text,
+      digest: {
+        loadedAt: new Date().toISOString(),
+        signature: textSignature(digest.text),
+        block: digest.text,
+        counts: { ...digest.counts } as Record<string, number>,
+        missing: digest.missing,
+        truncated: digest.truncated
+      }
+    });
+    // 글을 새로 넣었으면 앞서 나눈 미리보기는 이 글의 것이 아니다 — 다시 나누게 한다.
+    setSmartResult(null);
+    setSmartSelected(new Set());
+    setSmartNote("");
+    setSmartError("");
+    const next = merged.mode === "refresh"
+      ? "이 사업의 최신 값으로 다시 불러왔습니다. ‘자동으로 칸 나누기’를 다시 눌러 주세요."
+      : merged.mode === "append"
+        ? "붙여넣은 글 뒤에 이 사업 데이터를 이어 붙였습니다. ‘자동으로 칸 나누기’를 눌러 칸에 배치하세요."
+        : "이 사업 데이터를 2단계에 불러왔습니다. ‘자동으로 칸 나누기’를 눌러 칸에 배치하세요.";
+    notify(digest.missing.length ? `${next} 비어 있는 항목 ${digest.missing.length}개는 0으로 채우지 않고 비워 두었습니다.` : next);
+  };
+
+  /** 불러온 뒤 사업 데이터가 바뀌었는지 — 화면을 열어 둔 채 예산·회차를 고치면 알려 준다. */
+  const templateDigestStale = useMemo(() => {
+    if (!templateSession.digest || section !== "templateFill") return false;
+    return projectDataSignature({ meta: activeMeta, plan: grantPlan, work, project }) !== templateSession.digest.signature;
+  }, [templateSession.digest, activeMeta, grantPlan, work, project, section]);
+
+  const templateDigestNote = templateSession.digest
+    ? digestLoadedNote({
+        loadedAt: templateSession.digest.loadedAt,
+        counts: templateSession.digest.counts,
+        missing: templateSession.digest.missing,
+        truncated: templateSession.digest.truncated
+      })
+    : "";
 
   const runTemplateFill = async (mode: "ai" | "rule") => {
     const schema = templateSession.schema;
@@ -1188,7 +1255,8 @@ export default function App() {
   };
 
   const clearSmartText = () => {
-    updateTemplateSession({ smartText: "" });
+    // 글을 지우면 함께 불러온 사업 데이터 기록도 지운다 — 다음에 불러올 때 빈 칸부터 새로 넣는다.
+    updateTemplateSession({ smartText: "", digest: null });
     resetSmartState();
     notify("붙여넣은 글과 칸 배치를 지웠습니다. 채운 칸 값은 그대로 둡니다.");
   };
@@ -2455,6 +2523,9 @@ export default function App() {
               onSmartLeftoversToDraft={sendSmartLeftoversToDraft}
               fillValues={templateSession.fieldValues}
               onFillValueChange={setTemplateFieldValue}
+              onLoadProjectData={useProjectDataForTemplate}
+              projectDataNote={templateDigestNote}
+              projectDataStale={templateDigestStale}
               piiGuard={(
                 <PiiGuardNotice
                   text={templatePromptPreview}
