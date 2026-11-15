@@ -1,8 +1,9 @@
-// 사업 하나의 운영 데이터(업무·일정·회차·리비전·변경 이력) 로직.
+// 사업 하나의 운영 데이터(업무·일정·회차·지출 원장·리비전·변경 이력) 로직.
 // 브라우저(localStorage)와 node 테스트에서 함께 쓰므로 mjs로 두고, 타입은 projectOperations.d.mts에 둔다.
-// 금액은 여기서 다루지 않는다. 예산의 유일한 원천은 grantPlan.budgetLines이고, 이 모듈은 개수·상태만 센다.
+// 계획 금액의 유일한 원천은 grantPlan.budgetLines다. 지출 원장(expenses)은 실제로 나간 돈만 적고,
+// 비목 id로 계획 행을 가리켜 계획·집행·잔액을 한 자리에서 대조한다(계획액을 복제해 두지 않는다).
 
-import { daysUntil } from "./grantWorkflow.mjs";
+import { budgetSummary, daysUntil, lineAmount } from "./grantWorkflow.mjs";
 import { normalizeDeadline } from "./projectWorkspace.mjs";
 import {
   MAX_SESSION_COUNT,
@@ -19,11 +20,22 @@ export const PROJECT_WORK_SCHEMA_VERSION = 1;
 export const WORK_LIMITS = {
   tasks: 400,
   sessions: 60,
+  expenses: 600,
   revisions: 20,
   changes: 300,
   generations: 50,
   snapshotBytes: 200_000
 };
+
+/** 지출 한 건이 계획 대비 어디에 있는지. 계획만 세운 건은 잔액에서 빼지 않는다. */
+export const EXPENSE_STATUSES = [
+  { id: "paid", label: "집행 완료" },
+  { id: "pending", label: "지출 예정" },
+  { id: "planned", label: "계획만" }
+];
+
+/** 지출 상태 가운데 실제로 돈이 나갈(나간) 것으로 세는 상태. */
+export const EXPENSE_COMMITTED_STATUSES = ["paid", "pending"];
 
 export const TASK_STATUSES = [
   { id: "planned", label: "예정" },
@@ -55,7 +67,10 @@ export const CLOSED_STATUSES = ["done", "hold", "cancelled"];
 const TASK_STATUS_IDS = new Set(TASK_STATUSES.map((status) => status.id));
 const TASK_PRIORITY_IDS = new Set(TASK_PRIORITIES.map((priority) => priority.id));
 const SESSION_STATUS_IDS = new Set(SESSION_STATUSES.map((status) => status.id));
-const ENTITY_TYPES = new Set(["meta", "task", "session", "budget", "plan"]);
+const EXPENSE_STATUS_IDS = new Set(EXPENSE_STATUSES.map((status) => status.id));
+const COMMITTED_STATUS_IDS = new Set(EXPENSE_COMMITTED_STATUSES);
+const ENTITY_TYPES = new Set(["meta", "task", "session", "expense", "budget", "plan"]);
+const MAX_EXPENSE_AMOUNT = 1_000_000_000_000;
 
 const TASK_FIELD_LABELS = {
   title: "업무명",
@@ -75,11 +90,25 @@ const SESSION_FIELD_LABELS = {
   startAt: "일시",
   venue: "장소",
   instructorName: "강사",
+  trackAttendance: "인원 기록",
   capacity: "정원",
   registered: "신청",
   attended: "참석",
   status: "상태",
   notes: "메모"
+};
+
+const EXPENSE_FIELD_LABELS = {
+  budgetLineId: "비목",
+  sessionId: "회차",
+  spentAt: "지출일",
+  vendor: "거래처",
+  description: "적요",
+  amount: "금액",
+  status: "상태",
+  evidenceNote: "증빙 메모",
+  evidenceRef: "증빙 참조",
+  evidenceChecked: "증빙 확인"
 };
 
 let workIdCounter = 0;
@@ -106,6 +135,21 @@ function count(value, max = 100_000) {
   const number = Math.round(Number(value) || 0);
   if (!Number.isFinite(number)) return 0;
   return Math.max(0, Math.min(max, number));
+}
+
+/**
+ * 인원은 '0명'과 '아직 안 적음'이 다르다. 비어 있는 값은 0이 아니라 null로 남겨
+ * 결과보고에서 미입력을 0명으로 오인하지 않게 한다.
+ */
+function attendanceCount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  return count(value, 100_000);
+}
+
+function money(value) {
+  const number = Math.round(Number(value) || 0);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(MAX_EXPENSE_AMOUNT, number));
 }
 
 function dayText(value) {
@@ -154,6 +198,14 @@ export function sessionStatusLabel(id) {
   return SESSION_STATUSES.find((status) => status.id === id)?.label || SESSION_STATUSES[0].label;
 }
 
+export function expenseStatusLabel(id) {
+  return EXPENSE_STATUSES.find((status) => status.id === id)?.label || EXPENSE_STATUSES[0].label;
+}
+
+export function expenseFieldLabel(field) {
+  return EXPENSE_FIELD_LABELS[field] || field;
+}
+
 export function taskFieldLabel(field) {
   return TASK_FIELD_LABELS[field] || field;
 }
@@ -170,6 +222,7 @@ export function createEmptyProjectWork(projectId = "", now) {
     projectId: text(projectId, 60),
     tasks: [],
     sessions: [],
+    expenses: [],
     revisions: [],
     changes: [],
     generations: [],
@@ -206,6 +259,14 @@ function createSession(raw, now) {
   const source = raw && typeof raw === "object" ? raw : {};
   const createdAt = text(source.createdAt, 40) || isoNow(now);
   const startAt = dateTimeText(source.startAt);
+  const capacity = attendanceCount(source.capacity);
+  const registered = attendanceCount(source.registered);
+  const attended = attendanceCount(source.attended);
+  // 예전 저장값에는 인원 기록 스위치가 없다. 인원이 적혀 있던 회차는 그대로 집계하고(기존 합계 유지),
+  // 비어 있던 회차만 기록 꺼짐으로 시작한다. 한 번 끄고 켠 선택은 저장된 true/false를 그대로 따른다.
+  const trackAttendance = typeof source.trackAttendance === "boolean"
+    ? source.trackAttendance
+    : capacity !== null || registered !== null || attended !== null;
   return {
     id: text(source.id, 60) || createWorkId("ses"),
     sequence: Math.max(1, Math.min(MAX_SESSION_COUNT, Math.round(Number(source.sequence) || 1))),
@@ -213,11 +274,32 @@ function createSession(raw, now) {
     startAt,
     venue: text(source.venue, 80),
     instructorName: text(source.instructorName, 40),
-    capacity: count(source.capacity, 100_000),
-    registered: count(source.registered, 100_000),
-    attended: count(source.attended, 100_000),
+    trackAttendance,
+    capacity,
+    registered,
+    attended,
     status: SESSION_STATUS_IDS.has(source.status) ? source.status : "planned",
     notes: text(source.notes, 300),
+    createdAt,
+    updatedAt: text(source.updatedAt, 40) || createdAt
+  };
+}
+
+function createExpense(raw, now) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const createdAt = text(source.createdAt, 40) || isoNow(now);
+  return {
+    id: text(source.id, 60) || createWorkId("exp"),
+    budgetLineId: text(source.budgetLineId, 60),
+    sessionId: text(source.sessionId, 60),
+    spentAt: normalizeDeadline(source.spentAt),
+    vendor: text(source.vendor, 60),
+    description: text(source.description, 120),
+    amount: money(source.amount),
+    status: EXPENSE_STATUS_IDS.has(source.status) ? source.status : "planned",
+    evidenceNote: text(source.evidenceNote, 160),
+    evidenceRef: text(source.evidenceRef, 120),
+    evidenceChecked: source.evidenceChecked === true,
     createdAt,
     updatedAt: text(source.updatedAt, 40) || createdAt
   };
@@ -305,6 +387,17 @@ export function sanitizeProjectWork(raw, { projectId = "", now } = {}) {
     })
     .map((task) => (task.sessionId && !sessionIds.has(task.sessionId) ? { ...task, sessionId: "" } : task));
 
+  const expenseSeen = new Set();
+  const expenses = (Array.isArray(source.expenses) ? source.expenses : [])
+    .slice(0, WORK_LIMITS.expenses)
+    .map((item) => createExpense(item, now))
+    .filter((expense) => {
+      if (expenseSeen.has(expense.id)) return false;
+      expenseSeen.add(expense.id);
+      return true;
+    })
+    .map((expense) => (expense.sessionId && !sessionIds.has(expense.sessionId) ? { ...expense, sessionId: "" } : expense));
+
   const revisions = (Array.isArray(source.revisions) ? source.revisions : [])
     .slice(0, WORK_LIMITS.revisions)
     .map((item) => sanitizeRevision(item, now));
@@ -322,6 +415,7 @@ export function sanitizeProjectWork(raw, { projectId = "", now } = {}) {
     projectId: text(source.projectId, 60) || text(projectId, 60),
     tasks,
     sessions: sessions.sort((left, right) => left.sequence - right.sequence),
+    expenses,
     revisions,
     changes,
     generations,
@@ -334,6 +428,7 @@ export function isProjectWorkEmpty(work) {
   return !(
     (Array.isArray(work.tasks) && work.tasks.length) ||
     (Array.isArray(work.sessions) && work.sessions.length) ||
+    (Array.isArray(work.expenses) && work.expenses.length) ||
     (Array.isArray(work.revisions) && work.revisions.length) ||
     (Array.isArray(work.changes) && work.changes.length) ||
     (Array.isArray(work.generations) && work.generations.length)
@@ -402,20 +497,60 @@ export function taskBuckets(work, now) {
   return buckets;
 }
 
-/** 회차 집계 — 취소 회차는 인원 합계에서 뺀다(이력은 남긴다). */
+/** 회차 집계 — 취소 회차는 인원 합계에서 빼고, 인원 기록을 꺼 둔 회차도 합계에서 뺀다(기록은 보관). */
 export function sessionSummary(work) {
   const sessions = Array.isArray(work?.sessions) ? work.sessions : [];
   const active = sessions.filter((session) => session.status !== "cancelled");
-  const sum = (key) => active.reduce((total, session) => total + count(session[key]), 0);
+  const tracked = active.filter((session) => session.trackAttendance === true);
+  const sum = (list, key) => list.reduce((total, session) => total + (typeof session[key] === "number" ? session[key] : 0), 0);
+  const missing = (list, key) => list.filter((session) => typeof session[key] !== "number").length;
   return {
     total: sessions.length,
     active: active.length,
     planned: sessions.filter((session) => session.status === "planned").length,
     done: sessions.filter((session) => session.status === "done").length,
     cancelled: sessions.filter((session) => session.status === "cancelled").length,
-    capacity: sum("capacity"),
-    registered: sum("registered"),
-    attended: sum("attended")
+    tracked: tracked.length,
+    untracked: active.length - tracked.length,
+    capacity: sum(tracked, "capacity"),
+    registered: sum(tracked, "registered"),
+    attended: sum(tracked, "attended"),
+    missing: {
+      capacity: missing(tracked, "capacity"),
+      registered: missing(tracked, "registered"),
+      attended: missing(tracked, "attended")
+    }
+  };
+}
+
+/**
+ * 결과보고에 넣을 참석 연인원.
+ * 합계는 '적힌 값'만 더하고, 아직 안 적은 회차는 missingSessions로 따로 돌려준다(0명으로 세지 않는다).
+ * 인원 기록을 꺼 둔 회차는 excluded로 빠진다.
+ */
+export function attendanceReport(work) {
+  const sessions = Array.isArray(work?.sessions) ? work.sessions : [];
+  const active = sessions.filter((session) => session.status !== "cancelled");
+  const counted = active.filter((session) => session.trackAttendance === true);
+  const done = counted.filter((session) => session.status === "done");
+  const sum = (list) => list.reduce((total, session) => total + (typeof session.attended === "number" ? session.attended : 0), 0);
+  const missingSessions = counted
+    .filter((session) => typeof session.attended !== "number")
+    .map((session) => ({ id: session.id, sequence: session.sequence, title: session.title, status: session.status }));
+  const zeroSessions = counted.filter((session) => session.attended === 0).length;
+  return {
+    sessionTotal: sessions.length,
+    cancelled: sessions.length - active.length,
+    tracked: counted.length,
+    untracked: active.length - counted.length,
+    doneSessions: done.length,
+    attended: sum(counted),
+    attendedDone: sum(done),
+    zeroSessions,
+    missingCount: missingSessions.length,
+    missingSessions,
+    /** 적힌 값만으로 합계가 완성되었는지. 미입력이 있으면 0명으로 단정하지 않는다. */
+    complete: counted.length > 0 && missingSessions.length === 0
   };
 }
 
@@ -615,6 +750,216 @@ export function cancelSession(work, id, { now, holdTasks = true, reason = "" } =
   ));
   const next = withChanges({ ...base, sessions, tasks }, entries, now);
   return { work: next, session: next.sessions.find((session) => session.id === id) || null, held, error: "" };
+}
+
+/* ── 지출 원장 ─────────────────────────────────────────────── */
+
+function emptyBucket(category) {
+  return { category, plan: 0, paid: 0, pending: 0, planned: 0, count: 0, lines: [] };
+}
+
+function finishBucket(bucket) {
+  const spent = bucket.paid + bucket.pending;
+  return {
+    ...bucket,
+    spent,
+    balance: bucket.plan - spent,
+    rate: bucket.plan > 0 ? Math.round((spent / bucket.plan) * 100) : spent > 0 ? 100 : 0,
+    over: spent > bucket.plan
+  };
+}
+
+export function addExpense(work, input = {}, now) {
+  const base = work || createEmptyProjectWork();
+  if ((base.expenses || []).length >= WORK_LIMITS.expenses) {
+    return { work: base, expense: null, error: `지출은 사업당 ${WORK_LIMITS.expenses}건까지 기록할 수 있습니다.` };
+  }
+  const expense = createExpense({ ...input, createdAt: isoNow(now), updatedAt: isoNow(now) }, now);
+  const next = { ...base, expenses: [...(base.expenses || []), expense], updatedAt: isoNow(now) };
+  return { work: next, expense, error: "" };
+}
+
+/** 가져오기처럼 여러 건을 한 번에 넣는다. 상한을 넘긴 건은 조용히 버리지 않고 skipped로 돌려준다. */
+export function addExpenses(work, inputs = [], now) {
+  const base = work || createEmptyProjectWork();
+  const room = WORK_LIMITS.expenses - (base.expenses || []).length;
+  if (room <= 0) {
+    return { work: base, added: 0, skipped: inputs.length, error: `지출은 사업당 ${WORK_LIMITS.expenses}건까지 기록할 수 있습니다.` };
+  }
+  const list = (Array.isArray(inputs) ? inputs : []).slice(0, room);
+  const created = list.map((input) => createExpense({ ...input, createdAt: isoNow(now), updatedAt: isoNow(now) }, now));
+  const next = { ...base, expenses: [...(base.expenses || []), ...created], updatedAt: isoNow(now) };
+  return { work: next, added: created.length, skipped: (inputs.length || 0) - created.length, error: "" };
+}
+
+export function updateExpense(work, id, patch = {}, { now, reason = "" } = {}) {
+  const base = work || createEmptyProjectWork();
+  const current = (base.expenses || []).find((expense) => expense.id === id);
+  if (!current) return { work: base, expense: null, error: "지출 기록을 찾지 못했습니다." };
+  const merged = createExpense({ ...current, ...patch, id: current.id, createdAt: current.createdAt, updatedAt: isoNow(now) }, now);
+  const entries = buildChangeEntries({
+    entityType: "expense",
+    entityId: id,
+    before: current,
+    after: merged,
+    fields: Object.keys(EXPENSE_FIELD_LABELS),
+    labels: EXPENSE_FIELD_LABELS,
+    formatters: {
+      status: (value) => (value ? expenseStatusLabel(value) : ""),
+      amount: (value) => formatWonNumber(value),
+      budgetLineId: (value) => (value ? String(value) : "미지정")
+    },
+    reason,
+    now
+  });
+  const next = withChanges(
+    { ...base, expenses: base.expenses.map((expense) => (expense.id === id ? merged : expense)) },
+    entries,
+    now
+  );
+  return { work: next, expense: merged, error: "" };
+}
+
+export function removeExpense(work, id, now) {
+  const base = work || createEmptyProjectWork();
+  const target = (base.expenses || []).find((expense) => expense.id === id);
+  if (!target) return { work: base, removed: null, error: "지출 기록을 찾지 못했습니다." };
+  return {
+    work: { ...base, expenses: base.expenses.filter((expense) => expense.id !== id), updatedAt: isoNow(now) },
+    removed: target,
+    error: ""
+  };
+}
+
+/** 변경 이력에 남길 금액 표기("250,000원"). */
+function formatWonNumber(amount) {
+  const rounded = Math.round(Number(amount) || 0);
+  return `${String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}원`;
+}
+
+/**
+ * 비목별 계획 − 집행 = 잔액 대조표.
+ * 계획액은 grantPlan.budgetLines에서만 옴(복제 금지). 집행액은 지출 완료(paid)+지출 예정(pending)이고,
+ * 계획만(planned) 세운 건은 참고로 따로 세어 잔액에서 미리 끌어가지 않는다.
+ * 비목 id가 사라진 지출은 '비목 미지정'으로 묶되 합계에서는 빠지지 않는다.
+ */
+export function expenseSummary(work, plan) {
+  const expenses = Array.isArray(work?.expenses) ? work.expenses : [];
+  const lines = Array.isArray(plan?.budgetLines) ? plan.budgetLines : [];
+  const budget = budgetSummary(plan);
+
+  const lineById = new Map();
+  for (const line of lines) {
+    const id = text(line?.id, 60);
+    const category = text(line?.category, 60) || "미분류";
+    if (id) lineById.set(id, { id, category, item: text(line?.item, 60), plan: lineAmount(line) });
+  }
+
+  const buckets = new Map();
+  for (const item of budget.byCategory) {
+    const bucket = emptyBucket(item.category);
+    bucket.plan = item.total;
+    buckets.set(item.category, bucket);
+  }
+  for (const line of lineById.values()) {
+    const bucket = buckets.get(line.category) || emptyBucket(line.category);
+    buckets.set(line.category, bucket);
+    bucket.lines.push({ ...line, spent: 0, paid: 0, pending: 0, planned: 0 });
+  }
+
+  const unassigned = emptyBucket("비목 미지정");
+  const evidenceMissing = [];
+  let evidenceChecked = 0;
+  let plannedOnly = 0;
+
+  for (const expense of expenses) {
+    const line = expense.budgetLineId ? lineById.get(expense.budgetLineId) : null;
+    const bucket = line ? buckets.get(line.category) : unassigned;
+    const target = line ? bucket.lines.find((item) => item.id === line.id) : null;
+    bucket.count += 1;
+    if (expense.status === "paid") bucket.paid += expense.amount;
+    else if (expense.status === "pending") bucket.pending += expense.amount;
+    else {
+      bucket.planned += expense.amount;
+      plannedOnly += expense.amount;
+    }
+    if (target) {
+      target.spent += expense.status === "paid" || expense.status === "pending" ? expense.amount : 0;
+      if (expense.status === "paid") target.paid += expense.amount;
+      else if (expense.status === "pending") target.pending += expense.amount;
+      else target.planned += expense.amount;
+    }
+    if (COMMITTED_STATUS_IDS.has(expense.status)) {
+      if (expense.evidenceChecked) evidenceChecked += 1;
+      else {
+        evidenceMissing.push({
+          id: expense.id,
+          category: line?.category || "비목 미지정",
+          vendor: expense.vendor,
+          description: expense.description,
+          amount: expense.amount,
+          spentAt: expense.spentAt,
+          status: expense.status
+        });
+      }
+    }
+  }
+
+  const rows = [...buckets.values()].map(finishBucket);
+  if (unassigned.count) rows.push(finishBucket(unassigned));
+  rows.forEach((row) => {
+    row.lines.forEach((line) => {
+      line.balance = line.plan - line.spent;
+      line.over = line.spent > line.plan;
+    });
+  });
+
+  const total = finishBucket(
+    rows.reduce(
+      (acc, row) => ({
+        ...acc,
+        plan: acc.plan + row.plan,
+        paid: acc.paid + row.paid,
+        pending: acc.pending + row.pending,
+        planned: acc.planned + row.planned,
+        count: acc.count + row.count
+      }),
+      emptyBucket("합계")
+    )
+  );
+
+  const committed = expenses.filter((expense) => COMMITTED_STATUS_IDS.has(expense.status)).length;
+  const overRows = rows.filter((row) => row.over && row.plan > 0).map((row) => row.category);
+
+  return {
+    rows,
+    total,
+    unassignedCount: unassigned.count,
+    lineCount: lines.length,
+    expenseCount: expenses.length,
+    plannedOnly,
+    overRows,
+    /** 비목 하나라도 계획을 넘었는지(전체 잔액이 남아도 비목 초과는 알린다). */
+    over: rows.some((row) => row.over),
+    evidence: {
+      total: committed,
+      checked: evidenceChecked,
+      missing: evidenceMissing.length,
+      missingAmount: evidenceMissing.reduce((sum, item) => sum + item.amount, 0),
+      items: evidenceMissing
+    }
+  };
+}
+
+/** 시작 화면·다음 행동용: 여러 사업의 증빙 미확인 건수만 빠르게 센다. */
+export function evidenceGap(work) {
+  const expenses = Array.isArray(work?.expenses) ? work.expenses : [];
+  const missing = expenses.filter((expense) => COMMITTED_STATUS_IDS.has(expense.status) && !expense.evidenceChecked);
+  return {
+    total: expenses.filter((expense) => COMMITTED_STATUS_IDS.has(expense.status)).length,
+    missing: missing.length,
+    missingAmount: missing.reduce((sum, expense) => sum + expense.amount, 0)
+  };
 }
 
 /* ── 일괄 날짜 변경 ───────────────────────────────────────── */
@@ -992,6 +1337,25 @@ export function nextAction(entries, now) {
   for (const entry of list) {
     const meta = entry.meta;
     if (CLOSED_STATUSES.includes(meta.status) || entry.empty) continue;
+    const gap = evidenceGap(entry.work);
+    if (gap.missing > 0) {
+      return {
+        kind: "evidence",
+        priority: 2,
+        projectId: meta.id,
+        projectName: meta.name,
+        section: "projectBoard",
+        tab: "budget",
+        label: `${meta.name} 증빙 미확인 ${gap.missing}건`,
+        detail: `지출 ${gap.total}건 중 ${gap.missing}건(${formatWonNumber(gap.missingAmount)})의 증빙 확인이 비어 있습니다.`,
+        actionLabel: "지출·증빙 열기"
+      };
+    }
+  }
+
+  for (const entry of list) {
+    const meta = entry.meta;
+    if (CLOSED_STATUSES.includes(meta.status) || entry.empty) continue;
     const sessions = (entry.work?.sessions || []).filter((session) => session.status === "planned" && session.startAt);
     const today = todayText(now);
     const upcoming = sessions
@@ -1001,7 +1365,7 @@ export function nextAction(entries, now) {
     if (upcoming) {
       return {
         kind: "session",
-        priority: 2,
+        priority: 3,
         projectId: meta.id,
         projectName: meta.name,
         sessionId: upcoming.session.id,
@@ -1020,7 +1384,7 @@ export function nextAction(entries, now) {
     if (CONFIRM_REQUIRED_STATUSES.includes(meta.status)) {
       return {
         kind: "confirm",
-        priority: 3,
+        priority: 4,
         projectId: meta.id,
         projectName: meta.name,
         section: "projectBoard",
@@ -1038,7 +1402,7 @@ export function nextAction(entries, now) {
     if (GENERATABLE_STATUSES.includes(meta.status) && !(entry.work?.tasks || []).length) {
       return {
         kind: "generate",
-        priority: 4,
+        priority: 5,
         projectId: meta.id,
         projectName: meta.name,
         section: "projectBoard",
@@ -1056,7 +1420,7 @@ export function nextAction(entries, now) {
     if (!(entry.plan?.budgetLines || []).length) {
       return {
         kind: "budget",
-        priority: 5,
+        priority: 6,
         projectId: meta.id,
         projectName: meta.name,
         section: "grantBudget",
@@ -1071,13 +1435,15 @@ export function nextAction(entries, now) {
   return null;
 }
 
-/** 시작 화면용 묶음: 오늘 마감·지연·곧 마감·진행 중 사업·다음 행동 1개. */
+/** 시작 화면용 묶음: 오늘 마감·지연·다가오는 회차·증빙 미확인·진행 중 사업·다음 행동 1개. */
 export function projectDigest(entries, now) {
   const list = Array.isArray(entries) ? entries.filter((entry) => entry && entry.meta) : [];
   let overdue = 0;
   let dueToday = 0;
   let dueSoon = 0;
   const overdueItems = [];
+  const evidenceItems = [];
+  const upcomingSessions = [];
   for (const entry of list) {
     if (CLOSED_STATUSES.includes(entry.meta.status)) continue;
     const summary = workSummary(entry.work, now);
@@ -1088,13 +1454,47 @@ export function projectDigest(entries, now) {
     for (const task of buckets.overdue) {
       overdueItems.push({ projectId: entry.meta.id, projectName: entry.meta.name, title: task.title, dueDate: task.dueDate });
     }
+    const gap = evidenceGap(entry.work);
+    if (gap.missing > 0) {
+      evidenceItems.push({
+        projectId: entry.meta.id,
+        projectName: entry.meta.name,
+        missing: gap.missing,
+        total: gap.total,
+        amount: gap.missingAmount
+      });
+    }
+    for (const session of entry.work?.sessions || []) {
+      if (session.status !== "planned" || !session.startAt) continue;
+      const days = daysUntil(session.startAt.slice(0, 10), now);
+      if (days === null || days < 0 || days > 30) continue;
+      upcomingSessions.push({
+        projectId: entry.meta.id,
+        projectName: entry.meta.name,
+        sessionId: session.id,
+        sequence: session.sequence,
+        title: session.title,
+        startAt: session.startAt,
+        venue: session.venue,
+        days
+      });
+    }
   }
   overdueItems.sort((left, right) => (left.dueDate < right.dueDate ? -1 : 1));
+  upcomingSessions.sort((left, right) => left.days - right.days);
+  evidenceItems.sort((left, right) => right.missing - left.missing);
+  const evidenceMissing = evidenceItems.reduce((total, item) => total + item.missing, 0);
   return {
     overdue,
     dueToday,
     dueSoon,
     overdueItems: overdueItems.slice(0, 8),
+    evidence: {
+      missing: evidenceMissing,
+      amount: evidenceItems.reduce((total, item) => total + item.amount, 0),
+      items: evidenceItems.slice(0, 5)
+    },
+    upcomingSessions: upcomingSessions.slice(0, 5),
     running: list
       .filter((entry) => ["preparing", "running", "settling"].includes(entry.meta.status))
       .map((entry) => entry.meta),

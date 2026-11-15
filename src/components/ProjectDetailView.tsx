@@ -13,6 +13,7 @@ import {
 } from "../lib/projectWorkspace.mjs";
 import {
   CONFIRM_REQUIRED_STATUSES,
+  expenseSummary,
   sessionSummary,
   taskBuckets,
   workSummary,
@@ -134,6 +135,7 @@ export function ProjectDetailView({
   const budget = budgetSummary(grantPlan);
   const summary = workSummary(work);
   const sessions = sessionSummary(work);
+  const ledger = expenseSummary(work, grantPlan);
   const buckets = taskBuckets(work);
   const dday = dDayInfo(meta.deadline);
   const statusLabel = PROJECT_STATUSES.find((status) => status.id === meta.status)?.label || meta.status;
@@ -173,6 +175,7 @@ export function ProjectDetailView({
             {item.label}
             {item.id === "tasks" && summary.overdue > 0 && <em className="pc-tab-badge">{summary.overdue}</em>}
             {item.id === "sessions" && sessions.total > 0 && <em className="pc-tab-count">{sessions.total}</em>}
+            {item.id === "budget" && ledger.evidence.missing > 0 && <em className="pc-tab-badge">{ledger.evidence.missing}</em>}
           </button>
         ))}
       </nav>
@@ -291,7 +294,10 @@ export function ProjectDetailView({
                 <span>회차</span><strong>{sessions.total}</strong>
               </button>
               <button className="pc-digest" type="button" onClick={() => onTabChange("sessions")}>
-                <span>참석 합계</span><strong>{sessions.attended}</strong>
+                <span>참석 합계</span><strong>{sessions.tracked ? sessions.attended : "—"}</strong>
+              </button>
+              <button className={`pc-digest ${ledger.evidence.missing ? "is-danger" : ""}`} type="button" onClick={() => onTabChange("budget")}>
+                <span>증빙 미확인</span><strong>{ledger.evidence.missing}</strong>
               </button>
             </div>
             {buckets.overdue.length > 0 && (
@@ -368,9 +374,12 @@ export function ProjectDetailView({
         <ProjectBudgetTab
           meta={meta}
           plan={grantPlan}
+          work={work}
           onChangeLines={onChangeGrantLines}
+          onUpdateWork={onUpdateWork}
           notify={notify}
           onNavigate={onNavigate}
+          onOpenTab={onTabChange}
         />
       )}
     </div>

@@ -75,6 +75,7 @@ import {
   buildGenerationPreview,
   createEmptyProjectWork,
   createRevision,
+  evidenceGap,
   isProjectWorkEmpty,
   projectDigest,
   type ChangeLogEntry,
@@ -722,6 +723,16 @@ export default function App() {
     });
     return projectDigest(entries);
   }, [workspace.projects, workspace.activeProjectId, work, grantPlan]);
+
+  /** 정산 중요 화면용: 사업별 증빙 미확인 건수(지출 원장은 사업마다 따로 읽는다). */
+  const evidenceRollup = useMemo(() => {
+    const works = loadAllProjectWorks(workspace.projects);
+    works[workspace.activeProjectId] = work;
+    return workspace.projects.map((meta) => {
+      const gap = evidenceGap(works[meta.id] || createEmptyProjectWork(meta.id));
+      return { projectId: meta.id, projectName: meta.name, total: gap.total, missing: gap.missing, amount: gap.missingAmount };
+    });
+  }, [workspace.projects, workspace.activeProjectId, work]);
 
   /* ── 개인정보 가드 ────────────────────────────────────────── */
 
@@ -1546,21 +1557,6 @@ export default function App() {
             <button className="ghost-light-button full" type="button" onClick={() => { if (window.confirm("현재 사업의 사업계획 입력값을 초기화할까요? 사업 목록·예산·다른 사업은 그대로 남습니다.")) { setProject({ ...emptyProject, projectName: project.projectName }); notify("현재 사업의 사업계획 입력값을 초기화했습니다. 예산·정산은 그대로입니다."); } }}>
               사업계획 입력값 초기화
             </button>
-            <div className="palette-switch" role="radiogroup" aria-label="색 팔레트">
-              {PALETTES.map((item) => (
-                <button
-                  key={item.id}
-                  className={`palette-chip ${palette === item.id ? "is-selected" : ""}`}
-                  type="button"
-                  role="radio"
-                  aria-checked={palette === item.id}
-                  onClick={() => setPalette(item.id)}
-                >
-                  <span className={`palette-dot is-${item.id}`} aria-hidden="true" />
-                  {item.label}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </aside>
@@ -1608,6 +1604,8 @@ export default function App() {
             templateSummary={templateSession.schema ? summarizeSchema(templateSession.schema) : null}
             digest={homeDigest}
             onOpenNextAction={(action) => openProjectDetail(action.projectId, action.tab, action.taskId || "")}
+            onOpenSession={(projectId, sessionId) => openProjectDetail(projectId, "sessions", sessionId)}
+            onOpenEvidence={(projectId) => openProjectDetail(projectId, "budget")}
           />
         )}
 
@@ -1786,6 +1784,32 @@ export default function App() {
               <button className="secondary-button" type="button" onClick={() => { if (project.modelPrompt) runSelectedModel(project.modelPrompt); else notify("AI 질문 탭에 프롬프트가 없습니다."); }}>AI 질문으로 실행</button>
             </div>
             {modelTestResult && <textarea className="draft-output office-report-output" rows={16} value={modelTestResult.ok ? modelTestResult.output : modelTestResult.error || "실패"} readOnly />}
+
+            {/* 색 팔레트는 화면을 보는 감각을 바꾸는 설정이므로 사이드바가 아니라 여기에 둔다. */}
+            <section className="model-section" aria-label="화면 색 팔레트">
+              <div className="model-section-head">
+                <div>
+                  <strong>화면 색 팔레트</strong>
+                  <span>사이드바를 깔끔하게 두고 색은 여기서 고릅니다. 고른 색은 이 브라우저에 기억됩니다.</span>
+                </div>
+                <span className="model-section-count">{PALETTES.find((item) => item.id === palette)?.label}</span>
+              </div>
+              <div className="palette-switch is-settings" role="radiogroup" aria-label="색 팔레트">
+                {PALETTES.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`palette-chip ${palette === item.id ? "is-selected" : ""}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={palette === item.id}
+                    onClick={() => setPalette(item.id)}
+                  >
+                    <span className={`palette-dot is-${item.id}`} aria-hidden="true" />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </section>
           </Panel>
         )}
 
@@ -2119,22 +2143,37 @@ export default function App() {
         )}
 
         {section === "grantChecklist" && (
-          <Panel title="증빙을 순서대로 확인합니다" description="교부·집행·인건비·실적·마감 증빙을 순서대로 점검하고, 확인한 메모를 남깁니다.">
-            <GrantChecklistView plan={grantPlan} onChange={updateGrantPlan} notify={notify} />
+          <Panel title="증빙을 순서대로 확인합니다" description="교부·집행·인건비·실적·마감 증빙을 순서대로 점검하고, 확인한 메모를 남깁니다. 지출 원장의 증빙 미확인도 여기서 한 번에 봅니다.">
+            <GrantChecklistView
+              plan={grantPlan}
+              work={work}
+              evidenceRollup={evidenceRollup}
+              activeProjectId={workspace.activeProjectId}
+              onOpenBudget={(projectId) => openProjectDetail(projectId, "budget")}
+              onChange={updateGrantPlan}
+              notify={notify}
+            />
             <GrantStepFlow current="grantChecklist" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
         {section === "grantReport" && (
-          <Panel title="결과보고 초안을 양식 순서대로 씁니다" description="기관 결과보고 양식 순서대로 섹션을 만들고 초안을 채웁니다. 프로젝트 입력값에서 가져올 수 있습니다.">
-            <GrantReportView plan={grantPlan} project={project} onChange={updateGrantPlan} notify={notify} onNavigate={setSection} />
+          <Panel title="결과보고 초안을 양식 순서대로 씁니다" description="기관 결과보고 양식 순서대로 섹션을 만들고 초안을 채웁니다. 회차 참석 연인원과 예산·집행·잔액은 회차·예산 탭에서 계산해 자동으로 보여 줍니다.">
+            <GrantReportView
+              plan={grantPlan}
+              work={work}
+              project={project}
+              onChange={updateGrantPlan}
+              notify={notify}
+              onNavigate={setSection}
+            />
             <GrantStepFlow current="grantReport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
         {section === "workbrainExport" && (
           <Panel title="한 문서로 묶어 내보냅니다" description="사업계획서·예산·정산 체크리스트·결과보고를 david-workbrain Markdown 한 편으로 묶어 복사하거나 내려받습니다.">
-            <WorkbrainExportView plan={grantPlan} project={project} notify={notify} />
+            <WorkbrainExportView plan={grantPlan} project={project} work={work} notify={notify} />
             <GrantStepFlow current="workbrainExport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}

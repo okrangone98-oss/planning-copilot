@@ -1260,3 +1260,606 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ── 2단계: 지출 원장·증빙·회차 인원·시작 화면 ───────────────── */
+
+/* 요약 타일을 버튼으로 쓸 때(증빙 미확인 바로 열기) */
+.pc-stat-button {
+  font: inherit;
+  text-align: left;
+  border: 0;
+  cursor: pointer;
+}
+
+.pc-stat-button:hover {
+  background: var(--c-fill-strong);
+}
+
+.pc-stat-button.is-warning:hover {
+  background: var(--c-warning-tint);
+}
+
+.pc-cell-note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--c-text-3);
+  word-break: keep-all;
+}
+
+.pc-cell-muted {
+  color: var(--c-text-3);
+}
+
+.pc-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pc-row-actions .ghost-light-button {
+  min-height: 40px;
+  padding: 0 10px;
+  font-size: var(--fs-caption);
+}
+
+/* ── 비목별 대조표 ───────────────────────────── */
+.pc-ledger-table th,
+.pc-ledger-table td {
+  white-space: nowrap;
+}
+
+.pc-ledger-table td:nth-child(2),
+.pc-ledger-table td:nth-child(3),
+.pc-ledger-table td:nth-child(4) {
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-ledger-table td.is-negative {
+  color: var(--c-danger-tint-text);
+  font-weight: 700;
+}
+
+.pc-ledger-table tr.is-over td {
+  background: var(--c-danger-tint);
+}
+
+.pc-ledger-table tfoot td {
+  font-weight: 700;
+  color: var(--c-text-1);
+  background: var(--c-fill);
+}
+
+.pc-rate {
+  display: block;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.pc-rate-bar {
+  display: block;
+  width: 72px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: var(--r-pill);
+  background: var(--c-fill);
+  overflow: hidden;
+}
+
+.pc-rate-bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--c-brand);
+}
+
+.pc-rate-bar i.is-over {
+  background: var(--c-danger);
+}
+
+/* ── 거르기 칩 ───────────────────────────── */
+.pc-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pc-chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-2);
+  white-space: nowrap;
+}
+
+.pc-chip.is-on {
+  border-color: var(--c-brand-line);
+  background: var(--c-brand-tint);
+  color: var(--c-brand-tint-text);
+}
+
+.pc-chip.is-warning:not(.is-on) {
+  border-color: var(--c-warning);
+  color: var(--c-warning-tint-text);
+  background: var(--c-warning-tint);
+}
+
+.pc-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── 지출 원장 표 ───────────────────────────── */
+.pc-expense-table th,
+.pc-expense-table td {
+  vertical-align: top;
+}
+
+.pc-expense-table tr.is-planned td {
+  color: var(--c-text-2);
+}
+
+.pc-expense-table tfoot td {
+  font-weight: 700;
+  background: var(--c-fill);
+}
+
+.pc-task-status.is-expense-paid {
+  background: var(--c-success-tint);
+  color: var(--c-success-tint-text);
+}
+
+.pc-task-status.is-expense-pending {
+  background: var(--c-info-tint);
+  color: var(--c-info-tint-text);
+}
+
+.pc-task-status.is-expense-planned {
+  background: var(--c-fill-strong);
+  color: var(--c-text-3);
+}
+
+.pc-evidence {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-size: var(--fs-sub);
+  color: var(--c-warning-tint-text);
+  cursor: pointer;
+}
+
+.pc-evidence input {
+  /* 표 안 입력칸 공통 규칙(.stacked-table input)의 min-width·min-height를 되돌린다. */
+  flex: none;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--c-brand);
+}
+
+.pc-evidence span.is-checked {
+  color: var(--c-success-tint-text);
+  font-weight: 600;
+}
+
+.pc-check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: var(--fs-sub);
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+
+.pc-check-inline input {
+  flex: none;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  accent-color: var(--c-brand);
+}
+
+.pc-field-note {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--r-m);
+  background: var(--c-warning-tint);
+  font-size: var(--fs-sub);
+  color: var(--c-text-2);
+  word-break: keep-all;
+}
+
+/* ── 지출 가져오기 ───────────────────────────── */
+.pc-expense-import textarea {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sub);
+}
+
+.pc-import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  padding: var(--stack-m);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+}
+
+.pc-import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack-m);
+  font-size: var(--fs-sub);
+  color: var(--c-text-2);
+}
+
+.pc-import-summary strong {
+  color: var(--c-text-1);
+}
+
+.pc-import-summary .is-warning strong {
+  color: var(--c-warning-tint-text);
+}
+
+.pc-warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 12px 12px 28px;
+  border-radius: var(--r-s);
+  background: var(--c-warning-tint);
+  font-size: var(--fs-caption);
+  color: var(--c-warning-tint-text);
+}
+
+/* ── 세목 보기·계획 편집 ───────────────────────────── */
+.pc-line-detail,
+.pc-plan-editor {
+  border-radius: var(--r-m);
+  background: var(--c-bg);
+}
+
+.pc-line-detail summary,
+.pc-plan-editor summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: var(--h-btn-s);
+  padding: 0 14px;
+  border-radius: var(--r-m);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-1);
+  cursor: pointer;
+}
+
+.pc-line-detail summary small,
+.pc-plan-editor summary small {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--c-text-3);
+}
+
+.pc-line-detail ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+  font-size: var(--fs-sub);
+  color: var(--c-text-2);
+}
+
+.pc-line-detail > ul > li > strong {
+  display: block;
+  color: var(--c-text-1);
+}
+
+.pc-line-detail > ul > li > ul {
+  padding: 0;
+}
+
+.pc-line-detail li.is-over {
+  color: var(--c-danger-tint-text);
+}
+
+.pc-plan-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-m);
+  padding: 0 14px 16px;
+}
+
+/* ── 정산 증빙: 지출·증빙 누락 요약 ───────────────────────────── */
+.pc-evidence-rollup .grant-summary {
+  margin-top: 0;
+}
+
+.grant-summary > div.is-warning {
+  background: var(--c-warning-tint);
+}
+
+.grant-summary > div.is-warning strong {
+  color: var(--c-warning-tint-text);
+}
+
+.pc-evidence-list,
+.pc-evidence-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pc-evidence-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--stack-s);
+  padding: 10px 12px;
+  border-radius: var(--r-s);
+  background: var(--c-warning-tint);
+  font-size: var(--fs-sub);
+}
+
+.pc-evidence-date {
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-evidence-main {
+  font-weight: 600;
+  color: var(--c-text-1);
+  word-break: keep-all;
+}
+
+.pc-evidence-meta {
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+}
+
+.pc-evidence-more {
+  background: var(--c-fill) !important;
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+}
+
+.pc-evidence-projects li button {
+  min-height: 44px;
+}
+
+/* ── 결과보고 자동 반영 ───────────────────────────── */
+.pc-report-auto {
+  border: 1px solid var(--c-brand-line);
+}
+
+.pc-auto-text {
+  margin: 0;
+  padding: var(--stack-m);
+  border-radius: var(--r-m);
+  background: var(--c-bg);
+  font-family: var(--font);
+  font-size: var(--fs-sub);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+  white-space: pre-wrap;
+  word-break: keep-all;
+}
+
+.pc-auto-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--stack-m);
+}
+
+.pc-auto-actions .field {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+/* 인원 기록을 끈 회차 */
+.pc-session-table tr.is-untracked td {
+  color: var(--c-text-2);
+}
+
+/* ── 시작 화면: 다가오는 회차·증빙 ───────────────────────────── */
+.home-upcoming,
+.home-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  margin-top: var(--stack-s);
+  padding-top: var(--stack-s);
+  border-top: 1px solid var(--c-line);
+}
+
+.home-upcoming-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: var(--fs-sub);
+  color: var(--c-text-3);
+}
+
+.home-upcoming-head strong {
+  color: var(--c-text-1);
+}
+
+.home-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-session {
+  display: flex;
+  align-items: center;
+  gap: var(--stack-s);
+  width: 100%;
+  min-height: var(--h-btn-s);
+  padding: 8px 12px;
+  border-radius: var(--r-s);
+  background: var(--c-fill);
+  text-align: left;
+}
+
+.home-session:hover {
+  background: var(--c-fill-strong);
+}
+
+.home-session-dday {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--c-brand-tint);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  color: var(--c-brand-tint-text);
+  text-align: center;
+}
+
+.home-session-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.home-session-main strong {
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-1);
+  word-break: keep-all;
+}
+
+.home-session-main small {
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+  word-break: keep-all;
+}
+
+.home-session-time {
+  flex: 0 0 auto;
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-running-chip.is-warning {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+/* 설정 화면 안의 팔레트 */
+.palette-switch.is-settings {
+  max-width: 520px;
+  padding: 6px;
+}
+
+.palette-switch.is-settings .palette-chip {
+  min-height: 44px;
+  font-size: var(--fs-sub);
+}
+
+@media (max-width: 760px) {
+  .pc-ledger-table th,
+  .pc-ledger-table td {
+    white-space: normal;
+  }
+
+  .pc-toolbar {
+    align-items: stretch;
+    /* column + wrap이면 높이가 첫 줄에서 고정돼 버튼이 오른쪽 열로 밀려난다. */
+    flex-wrap: nowrap;
+  }
+
+  .pc-toolbar-actions {
+    flex: 1 1 100%;
+  }
+
+  .pc-filter-chips {
+    flex: 1 1 100%;
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  /* 제목 줄은 row + wrap으로 두어야 둘째 줄(건수)이 아래로 내려간다(column+wrap은 오른쪽 열로 밀린다). */
+  .pc-report-auto .grant-block-head {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .pc-report-auto .block-count {
+    flex: 0 0 auto;
+    max-width: 100%;
+  }
+
+  .pc-chip {
+    flex: 0 0 auto;
+  }
+
+  .pc-toolbar-actions {
+    width: 100%;
+  }
+
+  .pc-toolbar-actions > button {
+    flex: 1 1 auto;
+  }
+
+  .home-session {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+/* 본문 설명과 이어지는 링크 버튼은 줄을 나눠 붙어 보이지 않게 한다. */
+.pc-note-with-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--stack-m);
+}
+
+.pc-note-with-link .block-note {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+.pc-note-with-link .block-link {
+  flex: 0 0 auto;
+}
