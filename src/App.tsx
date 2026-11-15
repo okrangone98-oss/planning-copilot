@@ -1070,7 +1070,10 @@ export default function App() {
     }
     const merged = appendMaterialText({
       existing: templateSession.smartText,
-      block: materialsToText([parsed], { title: `출석·지출 자료${fileName ? ` (${fileName})` : ""}` })
+      // 출석 자료와 지출 자료는 블록을 나눠 둔다 — 하나를 다시 올려도 다른 하나가 지워지지 않게.
+      block: materialsToText([parsed], {
+        title: `${parsed.kind === "attendance" ? "출석 자료" : "지출 자료"}${fileName ? ` (${fileName})` : ""}`
+      })
     });
     if (merged.mode === "append"
       && templateSession.smartText.trim()
