@@ -531,9 +531,43 @@
   color: var(--c-warning-tint-text);
 }
 
-.board-status.is-done {
+.board-status.is-done,
+.board-status.is-confirmed {
   background: var(--c-success-tint);
   color: var(--c-success-tint-text);
+}
+
+/* PRD v1.1 상태 확장 — 한 색에 뜻 하나를 유지한다.
+   아이디어(중립) · 기획(브랜드) · 신청·검토(안내) · 확정(성공) · 준비(브랜드)
+   · 운영·정산(주의) · 완료(성공) · 보류(중립 진함) · 취소(위험) */
+.board-status.is-idea {
+  background: var(--c-fill);
+  color: var(--c-text-2);
+}
+
+.board-status.is-review {
+  background: var(--c-info-tint);
+  color: var(--c-info-tint-text);
+}
+
+.board-status.is-preparing {
+  background: var(--c-brand-tint);
+  color: var(--c-brand-tint-text);
+}
+
+.board-status.is-settling {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+.board-status.is-hold {
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
+}
+
+.board-status.is-cancelled {
+  background: var(--c-danger-tint);
+  color: var(--c-danger-tint-text);
 }
 
 /* 시간은 배지가 아니라 글자 — 마감 임박만 주의색 */

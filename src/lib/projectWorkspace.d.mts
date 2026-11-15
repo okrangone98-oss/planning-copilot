@@ -1,7 +1,18 @@
 import type { ApprovalItem, GrantPlan, KnowledgeDoc, ProjectData, ProjectMemoryEntry } from "../types";
 
 export type ProjectTypeId = "national" | "regional" | "contest" | "own" | "other";
-export type ProjectStatusId = "planning" | "submitted" | "running" | "done";
+export type ProjectStatusId =
+  | "idea"
+  | "planning"
+  | "submitted"
+  | "review"
+  | "confirmed"
+  | "preparing"
+  | "running"
+  | "settling"
+  | "done"
+  | "hold"
+  | "cancelled";
 
 export type ProjectMeta = {
   id: string;
@@ -10,6 +21,15 @@ export type ProjectMeta = {
   status: ProjectStatusId;
   deadline: string;
   progress: number;
+  /** 사업 연도(YYYY). 없으면 만든 해. */
+  year: string;
+  /** 사업 담당자 이름. */
+  ownerName: string;
+  /** 운영 기간. deadline은 신청·제출 마감으로 뜻을 고정한다. */
+  startDate: string;
+  endDate: string;
+  goals: string[];
+  sourceRefs: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -37,6 +57,7 @@ export type WorkspaceEntry = {
   id: string;
   project: ProjectData | null;
   grantPlan: GrantPlan | null;
+  work?: unknown | null;
 };
 
 export type WorkspaceArchive = {
@@ -45,17 +66,20 @@ export type WorkspaceArchive = {
   app: "planning-copilot";
   kind: "workspace";
   workspace: Pick<Workspace, "schemaVersion" | "activeProjectId" | "projects">;
-  projects: Array<{ meta: ProjectMeta; project: ProjectData | null; grantPlan: GrantPlan | null }>;
+  projects: Array<{ meta: ProjectMeta; project: ProjectData | null; grantPlan: GrantPlan | null; work?: unknown | null }>;
   knowledgeDocs: KnowledgeDoc[];
   approvalItems: ApprovalItem[];
   memoryEntries: ProjectMemoryEntry[];
 };
 
 export const WORKSPACE_SCHEMA_VERSION: number;
+export const WORKSPACE_ARCHIVE_VERSION: number;
+export const INACTIVE_STATUSES: ProjectStatusId[];
 export const WORKSPACE_STORAGE_KEY: string;
 export const LEGACY_PROJECT_KEY: string;
 export const LEGACY_GRANT_KEY: string;
 export const MAX_PROJECTS: number;
+export const PROJECT_WORK_KEY_PREFIX: string;
 export const PROJECT_TYPES: Array<{ id: ProjectTypeId; label: string }>;
 export const PROJECT_STATUSES: Array<{ id: ProjectStatusId; label: string }>;
 
@@ -111,7 +135,7 @@ export function migrateLegacyWorkspace(input: {
 export function stripSecrets<T>(value: T): T;
 export function buildWorkspaceArchive(input: {
   workspace: Workspace;
-  entries?: Record<string, { project?: ProjectData | null; grantPlan?: GrantPlan | null }>;
+  entries?: Record<string, { project?: ProjectData | null; grantPlan?: GrantPlan | null; work?: unknown | null }>;
   knowledgeDocs?: KnowledgeDoc[];
   approvalItems?: ApprovalItem[];
   memoryEntries?: ProjectMemoryEntry[];
@@ -123,3 +147,4 @@ export function parseWorkspaceArchive(
 ): { workspace: Workspace; entries: WorkspaceEntry[]; legacy: boolean };
 export function projectStorageKey(id?: string): string;
 export function grantStorageKey(id?: string): string;
+export function projectWorkStorageKey(id?: string): string;

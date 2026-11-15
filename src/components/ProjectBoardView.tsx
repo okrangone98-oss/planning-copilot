@@ -49,7 +49,8 @@ export function ProjectBoardView({
   onUpdateMeta,
   onRename,
   onNavigate,
-  onLoadExample
+  onLoadExample,
+  onOpenDetail
 }: {
   workspace: Workspace;
   project: ProjectData;
@@ -62,6 +63,7 @@ export function ProjectBoardView({
   onRename: (name: string) => void;
   onNavigate: (section: SectionId) => void;
   onLoadExample: () => void;
+  onOpenDetail: (id: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<NewProjectDraft>(EMPTY_DRAFT);
@@ -86,7 +88,8 @@ export function ProjectBoardView({
           <strong>사업 {summary.total}개</strong>
         </div>
         <div className="board-summary-counts">
-          {summary.byStatus.map((status) => (
+          {/* 0건 상태까지 늘어놓으면 상태가 11종이 되면서 요약이 읽히지 않는다. 있는 상태만 보여 준다. */}
+          {summary.byStatus.filter((status) => status.count > 0).map((status) => (
             <span className={`board-count is-${status.id}`} key={status.id}>
               {status.label} {status.count}
             </span>
@@ -172,6 +175,7 @@ export function ProjectBoardView({
                 <span>수정 {formatUpdatedAt(meta.updatedAt)}</span>
               </div>
               <div className="board-card-actions">
+                <button className="secondary-button" type="button" onClick={() => onOpenDetail(meta.id)}>상세</button>
                 <button className="secondary-button" type="button" onClick={() => onSelect(meta.id)} disabled={isActive}>
                   {isActive ? "작업 중" : "전환"}
                 </button>
@@ -191,6 +195,7 @@ export function ProjectBoardView({
               <span>사업명·유형·상태·마감일은 저장되는 즉시 반영됩니다. 진행률은 계획서·예산·정산·결과보고를 합쳐 자동으로 계산합니다.</span>
             </div>
             <div className="draft-actions">
+              <button className="primary-button" type="button" onClick={() => onOpenDetail(active.id)}>상세 열기</button>
               <button className="secondary-button" type="button" onClick={() => onNavigate("home")}>시작 화면으로</button>
               <button className="secondary-button" type="button" onClick={() => onNavigate("grantBudget")}>예산·정산 열기</button>
             </div>
