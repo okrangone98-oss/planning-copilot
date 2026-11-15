@@ -88,7 +88,8 @@ export function ProjectBoardView({
           <strong>사업 {summary.total}개</strong>
         </div>
         <div className="board-summary-counts">
-          {summary.byStatus.map((status) => (
+          {/* 0건 상태까지 늘어놓으면 상태가 11종이 되면서 요약이 읽히지 않는다. 있는 상태만 보여 준다. */}
+          {summary.byStatus.filter((status) => status.count > 0).map((status) => (
             <span className={`board-count is-${status.id}`} key={status.id}>
               {status.label} {status.count}
             </span>
