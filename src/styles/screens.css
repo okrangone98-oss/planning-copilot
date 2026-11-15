@@ -2207,11 +2207,13 @@
   border-style: dashed;
 }
 
-/* 3단계 검토 표에서 값을 직접 고치는 입력칸 */
+/* 3단계 검토 표에서 값을 직접 고치는 입력칸 — 내용만큼 높이가 늘어난다(AutoGrowTextarea). */
 .kordoc-fill-input {
+  display: block;
   width: 100%;
-  min-height: 34px;
-  padding: 6px 8px;
+  max-width: 100%;
+  min-height: 38px;
+  padding: 8px;
   border: 1px solid var(--c-line);
   border-radius: var(--r-s);
   background: var(--c-surface);
@@ -2219,12 +2221,254 @@
   font: inherit;
   font-size: var(--fs-sub);
   line-height: var(--lh-sub);
-  resize: vertical;
+  /* 높이는 스크립트가 잰다 — 손잡이로 늘리면 내용과 어긋나 다시 잘린다. */
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .kordoc-fill-input:focus {
   outline: 2px solid var(--c-brand-line);
   outline-offset: 1px;
+  scroll-margin-block: 120px;
+}
+
+/* 값 칸 — 입력칸 아래에 상태 안내와 ‘비우기’를 붙인다 */
+.fill-value-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-xs);
+  min-width: 0;
+}
+
+.fill-value-note {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--c-warning-tint-text);
+}
+
+.fill-clear {
+  align-self: flex-start;
+}
+
+/* 칸 상태 배지 — 색 하나에 뜻 하나 */
+.fill-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--c-fill);
+  color: var(--c-text-2);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fill-status.is-auto {
+  background: var(--c-success-tint);
+  color: var(--c-success-tint-text);
+}
+
+.fill-status.is-check,
+.fill-status.is-warn {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+.fill-status.is-required,
+.fill-status.is-block {
+  background: var(--c-danger-tint);
+  color: var(--c-danger-tint-text);
+}
+
+.fill-status.is-original,
+.fill-status.is-manual,
+.fill-status.is-blank {
+  background: var(--c-fill);
+  color: var(--c-text-3);
+}
+
+.fill-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack-s);
+}
+
+/* 아직 비어 있는 칸 — 표에 없는 칸을 여기서 바로 채운다 */
+.fill-blank-panel {
+  border-top: 1px dashed var(--c-line);
+  padding-top: var(--stack-m);
+}
+
+.fill-blank-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  margin: var(--stack-s) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fill-blank-list li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-xs);
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+  min-width: 0;
+}
+
+.fill-blank-list li.is-required {
+  border-color: var(--c-danger);
+  background: var(--c-danger-tint);
+}
+
+.fill-blank-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--stack-s);
+  min-width: 0;
+}
+
+.fill-blank-head strong {
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-1);
+  word-break: keep-all;
+}
+
+.fill-blank-head small {
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+}
+
+.fill-blank-type {
+  color: var(--c-text-2);
+}
+
+.fill-blank-original {
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--c-text-3);
+  overflow-wrap: anywhere;
+}
+
+.kordoc-fill-table tr.is-check td {
+  background: var(--c-warning-tint);
+}
+
+/* 4단계 — 다운로드 전 사전 점검 */
+.preflight-headline {
+  padding: 10px 12px;
+  border-radius: var(--r-m);
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  font-weight: 600;
+}
+
+.preflight-headline.is-clear {
+  background: var(--c-success-tint);
+  color: var(--c-success-tint-text);
+}
+
+.preflight-headline.is-attention {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+.preflight-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.preflight-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--c-line-strong);
+  border-radius: var(--r-s);
+  background: var(--c-bg);
+  min-width: 0;
+}
+
+.preflight-item.is-block {
+  border-left-color: var(--c-danger);
+  background: var(--c-danger-tint);
+}
+
+.preflight-item.is-warn {
+  border-left-color: var(--c-warning);
+  background: var(--c-warning-tint);
+}
+
+.preflight-item.is-manual {
+  border-left-color: var(--c-line-strong);
+  background: var(--c-fill);
+}
+
+.preflight-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--stack-s);
+}
+
+.preflight-item-head strong {
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-1);
+  overflow-wrap: anywhere;
+}
+
+.preflight-item-detail {
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--c-text-2);
+  overflow-wrap: anywhere;
+}
+
+.preflight-item-fix {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--c-text-3);
+  overflow-wrap: anywhere;
+}
+
+.hwpx-note.is-warn {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+/* 처음 온 사람 — 연습 양식으로 4단계를 바로 따라 해 본다 */
+.template-first-visit .draft-actions {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: var(--stack-s);
+}
+
+.template-first-visit-note {
+  flex: 1 1 100%;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--c-text-3);
+  max-width: 52ch;
+  word-break: keep-all;
+}
+
+.practice-template-row.is-primary-path {
+  border-left: 3px solid var(--c-brand-line);
+  padding-left: 10px;
 }
 
 .template-advanced {
@@ -2240,4 +2484,20 @@
   .kordoc-fill-input {
     font-size: var(--fs-body);
   }
+
+  /* 좁은 화면에서는 입력칸이 표 칸 폭을 넘지 않게 — 가로 스크롤 0 */
+  .kordoc-fill-table td,
+  .fill-blank-list li {
+    min-width: 0;
+  }
+
+  .fill-clear {
+    min-height: 36px;
+  }
+
+  .preflight-item,
+  .fill-blank-list li {
+    padding: 10px;
+  }
 }
+
