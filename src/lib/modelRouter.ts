@@ -1,27 +1,56 @@
 import type { ModelProvider, ModelRunResult, ModelSettings } from "../types";
-import { isRemoteOllamaModel, normalizeLoopbackBaseUrl } from "./modelSafety.mjs";
+import { isRemoteOllamaModel, normalizeLoopbackBaseUrl, providerConfig, remoteModelField, validateApiKey } from "./modelSafety.mjs";
+import { requestFreeModel } from "./freeModelRouter.mjs";
 
 export const defaultModelSettings: ModelSettings = {
   provider: "simulation",
   ollamaBaseUrl: "http://127.0.0.1:11434",
-  ollamaModel: "llama3.1"
+  ollamaModel: "llama3.1",
+  openrouterModel: "openrouter/free",
+  groqModel: "openai/gpt-oss-120b",
+  geminiModel: "gemini-2.5-flash",
+  exaoneModel: "k-exaone_v2.5",
+  githubModel: "openai/gpt-4.1-mini",
+  amdModel: "Gemma-4-31B-IT",
+  customModel: "",
+  customBaseUrl: ""
 };
 
 export const modelProviderOptions: Array<{ id: ModelProvider; label: string; description: string }> = [
   { id: "simulation", label: "템플릿 모드", description: "AI 호출 없이 규칙 기반 예시 초안 생성" },
-  { id: "ollama", label: "Ollama 로컬", description: "내 컴퓨터에서 모델을 실행해 통합 초안 생성" }
+  { id: "ollama", label: "Ollama 로컬", description: "내 컴퓨터에서 모델을 실행해 통합 초안 생성" },
+  { id: "openrouter-free", label: "OpenRouter Free", description: "브라우저 호출 가능 · openrouter/free 같은 무료 모델" },
+  { id: "groq-free", label: "Groq 무료 티어", description: "브라우저 호출 가능 · gpt-oss·Qwen 무료 모델" },
+  { id: "gemini-openai", label: "Gemini 무료(OpenAI 호환)", description: "브라우저 호출 가능 · Google AI Studio 키" },
+  { id: "exaone", label: "LG K-EXAONE 2.5", description: "CORS 차단 · 실패하면 프록시나 질문 복사 흐름" },
+  { id: "github-models", label: "GitHub Models", description: "CORS 차단 · GitHub 토큰(models:read) 필요" },
+  { id: "amd-tokenlab", label: "AMD Token Lab", description: "CORS 차단 · 발급받은 tl- 키 사용" },
+  { id: "custom-openai", label: "로컬 프록시(OpenAI 호환)", description: "내 컴퓨터·사설망 프록시로 중계" }
 ];
 
 export function modelLabel(provider: ModelProvider) {
   return modelProviderOptions.find((item) => item.id === provider)?.label || provider;
 }
 
+export function currentModelName(settings: ModelSettings) {
+  if (settings.provider === "ollama") return settings.ollamaModel.trim();
+  const field = remoteModelField(settings.provider);
+  if (field) return String(settings[field] || "").trim();
+  return "템플릿";
+}
+
 export function modelSafetyNote(settings: ModelSettings) {
   if (settings.provider === "ollama") return "명령, 관련 프로젝트 입력란, 일치하는 저장 자료 최대 3건만 이 컴퓨터의 Ollama로 보냅니다. 역할 분해는 규칙 기반이며, 최종 보고서만 모델이 생성합니다.";
+  const config = providerConfig(settings.provider);
+  if (config) return `프로젝트 입력란과 일치하는 저장 자료 최대 3건이 ${config.label}로 전송됩니다. 키는 브라우저 메모리에만 있고 저장·백업되지 않습니다. ${config.corsNote}`;
   return "실제 AI 모델을 호출하지 않습니다. 역할별 결과는 규칙 기반 템플릿입니다.";
 }
 
-export async function runModelPrompt(prompt: string, settings: ModelSettings): Promise<ModelRunResult> {
+export async function runModelPrompt(
+  prompt: string,
+  settings: ModelSettings,
+  options: { apiKey?: string } = {}
+): Promise<ModelRunResult> {
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) {
     return { provider: settings.provider, ok: false, output: "", error: "실행할 프롬프트가 없습니다." };
@@ -29,6 +58,23 @@ export async function runModelPrompt(prompt: string, settings: ModelSettings): P
 
   try {
     if (settings.provider === "ollama") return await runOllama(trimmedPrompt, settings);
+
+    const config = providerConfig(settings.provider);
+    if (config) {
+      const apiKey = options.apiKey || "";
+      const keyCheck = validateApiKey(settings.provider, apiKey);
+      if (!keyCheck.ok) return { provider: settings.provider, ok: false, output: "", error: keyCheck.message };
+      const result = await requestFreeModel({
+        provider: settings.provider,
+        model: currentModelName(settings),
+        prompt: trimmedPrompt,
+        apiKey,
+        baseUrl: settings.customBaseUrl
+      });
+      return result.ok
+        ? { provider: settings.provider, ok: true, output: result.output }
+        : { provider: settings.provider, ok: false, output: "", error: result.error };
+    }
 
     return {
       provider: settings.provider,

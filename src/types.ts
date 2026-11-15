@@ -18,6 +18,10 @@ export type SectionId =
   | "execution"
   | "blueprint"
   | "draft"
+  | "grantBudget"
+  | "grantChecklist"
+  | "grantReport"
+  | "workbrainExport"
   | "controlTower";
 
 export type HarnessJobType = "daily-briefing" | "agent-office-command";
@@ -146,19 +150,36 @@ export type OfficeResult = {
 };
 
 export type OfficeExecution = {
-  mode: "simulation" | "ollama";
+  mode: ModelProvider;
   status: "completed" | "failed";
   model?: string;
   contextSources: string[];
   error?: string;
 };
 
-export type ModelProvider = "simulation" | "ollama";
+export type ModelProvider =
+  | "simulation"
+  | "ollama"
+  | "openrouter-free"
+  | "groq-free"
+  | "gemini-openai"
+  | "exaone"
+  | "github-models"
+  | "amd-tokenlab"
+  | "custom-openai";
 
 export type ModelSettings = {
   provider: ModelProvider;
   ollamaBaseUrl: string;
   ollamaModel: string;
+  openrouterModel: string;
+  groqModel: string;
+  geminiModel: string;
+  exaoneModel: string;
+  githubModel: string;
+  amdModel: string;
+  customModel: string;
+  customBaseUrl: string;
 };
 
 export type ModelRunResult = {
@@ -166,6 +187,76 @@ export type ModelRunResult = {
   ok: boolean;
   output: string;
   error?: string;
+};
+
+export type GrantBudgetLine = {
+  id: string;
+  category: string;
+  item: string;
+  unitCost: string;
+  quantity: string;
+  basis: string;
+  note: string;
+};
+
+export type GrantChecklistItem = {
+  id: string;
+  group: string;
+  label: string;
+  basis: string;
+  required: boolean;
+  checked: boolean;
+  note: string;
+};
+
+export type GrantReportSection = {
+  id: string;
+  title: string;
+  hint: string;
+  content: string;
+};
+
+export type GrantSchedule = {
+  applyDeadline: string;
+  projectStart: string;
+  projectEnd: string;
+  settlementDeadline: string;
+  reportDeadline: string;
+  memo: string;
+};
+
+/** 국고보조사업 예산·정산·결과보고 작업 단위. 프로젝트(사업계획서)와 별도 저장 키를 쓴다. */
+export type GrantPlan = {
+  schemaVersion: number;
+  presetId: string;
+  presetName: string;
+  programName: string;
+  agency: string;
+  fundingSource: string;
+  fundingYear: string;
+  subsidyRate: string;
+  localRate: string;
+  selfRate: string;
+  budgetLines: GrantBudgetLine[];
+  checklist: GrantChecklistItem[];
+  reportSections: GrantReportSection[];
+  schedule: GrantSchedule;
+  memo: string;
+  updatedAt: string;
+};
+
+export type GrantPreset = {
+  id: string;
+  name: string;
+  summary: string;
+  agency: string;
+  fundingSource: string;
+  subsidyRate: string;
+  localRate: string;
+  selfRate: string;
+  budgetLines: Array<Omit<GrantBudgetLine, "id">>;
+  checklist: Array<Omit<GrantChecklistItem, "id" | "checked" | "note">>;
+  reportSections: Array<Omit<GrantReportSection, "id" | "content">>;
 };
 
 export type ApprovalStatus = "draft" | "reviewing" | "approved" | "blocked" | "discarded";
@@ -254,6 +345,7 @@ export type ArchiveData = {
   knowledgeDocs: KnowledgeDoc[];
   approvalItems?: ApprovalItem[];
   memoryEntries?: ProjectMemoryEntry[];
+  grantPlan?: GrantPlan;
 };
 
 export const textFields: Array<keyof ProjectData> = [

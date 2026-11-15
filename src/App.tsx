@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { agentRoles } from "./data/agentRoles";
-import { ControlTowerView } from "./components/ControlTowerView";
+import { grantPresets } from "./data/grantPresets";import { ControlTowerView } from "./components/ControlTowerView";
+import { GrantBudgetView, GrantChecklistView, GrantReportView } from "./components/GrantWorkflowViews";
+import { WorkbrainExportView } from "./components/WorkbrainExportView";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
 import { generateDraftText } from "./lib/draft";
 import { extractTextFromFile } from "./lib/fileText";
-import { absorbModelResponse, buildModelPrompt } from "./lib/prompts";
-import { listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
+import { absorbModelResponse, buildDraftPolishPrompt, buildModelPrompt } from "./lib/prompts";
+import { currentModelName, listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
+import { providerConfig, remoteModelField, validateApiKey } from "./lib/modelSafety.mjs";
+import { WORKSPACE_LINKS } from "./lib/davidWorkbrainExport.mjs";
+import { applyPreset as applyGrantPreset, createEmptyGrantPlan, hasGrantWork, sanitizeGrantPlan } from "./lib/grantWorkflow.mjs";
+import { findGrantPreset } from "./data/grantPresets";
 import { buildOfficeContext, buildOfficeModelPrompt } from "./lib/agentOfficePrompt.mjs";
 import { roleSummary, runOffice } from "./lib/agentOffice";
 import { clearControlTowerState, loadControlTowerState, saveControlTowerApproval, saveControlTowerSnapshot } from "./lib/controlTowerStorage";
@@ -30,8 +36,9 @@ import {
   saveProject,
   saveProjectMemory
 } from "./lib/storage";
+import { loadGrantPlan, saveGrantPlan } from "./lib/grantStorage";
 import { buildMermaid } from "./lib/visuals";
-import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type KnowledgeDoc, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
+import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type GrantPlan, type KnowledgeDoc, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
 
 const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: string }> }> = [
   {
@@ -63,12 +70,21 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
     ]
   },
   {
+    title: "예산·정산",
+    items: [
+      { id: "grantBudget", label: "예산 편성" },
+      { id: "grantChecklist", label: "정산 증빙" },
+      { id: "grantReport", label: "결과보고" }
+    ]
+  },
+  {
     title: "산출물·검토",
     items: [
       { id: "draft", label: "초안 조립" },
       { id: "visuals", label: "시각자료" },
       { id: "approvalInbox", label: "승인함" },
-      { id: "aiBridge", label: "외부 AI 질문" }
+      { id: "aiBridge", label: "외부 AI 질문" },
+      { id: "workbrainExport", label: "워크브레인 내보내기" }
     ]
   },
   {
@@ -241,6 +257,12 @@ export default function App() {
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryEntry[]>(() => loadProjectMemory());
   const [memoryNote, setMemoryNote] = useState("");
   const [controlTowerState, setControlTowerState] = useState<ControlTowerState>(() => loadControlTowerState());
+  const [grantPlan, setGrantPlan] = useState<GrantPlan>(() => loadGrantPlan());
+  // API 키는 이 탭의 메모리에만 둔다. localStorage·백업·아카이브 어디에도 저장하지 않는다.
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [remoteAck, setRemoteAck] = useState(false);
+  const [freeRunOutput, setFreeRunOutput] = useState("");
+  const [freeRunError, setFreeRunError] = useState("");
 
   const sectionTitle = useMemo(() => navItems.find((item) => item.id === section)?.label || "", [section]);
 
@@ -283,6 +305,10 @@ export default function App() {
   useEffect(() => {
     saveProjectMemory(memoryEntries);
   }, [memoryEntries]);
+
+  useEffect(() => {
+    saveGrantPlan(grantPlan);
+  }, [grantPlan]);
 
   const updateProject = (patch: Partial<ProjectData>) => setProject((current) => ({ ...current, ...patch }));
   const notify = (message: string) => setToast(message);
@@ -374,7 +400,7 @@ export default function App() {
   };
 
   const downloadArchive = () => {
-    downloadTextFile(JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries), null, 2), `${safeFileName(project.projectName, "planning-copilot")}-archive-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
+    downloadTextFile(JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries, grantPlan), null, 2), `${safeFileName(project.projectName, "planning-copilot")}-archive-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
     notify("백업 파일을 내려받았습니다.");
   };
 
@@ -400,7 +426,7 @@ export default function App() {
     const payload = document.createElement("input");
     payload.type = "hidden";
     payload.name = "payload";
-    payload.value = JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries));
+    payload.value = JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries, grantPlan));
     form.appendChild(payload);
     document.body.appendChild(form);
     form.submit();
@@ -414,6 +440,7 @@ export default function App() {
         const archive = JSON.parse(text);
         setProject({ ...emptyProject, ...archive.project });
         setKnowledgeDocs(Array.isArray(archive.knowledgeDocs) ? archive.knowledgeDocs : []);
+        if (archive.grantPlan) setGrantPlan(sanitizeGrantPlan(archive.grantPlan));
         notify("백업 파일을 복원했습니다.");
       } catch {
         notify("백업 파일을 읽지 못했습니다.");
@@ -442,23 +469,45 @@ export default function App() {
       return;
     }
 
+    const remoteConfig = providerConfig(modelSettings.provider);
+    if (remoteConfig) {
+      const keyCheck = validateApiKey(modelSettings.provider, apiKeys[modelSettings.provider] || "");
+      if (!keyCheck.ok) {
+        notify(keyCheck.message);
+        setSection("modelSettings");
+        return;
+      }
+      if (!remoteAck) {
+        notify("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
+        setSection("modelSettings");
+        return;
+      }
+    }
+
     const context = buildOfficeContext(project, searchKnowledgeDocs(knowledgeDocs, normalizedCommand, 3));
     const prompt = buildOfficeModelPrompt({ command: normalizedCommand, tasks: result.tasks, context });
-    const modelName = modelSettings.ollamaModel.trim() || "이름 미입력";
+    const modelName = currentModelName(modelSettings) || "이름 미입력";
     setModelBusy(true);
     try {
-      const modelResult = await runModelPrompt(prompt, modelSettings);
-      if (!modelResult.ok) throw new Error(modelResult.error || "Ollama 실행에 실패했습니다.");
-      result.execution = { mode: "ollama", status: "completed", model: modelName, contextSources: context.sourceLabels };
-      result.report.markdown = formatOllamaOfficeReport(normalizedCommand, modelName, context.sourceLabels, modelResult.output, context.truncated);
+      const modelResult = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
+      if (!modelResult.ok) throw new Error(modelResult.error || "모델 실행에 실패했습니다.");
+      result.execution = { mode: modelSettings.provider, status: "completed", model: modelName, contextSources: context.sourceLabels };
+      result.report.markdown = formatModelOfficeReport({
+        command: normalizedCommand,
+        providerLabel: modelLabel(modelSettings.provider),
+        modelName,
+        sources: context.sourceLabels,
+        output: modelResult.output,
+        truncated: context.truncated
+      });
       setOfficeResult(result);
-      notify("Ollama가 통합 초안을 만들었습니다. 실행 전 내용을 검토해 주세요.");
+      notify(`${modelLabel(modelSettings.provider)}가 통합 초안을 만들었습니다. 실행 전 내용을 검토해 주세요.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ollama 실행에 실패했습니다.";
-      result.execution = { mode: "ollama", status: "failed", model: modelName, contextSources: context.sourceLabels, error: message };
-      result.report.markdown = formatOllamaOfficeFailure(normalizedCommand, modelName, message, result.report.markdown);
+      const message = error instanceof Error ? error.message : "모델 실행에 실패했습니다.";
+      result.execution = { mode: modelSettings.provider, status: "failed", model: modelName, contextSources: context.sourceLabels, error: message };
+      result.report.markdown = formatModelOfficeFailure(normalizedCommand, modelName, message, result.report.markdown);
       setOfficeResult(result);
-      notify(`Ollama 실행 실패: ${message}`);
+      notify(`모델 실행 실패: ${message}`);
     } finally {
       setModelBusy(false);
     }
@@ -538,17 +587,62 @@ export default function App() {
 
   const updateModelSettings = (patch: Partial<ModelSettings>) => setModelSettings((current) => ({ ...current, ...patch }));
 
+  const updateGrantPlan = (patch: Partial<GrantPlan>) => setGrantPlan((current) => ({ ...current, ...patch }));
+
+  const applyGrantPresetToPlan = (presetId: string) => {
+    const preset = findGrantPreset(presetId);
+    if (!preset) {
+      notify("프리셋을 찾지 못했습니다.");
+      return;
+    }
+    setGrantPlan(applyGrantPreset(preset, grantPlan));
+    notify(`'${preset.name}' 프리셋을 적용했습니다.`);
+  };
+
+  const resetGrantPlan = () => {
+    if (!window.confirm("예산·정산 작업을 처음 상태로 되돌릴까요? 이 브라우저의 예산·정산 내용이 사라집니다.")) return;
+    setGrantPlan(createEmptyGrantPlan());
+    notify("예산·정산 작업을 초기화했습니다.");
+  };
+
   const runSelectedModel = async (prompt: string) => {
     if (modelBusy) return;
+    const remoteConfig = providerConfig(modelSettings.provider);
+    if (remoteConfig) {
+      const keyCheck = validateApiKey(modelSettings.provider, apiKeys[modelSettings.provider] || "");
+      if (!keyCheck.ok) {
+        setModelTestResult({ provider: modelSettings.provider, ok: false, output: "", error: keyCheck.message });
+        notify(keyCheck.message);
+        return;
+      }
+      if (!remoteAck) {
+        notify("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
+        setSection("modelSettings");
+        return;
+      }
+    }
     setModelBusy(true);
     try {
-      const result = await runModelPrompt(prompt, modelSettings);
+      const result = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
       setModelTestResult(result);
       notify(result.ok ? `${modelLabel(result.provider)} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
       return result;
     } finally {
       setModelBusy(false);
     }
+  };
+
+  const runFreeModelForSection = async (mode: "notice" | "draft") => {
+    const prompt = mode === "notice" ? buildModelPrompt(project, knowledgeDocs) : buildDraftPolishPrompt(project);
+    if (!prompt.trim()) {
+      notify("먼저 프로젝트 입력값을 채워 주세요.");
+      return;
+    }
+    setFreeRunError("");
+    setFreeRunOutput("");
+    const result = await runSelectedModel(prompt);
+    if (result?.ok) setFreeRunOutput(result.output);
+    else if (result) setFreeRunError(result.error || "모델 실행에 실패했습니다.");
   };
 
   const refreshOllamaModels = async () => {
@@ -591,8 +685,10 @@ export default function App() {
 
   const saveCurrentMemory = () => {
     const title = project.projectName || officeResult?.report.command || "이름 없는 프로젝트";
+    const executionMode = officeResult?.execution?.mode;
+    const usedModel = Boolean(executionMode && executionMode !== "simulation");
     const reportMemory = officeResult?.execution?.status === "failed" ? ""
-      : officeResult?.execution?.mode === "ollama" ? officeResult.report.markdown
+      : usedModel ? officeResult?.report.markdown || ""
         : officeResult?.report.highlights.join("\n");
     const summary = memoryNote.trim() || project.aiSynthesis || reportMemory || project.draftOutput || "";
     if (!summary.trim()) {
@@ -605,7 +701,7 @@ export default function App() {
         projectName: project.projectName || "미지정 프로젝트",
         title,
         summary,
-        source: officeResult?.execution?.mode === "ollama" && officeResult.execution.status === "completed" ? "Ollama 통합 초안" : officeResult ? "템플릿 또는 수동 검토 메모" : "수동 메모",
+        source: usedModel && executionMode && officeResult?.execution?.status === "completed" ? `${modelLabel(executionMode)} 통합 초안` : officeResult ? "템플릿 또는 수동 검토 메모" : "수동 메모",
         createdAt: new Date().toISOString()
       },
       ...current
@@ -705,8 +801,8 @@ export default function App() {
               <span>{modelSafetyNote(modelSettings)}</span>
             </div>
             <div className="coach-bar">
-              <div><strong>업무 요청</strong><span>역할은 검토 관점을 정리하는 용도입니다. Ollama를 선택하면 단일 모델 호출이 최종 보고서를 작성합니다.</span></div>
-              <button className="primary-button" type="button" onClick={() => { void runAgentOffice(); }} disabled={modelBusy}>{modelBusy ? "Ollama 실행 중" : "사무국 실행"}</button>
+              <div><strong>업무 요청</strong><span>역할은 검토 관점을 정리하는 용도입니다. 모델 경로를 고르면 단일 모델 호출이 최종 보고서를 작성합니다.</span></div>
+              <button className="primary-button" type="button" onClick={() => { void runAgentOffice(); }} disabled={modelBusy}>{modelBusy ? "모델 실행 중" : "사무국 실행"}</button>
             </div>
             <div className="quick-command-grid" aria-label="빠른 명령 예시">
               {quickOfficeCommands.map((command) => (
@@ -748,19 +844,90 @@ export default function App() {
         )}
 
         {section === "modelSettings" && (
-          <Panel title="모델 설정" description="브라우저에 API 키를 저장하지 않습니다. 실제 모델 사용은 loopback 주소의 Ollama만 지원하고, 기본값은 안전한 템플릿 모드입니다.">
+          <Panel title="모델 설정" description="기본값은 안전한 템플릿 모드입니다. API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
             <div className="model-status-bar">
-              <strong>현재 경로: {modelLabel(modelSettings.provider)}</strong>
+              <strong>현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
             </div>
             <div className="model-provider-grid">
-              {modelProviderOptions.map((option) => (
-                <button className={`provider-card ${modelSettings.provider === option.id ? "is-active" : ""}`} key={option.id} type="button" onClick={() => updateModelSettings({ provider: option.id })}>
-                  <strong>{option.label}</strong>
-                  <span>{option.description}</span>
-                </button>
-              ))}
+              {modelProviderOptions.map((option) => {
+                const config = providerConfig(option.id);
+                return (
+                  <button className={`provider-card ${modelSettings.provider === option.id ? "is-active" : ""}`} key={option.id} type="button" onClick={() => updateModelSettings({ provider: option.id })}>
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                    {config && <small className={`cors-badge cors-${config.cors}`}>{config.cors === "allowed" ? "브라우저 호출 가능" : config.cors === "blocked" ? "브라우저 호출 차단 · 프록시/복붙 필요" : "주소 직접 입력"}</small>}
+                  </button>
+                );
+              })}
             </div>
+            {providerConfig(modelSettings.provider) && (() => {
+              const config = providerConfig(modelSettings.provider);
+              const field = remoteModelField(modelSettings.provider);
+              if (!config) return null;
+              return (
+                <div className="remote-key-block">
+                  <div className="remote-key-head">
+                    <strong>{config.label} 연결</strong>
+                    <span>{config.corsNote}</span>
+                  </div>
+                  <div className="form-grid">
+                    {modelSettings.provider === "custom-openai" && (
+                      <label className="field wide">
+                        <span>프록시 Base URL(예: http://127.0.0.1:8080/v1)</span>
+                        <input
+                          value={modelSettings.customBaseUrl}
+                          placeholder="로컬·사설망 주소만 사용할 수 있습니다"
+                          onChange={(event) => updateModelSettings({ customBaseUrl: event.target.value })}
+                        />
+                      </label>
+                    )}
+                    <label className="field wide">
+                      <span>API 키(저장하지 않음 · {config.keyLabel})</span>
+                      <input
+                        type="password"
+                        value={apiKeys[modelSettings.provider] || ""}
+                        placeholder="이 탭에서만 사용하고 닫으면 사라집니다"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        onChange={(event) => setApiKeys((current) => ({ ...current, [modelSettings.provider]: event.target.value }))}
+                      />
+                    </label>
+                    {field && (
+                      <label className="field">
+                        <span>모델 이름</span>
+                        <input
+                          value={String(modelSettings[field as keyof ModelSettings] ?? "")}
+                          placeholder={config.defaultModel || "예: openai/gpt-4o-mini"}
+                          onChange={(event) => updateModelSettings({ [field]: event.target.value } as Partial<ModelSettings>)}
+                        />
+                      </label>
+                    )}
+                    <div className="ollama-model-controls">
+                      <button className="ghost-light-button" type="button" onClick={() => setApiKeys((current) => ({ ...current, [modelSettings.provider]: "" }))}>입력한 키 지우기</button>
+                    </div>
+                  </div>
+                  {config.models.length > 0 && (
+                    <div className="grant-check-options">
+                      {config.models.map((model) => (
+                        <button
+                          className="quick-command"
+                          key={model}
+                          type="button"
+                          onClick={() => field && updateModelSettings({ [field]: model } as Partial<ModelSettings>)}
+                        >
+                          {model}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <label className="grant-inline-check">
+                    <input type="checkbox" checked={remoteAck} onChange={(event) => setRemoteAck(event.target.checked)} />
+                    <span>이 경로로 실행하면 프로젝트 입력란과 저장 자료 최대 3건이 외부 API로 전송되는 것을 확인했습니다.</span>
+                  </label>
+                </div>
+              );
+            })()}
             <div className="form-grid">
               {modelSettings.provider === "ollama" && <>
                 <TextInput label="Ollama 로컬 주소" value={modelSettings.ollamaBaseUrl} onChange={(ollamaBaseUrl) => updateModelSettings({ ollamaBaseUrl })} placeholder="http://127.0.0.1:11434" />
@@ -914,6 +1081,41 @@ export default function App() {
               <button className="secondary-button" type="button" onClick={() => copyText(project.modelPrompt || buildModelPrompt(project, knowledgeDocs), "AI 질문을 복사했습니다.")}>질문 복사</button>
               <button className="secondary-button" type="button" onClick={() => { if (!project.modelResponse) notify("먼저 AI 답변을 붙여넣어 주세요."); else updateProject({ aiSynthesis: absorbModelResponse(project.modelResponse) }); }}>답변 반영 메모화</button>
             </div>
+            <section className="grant-block">
+              <div className="grant-block-head">
+                <div>
+                  <strong>무료 API로 바로 실행</strong>
+                  <span>
+                    현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}. 키는 모델 설정에서 입력한 값을 이 탭 메모리에서만 사용합니다.
+                    실패하면 아래 질문 복사로 기존 흐름을 그대로 이어가세요.
+                  </span>
+                </div>
+                <div className="draft-actions">
+                  <button className="secondary-button" type="button" onClick={() => { void runFreeModelForSection("notice"); }} disabled={modelBusy}>공고·전략 질문 실행</button>
+                  <button className="secondary-button" type="button" onClick={() => { void runFreeModelForSection("draft"); }} disabled={modelBusy}>초안 조립 실행</button>
+                </div>
+              </div>
+              {modelSettings.provider === "simulation" && <p className="grant-warning">현재는 템플릿 모드입니다. 실제 호출을 하려면 모델 설정에서 Ollama나 무료 API를 고르세요.</p>}
+              {freeRunError && (
+                <div className="office-execution-note has-error" role="alert">
+                  <strong>실행 실패</strong>
+                  <span>{freeRunError}</span>
+                  <div className="draft-actions">
+                    <button className="secondary-button" type="button" onClick={() => copyText(buildModelPrompt(project, knowledgeDocs), "질문을 복사했습니다. 외부 AI에 붙여넣어 주세요.")}>질문 복사로 이어가기</button>
+                    <button className="ghost-light-button" type="button" onClick={() => setSection("modelSettings")}>모델 설정 열기</button>
+                  </div>
+                </div>
+              )}
+              {freeRunOutput && (
+                <>
+                  <textarea className="draft-output office-report-output" rows={12} value={freeRunOutput} readOnly />
+                  <div className="draft-actions">
+                    <button className="primary-button" type="button" onClick={() => { updateProject({ modelResponse: freeRunOutput }); notify("실행 결과를 AI 답변 칸에 넣었습니다."); }}>AI 답변 칸에 넣기</button>
+                    <button className="secondary-button" type="button" onClick={() => copyText(freeRunOutput, "결과를 복사했습니다.")}>결과 복사</button>
+                  </div>
+                </>
+              )}
+            </section>
           </Panel>
         )}
 
@@ -954,6 +1156,25 @@ export default function App() {
               <strong>현재 범위</strong>
               <span>현재는 링크 저장과 외부 페이지 열기만 지원합니다. Jira·Notion·Sheets·Drive 데이터의 자동 읽기, 쓰기, 동기화는 구현되어 있지 않습니다.</span>
             </div>
+            <div className="grant-block-head workspace-head">
+              <div>
+                <strong>공용 두뇌 연계(my-workbench · david-workbrain)</strong>
+                <span>
+                  앱을 하나로 합치지 않고 느슨하게 잇습니다. 계획·예산·정산은 여기서 만들고, 지시와 승인은 my-workbench,
+                  지식·SOP·템플릿은 david-workbrain에 둡니다. Markdown은 ‘워크브레인 내보내기’에서 만듭니다.
+                </span>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setSection("workbrainExport")}>내보내기 열기</button>
+            </div>
+            <div className="integration-grid workspace-links">
+              {WORKSPACE_LINKS.map((link) => (
+                <div className="integration-card" key={link.label}>
+                  <strong>{link.label}</strong>
+                  <span>{link.role}</span>
+                  <a className="secondary-button link-button" href={link.url} target="_blank" rel="noreferrer">{link.label} 열기</a>
+                </div>
+              ))}
+            </div>
           </Panel>
         )}
 
@@ -992,6 +1213,55 @@ export default function App() {
           ["추진 단계", "milestones"], ["추진 체계", "teamSystem"], ["예산 설계", "budgetPlan"], ["위험 대응", "riskPlan"]
         ]} project={project} update={updateProject} />}
         {section === "blueprint" && <Panel title="서비스 디자인 관점으로 운영 경험을 봅니다" description="사용자 여정과 운영 접점을 분리하면 실행계획의 현실감이 높아집니다."><TableEditor headers={["단계", "사용자 행동", "접점", "운영 방식", "실패 가능성"]} rows={project.blueprintTable} onChange={(blueprintTable) => updateProject({ blueprintTable })} addLabel="접점 추가" /></Panel>}
+        {section === "grantBudget" && (
+          <Panel title="국고보조사업 예산 편성" description="비목별 예산표와 재원 구성을 잡고, 정산·결과보고로 이어지는 한 묶음으로 관리합니다.">
+            <div className="model-status-bar">
+              <strong>{grantPlan.presetName ? `프리셋: ${grantPlan.presetName}` : "프리셋 미적용"}</strong>
+              <span>국고보조사업·공모사업 프리셋을 골라 적용하거나 직접 편성할 수 있습니다. 금액은 단가×수량으로 계산되며 이 브라우저에만 저장됩니다.</span>
+            </div>
+            <GrantBudgetView
+              plan={grantPlan}
+              project={project}
+              presets={grantPresets}
+              hasWork={hasGrantWork(grantPlan)}
+              onChange={updateGrantPlan}
+              onApplyPreset={applyGrantPresetToPlan}
+              notify={notify}
+            />
+            <div className="draft-actions">
+              <button className="secondary-button" type="button" onClick={() => setSection("grantChecklist")}>정산 증빙으로</button>
+              <button className="secondary-button" type="button" onClick={() => setSection("grantReport")}>결과보고로</button>
+              <button className="ghost-light-button" type="button" onClick={resetGrantPlan}>예산·정산 초기화</button>
+            </div>
+          </Panel>
+        )}
+
+        {section === "grantChecklist" && (
+          <Panel title="정산 증빙 체크리스트" description="교부·집행·인건비·실적·마감 증빙을 순서대로 점검하고, 확인한 메모를 남깁니다.">
+            <GrantChecklistView plan={grantPlan} onChange={updateGrantPlan} notify={notify} />
+            <div className="draft-actions">
+              <button className="secondary-button" type="button" onClick={() => setSection("grantBudget")}>예산 편성으로</button>
+              <button className="secondary-button" type="button" onClick={() => setSection("grantReport")}>결과보고로</button>
+            </div>
+          </Panel>
+        )}
+
+        {section === "grantReport" && (
+          <Panel title="결과보고서 초안" description="기관 결과보고 양식 순서대로 섹션을 만들고 초안을 채웁니다. 프로젝트 입력값에서 가져올 수 있습니다.">
+            <GrantReportView plan={grantPlan} project={project} onChange={updateGrantPlan} notify={notify} />
+            <div className="draft-actions">
+              <button className="secondary-button" type="button" onClick={() => setSection("grantChecklist")}>정산 증빙으로</button>
+              <button className="primary-button" type="button" onClick={() => setSection("workbrainExport")}>워크브레인으로 내보내기</button>
+            </div>
+          </Panel>
+        )}
+
+        {section === "workbrainExport" && (
+          <Panel title="워크브레인 내보내기" description="사업계획서·예산·정산 체크리스트·결과보고를 david-workbrain Markdown 한 편으로 묶어 복사하거나 내려받습니다.">
+            <WorkbrainExportView plan={grantPlan} project={project} notify={notify} />
+          </Panel>
+        )}
+
         {section === "draft" && (
           <Panel title="공고 양식에 맞는 초안으로 조립합니다" description="입력한 내용을 사업계획서의 기본 골격으로 정리합니다.">
             <div className="draft-actions">
@@ -1032,19 +1302,20 @@ function OfficeResultView({
   const activeRoles = agentRoles.filter((role) => activeAgentIds.includes(role.id));
   const visibleDrafts = result.drafts.filter((draft) => draft.agentId !== "chief");
   const execution = result.execution;
+  const modelMode = execution && execution.mode !== "simulation" ? execution : null;
 
   return (
     <div className="office-results">
       <div className={`office-execution-note ${execution?.status === "failed" ? "has-error" : ""}`} role={execution?.status === "failed" ? "alert" : "status"}>
-        <strong>{execution?.mode === "ollama"
-          ? execution.status === "completed" ? `Ollama 단일 실행 완료 · ${execution.model || "모델"}` : "Ollama 실행 실패"
+        <strong>{modelMode
+          ? `${modelLabel(modelMode.mode)} ${modelMode.status === "completed" ? "단일 실행 완료" : "실행 실패"}${modelMode.model ? ` · ${modelMode.model}` : ""}`
           : execution?.mode === "simulation" ? "규칙 기반 템플릿 결과" : "이전 저장 세션 · 실행 경로 확인 불가"}</strong>
-        <span>{execution?.mode === "ollama"
-          ? execution.status === "completed"
+        <span>{modelMode
+          ? modelMode.status === "completed"
             ? "실제 모델이 생성한 내용은 아침 보고서입니다. 작업 분해와 역할별 초안은 규칙 기반 참고 자료이며, 병렬 에이전트 실행이 아닙니다."
-            : `${execution.error || "모델 응답을 받지 못했습니다."} 아래 역할별 초안은 템플릿 결과이며 실제 모델 생성물이 아닙니다.`
+            : `${execution?.error || "모델 응답을 받지 못했습니다."} 아래 역할별 초안은 템플릿 결과이며 실제 모델 생성물이 아닙니다.`
           : "AI 모델을 호출하지 않았습니다. 역할 분배와 각 초안은 규칙 기반 예시입니다."}</span>
-        {execution?.contextSources.length ? <small>{execution.mode === "ollama" ? "Ollama 입력 자료" : "템플릿 입력"}: {execution.contextSources.join(" · ")}</small> : null}
+        {execution?.contextSources.length ? <small>{modelMode ? `${modelLabel(modelMode.mode)} 입력 자료` : "템플릿 입력"}: {execution.contextSources.join(" · ")}</small> : null}
       </div>
       <section className="office-action-bar" aria-label="사무국 결과 활용">
         <div>
@@ -1097,7 +1368,7 @@ function OfficeResultView({
       </section>
 
       <section className="office-block">
-        <div className="office-block-title"><span>{execution?.mode === "ollama" ? "③ 역할별 참고 템플릿" : "③ 역할별 템플릿 초안"}</span></div>
+        <div className="office-block-title"><span>{modelMode ? "③ 역할별 참고 템플릿" : "③ 역할별 템플릿 초안"}</span></div>
         <div className="office-draft-list">
           {visibleDrafts.map((draft) => (
             <article className="office-draft" key={draft.taskId}>
@@ -1142,13 +1413,27 @@ function OfficeResultView({
   );
 }
 
-function formatOllamaOfficeReport(command: string, model: string, sources: string[], output: string, truncated: boolean) {
+function formatModelOfficeReport({
+  command,
+  providerLabel,
+  modelName,
+  sources,
+  output,
+  truncated
+}: {
+  command: string;
+  providerLabel: string;
+  modelName: string;
+  sources: string[];
+  output: string;
+  truncated: boolean;
+}) {
   const sourceLines = sources.length ? sources.map((source) => `- ${source}`).join("\n") : "- 사용자 명령만 사용";
-  return `# AI 사무국 통합 보고서\n\n- 요청: ${command}\n- 실행 경로: Ollama 로컬 모델 ${model} · 단일 호출\n- 입력 자료:\n${sourceLines}${truncated ? "\n- 안내: 입력 길이 제한에 따라 일부 자료가 생략됨" : ""}\n\n---\n\n${output.trim()}\n\n---\n\n> 검토 전 초안입니다. 정책·일정·예산·기관 정보와 출처 표시를 확인한 뒤 사용하세요. 외부 발송·게시·제출은 수행하지 않았습니다.\n`;
+  return `# AI 사무국 통합 보고서\n\n- 요청: ${command}\n- 실행 경로: ${providerLabel} · ${modelName} · 단일 호출\n- 입력 자료:\n${sourceLines}${truncated ? "\n- 안내: 입력 길이 제한에 따라 일부 자료가 생략됨" : ""}\n\n---\n\n${output.trim()}\n\n---\n\n> 검토 전 초안입니다. 정책·일정·예산·기관 정보와 출처 표시를 확인한 뒤 사용하세요. 외부 발송·게시·제출은 수행하지 않았습니다.\n`;
 }
 
-function formatOllamaOfficeFailure(command: string, model: string, error: string, templateReport: string) {
-  return `# Ollama 통합 초안 생성 실패\n\n- 요청: ${command}\n- 모델: ${model}\n- 오류: ${error}\n\n> 아래 내용은 규칙 기반 템플릿 보고서이며 Ollama가 생성한 결과가 아닙니다. 연결과 모델 이름을 확인한 뒤 다시 실행하세요.\n\n---\n\n${templateReport}`;
+function formatModelOfficeFailure(command: string, model: string, error: string, templateReport: string) {
+  return `# 통합 초안 생성 실패\n\n- 요청: ${command}\n- 모델: ${model}\n- 오류: ${error}\n\n> 아래 내용은 규칙 기반 템플릿 보고서이며 모델이 생성한 결과가 아닙니다. 연결과 모델 이름을 확인한 뒤 다시 실행하세요.\n\n---\n\n${templateReport}`;
 }
 
 function draftStatusLabel(draft: AgentDraft) {

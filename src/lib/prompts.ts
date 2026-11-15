@@ -66,6 +66,42 @@ ${compactSection("현재 문제정의", [project.problemSituation, project.rootC
 ${compactSection("현재 실행설계", [project.milestones, project.teamSystem, project.budgetPlan, project.riskPlan].filter(Boolean).join("\n"))}`;
 }
 
+export function buildDraftPolishPrompt(project: ProjectData) {
+  return `당신은 정부지원사업 사업계획서 작성 실무자입니다. 아래 공동기획 결과를 평가자가 읽는 순서로 사업계획서 초안으로 조립해 주세요.
+
+작성 형식:
+1. 사업 필요성(문제정의와 정책 목적 연결)
+2. 사업 개요(대상, 기간, 장소, 추진체계)
+3. 추진전략과 실행계획(일정, 역할, 예산 근거)
+4. 수행역량(경험, 협력망, 보유자원)
+5. 성과지표와 측정 방법
+6. 기대효과와 확산 계획
+7. 제출 전 보완할 근거
+
+주의사항:
+- 입력에 없는 수치·기관명·실적은 "확인 필요"로 표시하고 임의로 만들지 마세요.
+- 사용자의 아이디어와 현장 경험을 일반적인 문장으로 희석하지 마세요.
+- 한국어 사업계획서 문체로, 각 항목 3~6문장으로 간결하게 쓰세요.
+
+${compactSection("사업명", project.projectName)}
+
+${compactSection("공고문 핵심", project.noticeText.slice(0, 3000))}
+
+${compactSection("평가 포인트", project.evaluationFocus)}
+
+${compactSection("핵심 아이디어", project.coreIdea)}
+
+${compactSection("대상자", project.targetUsers)}
+
+${compactSection("문제정의", [project.problemSituation, project.rootCauses, project.existingLimits, project.whyNow].filter(Boolean).join("\n"))}
+
+${compactSection("논리모형", [project.inputs, project.activities, project.outputs, project.shortOutcomes, project.longOutcomes].filter(Boolean).join("\n"))}
+
+${compactSection("성과지표", (project.metricsTable || []).map((row) => row.filter(Boolean).join(" | ")).filter(Boolean).join("\n"))}
+
+${compactSection("실행설계", [project.milestones, project.teamSystem, project.budgetPlan, project.riskPlan].filter(Boolean).join("\n"))}`;
+}
+
 export function absorbModelResponse(response: string) {
   return [
     "AI 답변 요약",
