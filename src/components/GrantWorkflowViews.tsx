@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { GrantBudgetLine, GrantChecklistItem, GrantPlan, GrantPreset, ProjectData } from "../types";
 import { budgetSummary, checklistSummary, emptyBudgetLine, formatWon, groupChecklist, lineAmount, reportSummary, toText } from "../lib/grantWorkflow.mjs";
+import { BudgetImportPanel } from "./BudgetImportPanel";
 
 type GrantViewProps = {
   plan: GrantPlan;
@@ -240,6 +241,12 @@ export function GrantBudgetView({
       {summary.funding.rateMismatch && (
         <p className="grant-warning">입력한 비율 합이 {summary.funding.rateSum}%입니다. 합이 100%가 아니면 자부담을 잔액으로 계산합니다.</p>
       )}
+
+      <BudgetImportPanel
+        lines={plan.budgetLines}
+        onChange={(budgetLines) => onChange({ budgetLines })}
+        notify={notify}
+      />
 
       <section className="grant-block">
         <div className="grant-block-head">
