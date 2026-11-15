@@ -37,6 +37,7 @@
 - 무료 API 직접 호출(키 미저장): [free-model-api.md](free-model-api.md)
 - david-workbrain·Notion 연계 Markdown 내보내기: [workbrain-export.md](workbrain-export.md)
 - 샘플 양식 구조 파싱·맞춤 채우기: [sample-template-fill.md](sample-template-fill.md)
+- 외부 사용자 파일럿·유료화 검토: [pilot-evaluation-guide.md](pilot-evaluation-guide.md)
 
 ## 권장 작업 순서
 

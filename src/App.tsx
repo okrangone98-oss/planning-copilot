@@ -47,6 +47,7 @@ import {
 import { absorbModelResponse, buildDraftPolishPrompt, buildModelPrompt } from "./lib/prompts";
 import { currentModelName, listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
 import { providerConfig, remoteModelField, validateApiKey, ADVANCED_MODEL_PROVIDERS, PRIMARY_MODEL_PROVIDERS, isAdvancedModelProvider, providerAvailabilityNote } from "./lib/modelSafety.mjs";
+import { buildWorkspaceDiagnostics, formatStorageSize } from "./lib/workspaceDiagnostics.mjs";
 import { WORKSPACE_LINKS } from "./lib/davidWorkbrainExport.mjs";
 import { applyPreset as applyGrantPreset, budgetSummary, createEmptyGrantPlan, formatWon, hasGrantWork, sanitizeGrantPlan } from "./lib/grantWorkflow.mjs";
 import { findGrantPreset } from "./data/grantPresets";
@@ -773,6 +774,30 @@ export default function App() {
       return { projectId: meta.id, projectName: meta.name, total: gap.total, missing: gap.missing, amount: gap.missingAmount };
     });
   }, [workspace.projects, workspace.activeProjectId, work]);
+
+  /**
+   * 모델·보안 설정 화면용 자가진단. 이 브라우저에 있는 값만 세고, 화면을 열 때만 계산한다.
+   * 지어낸 이용량·매출이 아니라 저장된 사업·지출·회차와 localStorage 사용량 그대로다.
+   */
+  const workspaceDiagnostics = useMemo(() => {
+    if (section !== "modelSettings") return null;
+    const works = loadAllProjectWorks(workspace.projects);
+    works[workspace.activeProjectId] = work;
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      storage = null;
+    }
+    return buildWorkspaceDiagnostics({ projects: workspace.projects, works, modelSettings, piiMaskEnabled, storage });
+  }, [section, workspace.projects, workspace.activeProjectId, work, modelSettings, piiMaskEnabled]);
+
+  // 0.4%처럼 반올림하면 0이 되는 사용량을 "0%"로 보여 주지 않는다.
+  const storagePercentLabel = workspaceDiagnostics
+    ? workspaceDiagnostics.usage.storage.usedPercent < 1 && workspaceDiagnostics.usage.storage.bytes > 0
+      ? "1% 미만"
+      : `${workspaceDiagnostics.usage.storage.usedPercent}%`
+    : "";
 
   /* ── 개인정보 가드 ────────────────────────────────────────── */
 
@@ -2017,6 +2042,83 @@ export default function App() {
               <strong>현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
             </div>
+
+            {/* 파일럿 배포 전 점검용. 지어낸 수치 없이 이 브라우저에 저장된 값만 센다. */}
+            {workspaceDiagnostics && (
+              <section className="model-section" aria-label="이용량·보안·운영비 자가진단">
+                <div className="model-section-head">
+                  <div>
+                    <strong>이용량·보안·운영비 자가진단</strong>
+                    <span>이 브라우저에 저장된 값만 방금 세었습니다. 이용량·매출을 지어내지 않고, 파일럿 배포 전 지금 상태를 확인하는 화면입니다.</span>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={downloadArchive}>JSON 백업 받기</button>
+                </div>
+
+                <div className="diag-grid">
+                  <article className="diag-card" aria-label="이용량">
+                    <div className="diag-card-head">
+                      <strong>이용량</strong>
+                      <span className={`diag-chip is-${workspaceDiagnostics.usage.storage.level}`}>
+                        {workspaceDiagnostics.usage.storage.level === "ok" ? "저장 여유" : workspaceDiagnostics.usage.storage.level === "warn" ? "정리 권장" : "정리 필요"}
+                      </span>
+                    </div>
+                    <dl className="diag-rows">
+                      <div><dt>저장된 사업</dt><dd>{workspaceDiagnostics.usage.projectCount}개{workspaceDiagnostics.usage.projectsWithWork !== workspaceDiagnostics.usage.projectCount && <small> (데이터 있는 사업 {workspaceDiagnostics.usage.projectsWithWork}개)</small>}</dd></div>
+                      <div><dt>지출 원장</dt><dd>{workspaceDiagnostics.usage.expenseCount}건</dd></div>
+                      <div><dt>회차</dt><dd>{workspaceDiagnostics.usage.sessionCount}회</dd></div>
+                      <div><dt>업무</dt><dd>{workspaceDiagnostics.usage.taskCount}개</dd></div>
+                      <div><dt>localStorage</dt><dd>{formatStorageSize(workspaceDiagnostics.usage.storage.kb)} <small>/ 약 {formatStorageSize(workspaceDiagnostics.usage.storage.quotaKb)}</small></dd></div>
+                    </dl>
+                    <p className="diag-note">
+                      한도(약 {formatStorageSize(workspaceDiagnostics.usage.storage.quotaKb)}) 대비 {storagePercentLabel} 사용, 약 {formatStorageSize(workspaceDiagnostics.usage.storage.freeKb)} 남았습니다.
+                      {workspaceDiagnostics.usage.storage.level === "ok" ? " 지금은 여유가 있습니다." : " 백업 파일을 먼저 받고 오래된 사업을 정리하세요."}
+                    </p>
+                  </article>
+
+                  <article className="diag-card" aria-label="보안">
+                    <div className="diag-card-head">
+                      <strong>보안</strong>
+                      <span className={`diag-chip is-${workspaceDiagnostics.security.piiMaskEnabled && workspaceDiagnostics.security.backup.safe ? "ok" : "warn"}`}>
+                        {workspaceDiagnostics.security.piiMaskEnabled && workspaceDiagnostics.security.backup.safe ? "기본값 유지" : "확인 필요"}
+                      </span>
+                    </div>
+                    <dl className="diag-rows">
+                      <div><dt>개인정보 마스킹</dt><dd>{workspaceDiagnostics.security.piiMaskEnabled ? "켜짐" : "꺼짐"}</dd></div>
+                      <div><dt>외부 AI 전송</dt><dd>{workspaceDiagnostics.security.route.sendsExternal === false ? "없음" : workspaceDiagnostics.security.route.sendsExternal ? "있음" : "확인 필요"}</dd></div>
+                      <div><dt>저장소 키 흔적</dt><dd>{workspaceDiagnostics.security.secretScan.total === 0 ? "0건" : `${workspaceDiagnostics.security.secretScan.total}곳`}</dd></div>
+                      <div><dt>백업 파일 키</dt><dd>{workspaceDiagnostics.security.backup.safe ? "포함 없음" : "확인 필요"}</dd></div>
+                    </dl>
+                    <p className="diag-note">
+                      {workspaceDiagnostics.security.route.scope === "none" ? "템플릿 모드라 밖으로 나가는 자료가 없습니다." : workspaceDiagnostics.security.route.sendNote}
+                      {" "}백업 파일에는 {workspaceDiagnostics.security.backup.itemLabels.slice(0, 3).join("·")} 등이 담기고, {workspaceDiagnostics.security.backup.excludedLabels[0]}·{workspaceDiagnostics.security.backup.excludedLabels[1]}는 담기지 않습니다.
+                    </p>
+                  </article>
+
+                  <article className="diag-card" aria-label="운영비">
+                    <div className="diag-card-head">
+                      <strong>운영비</strong>
+                      <span className={`diag-chip is-${workspaceDiagnostics.cost.totalMonthlyKrw === 0 ? "ok" : "warn"}`}>
+                        {workspaceDiagnostics.cost.totalMonthlyKrw === 0 ? "월 0원" : "확인 필요"}
+                      </span>
+                    </div>
+                    <dl className="diag-rows">
+                      <div><dt>{workspaceDiagnostics.cost.hostingLabel}</dt><dd>{workspaceDiagnostics.cost.hostingMonthlyKrw === 0 ? "0원" : `${workspaceDiagnostics.cost.hostingMonthlyKrw}원`}</dd></div>
+                      <div><dt>AI 경로</dt><dd>{workspaceDiagnostics.cost.ai.costLabel}</dd></div>
+                      <div><dt>앱 지출 합계</dt><dd>{workspaceDiagnostics.cost.totalMonthlyKrw === null ? "AI는 제공자 정책" : "월 0원"}</dd></div>
+                    </dl>
+                    <p className="diag-note">{workspaceDiagnostics.cost.note}</p>
+                  </article>
+                </div>
+
+                {workspaceDiagnostics.warnings.length > 0 && (
+                  <ul className="diag-warnings">
+                    {workspaceDiagnostics.warnings.map((warning) => (
+                      <li className="pc-notice is-warning" key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
 
             <section className="model-section" aria-label="바로 쓸 수 있는 모델 경로">
               <div className="model-section-head">
