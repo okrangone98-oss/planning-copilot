@@ -159,6 +159,13 @@ test("외부 전송 페이로드(객체) 안의 문자열도 마스킹한다", (
   assert.equal(value.context.empty, null);
 });
 
+test("라벨에 붙은 조사를 이름으로 읽지 않는다", () => {
+  assert.equal(scanPii("당신은 한국어 사업계획서 작성 실무자입니다.").total, 0);
+  assert.equal(scanPii("담당자 홍길동").total, 0);
+  assert.equal(scanPii("담당자: 홍길동").counts.name, 1);
+  assert.equal(scanPii("대표자 : 김철수").counts.name, 1);
+});
+
 test("이름 뒤에 붙은 전화번호를 주소로 잘못 읽지 않는다", () => {
   const masked = maskPii("담당자: 홍길동 010-1234-5678 로 연락 바랍니다.");
   assert.equal(masked.counts.address, undefined);
