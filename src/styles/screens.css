@@ -1315,6 +1315,112 @@
 }
 
 /* ── 모델 설정 ───────────────────────────── */
+/* 자가진단(이용량·보안·운영비) — 카드 세 장이 한 줄에 서고 좁아지면 하나씩 내려온다. */
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--stack-s);
+}
+
+.diag-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: var(--r-m);
+  background: var(--c-bg);
+}
+
+.diag-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--stack-s);
+}
+
+.diag-card-head strong {
+  font-size: var(--fs-strong);
+  font-weight: 700;
+  color: var(--c-text-1);
+}
+
+.diag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--c-fill);
+  color: var(--c-text-2);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.diag-chip.is-ok {
+  background: var(--c-success-tint);
+  color: var(--c-success-tint-text);
+}
+
+.diag-chip.is-warn {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+.diag-chip.is-critical {
+  background: var(--c-danger-tint);
+  color: var(--c-danger-tint-text);
+}
+
+.diag-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.diag-rows > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack-s);
+}
+
+.diag-rows dt {
+  font-size: var(--fs-sub);
+  color: var(--c-text-2);
+}
+
+.diag-rows dd {
+  margin: 0;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-1);
+  text-align: right;
+}
+
+.diag-rows dd small {
+  font-weight: 500;
+  color: var(--c-text-3);
+}
+
+.diag-note {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-sub);
+  color: var(--c-text-3);
+}
+
+.diag-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .model-section {
   display: flex;
   flex-direction: column;

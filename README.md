@@ -22,6 +22,7 @@ https://okrangone98-oss.github.io/planning-copilot/
 - [UI/UX 개편 노트(k-style-ui-ux 기반)](docs/ui-ux-k-style.md)
 - [사업 운영 1단계: 업무·일정·회차·예산 연동](docs/project-operations-phase1.md)
 - [사업 운영 2단계: 지출 원장·잔액·증빙·회차 인원 연동](docs/project-operations-phase2.md)
+- [외부 사용자 파일럿·유료화 검토 안내](docs/pilot-evaluation-guide.md)
 
 ## 첫 화면과 메뉴
 
