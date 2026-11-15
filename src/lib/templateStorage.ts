@@ -1,4 +1,4 @@
-import { emptyTemplateSchema, normalizeProfile } from "./sampleTemplateParser.mjs";
+import { emptyTemplateSchema, normalizeProfileKeepWhitespace } from "./sampleTemplateParser.mjs";
 import type { TemplateProfile, TemplateSchema } from "./sampleTemplateParser.mjs";
 
 const TEMPLATE_KEY = "planningCopilotTemplateSession";
@@ -11,7 +11,7 @@ export type TemplateSession = {
 };
 
 export function createEmptyTemplateSession(): TemplateSession {
-  return { schema: null, profile: normalizeProfile({}), result: "", updatedAt: "" };
+  return { schema: null, profile: normalizeProfileKeepWhitespace({}), result: "", updatedAt: "" };
 }
 
 function text(value: unknown, limit = 400) {
@@ -93,7 +93,7 @@ export function loadTemplateSession(): TemplateSession {
     const parsed = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || "{}");
     return {
       schema: sanitizeTemplateSchema(parsed.schema),
-      profile: normalizeProfile(parsed.profile),
+      profile: normalizeProfileKeepWhitespace(parsed.profile),
       result: typeof parsed.result === "string" ? parsed.result.slice(0, 200000) : "",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : ""
     };
@@ -106,7 +106,7 @@ export function saveTemplateSession(session: TemplateSession) {
   try {
     localStorage.setItem(TEMPLATE_KEY, JSON.stringify({
       schema: session.schema,
-      profile: normalizeProfile(session.profile),
+      profile: normalizeProfileKeepWhitespace(session.profile),
       result: session.result.slice(0, 200000),
       updatedAt: session.updatedAt || new Date().toISOString()
     }));

@@ -841,6 +841,20 @@ export function normalizeProfile(profile) {
   return output;
 }
 
+/**
+ * 저장·불러오기용 프로필 정리. 키 모양과 길이만 확인하고,
+ * 사용자가 입력한 띄어쓰기와 줄바꿈은 그대로 남긴다.
+ * (문서를 채우거나 프롬프트를 만들 때는 normalizeProfile로 한 줄로 정리한다.)
+ */
+export function normalizeProfileKeepWhitespace(profile) {
+  const source = profile && typeof profile === "object" ? profile : {};
+  const output = {};
+  for (const field of TEMPLATE_PROFILE_FIELDS) {
+    output[field.key] = String(source[field.key] ?? "").slice(0, PROFILE_LIMIT);
+  }
+  return output;
+}
+
 function profileLines(profile) {
   const normalized = normalizeProfile(profile);
   const lines = [];

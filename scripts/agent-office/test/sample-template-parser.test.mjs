@@ -14,6 +14,7 @@ import {
   extractDocxHtmlBlocks,
   extractHwpxBlocks,
   normalizeProfile,
+  normalizeProfileKeepWhitespace,
   parseSampleTemplate,
   parseTextBlocks,
   readHwpxBlocks,
@@ -258,6 +259,20 @@ test("블록을 평문으로 되돌리면 표와 제목이 Markdown으로 남는
     { type: "table", headers: ["구분", "내용"], rows: [["주관", "센터"]] }
   ]);
   assert.equal(text, "# 사업 개요\n본문\n| 구분 | 내용 |\n| --- | --- |\n| 주관 | 센터 |");
+});
+
+test("저장용 프로필은 입력한 띄어쓰기와 줄바꿈을 그대로 둔다", () => {
+  const profile = normalizeProfileKeepWhitespace({
+    projectName: "  양양  생활문화  ",
+    summary: "첫 줄 요약\n둘째 줄 내용\n\n넷째 줄",
+    notes: "가".repeat(3000),
+    unknown: "무시"
+  });
+  assert.equal(profile.projectName, "  양양  생활문화  ");
+  assert.equal(profile.summary, "첫 줄 요약\n둘째 줄 내용\n\n넷째 줄");
+  assert.equal(profile.notes.length, 2000);
+  assert.equal(Object.hasOwn(profile, "unknown"), false);
+  assert.equal(profile.region, "");
 });
 
 test("프로필 값은 공백을 정리하고 길이를 제한한다", () => {

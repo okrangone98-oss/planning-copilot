@@ -107,6 +107,7 @@ export function parseSampleTemplate(input?: {
 export function summarizeSchema(schema?: TemplateSchema | null): TemplateSummary;
 export function renderSchemaOutline(schema?: TemplateSchema | null, options?: { maxChars?: number }): string;
 export function normalizeProfile(profile?: Partial<TemplateProfile> | null): TemplateProfile;
+export function normalizeProfileKeepWhitespace(profile?: Partial<TemplateProfile> | null): TemplateProfile;
 export function checkStructureCoverage(
   schema?: TemplateSchema | null,
   markdown?: string
