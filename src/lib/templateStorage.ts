@@ -23,6 +23,8 @@ export type TemplateDigestSource = {
 
 export type TemplateSession = {
   schema: TemplateSchema | null;
+  /** 올릴 때의 원본 양식 스키마 — 값이 채워진 뒤에도 전년도 값 감지·교체 목록이 흔들리지 않게 둔다 */
+  sourceSchema: TemplateSchema | null;
   profile: TemplateProfile;
   result: string;
   /** 자유 텍스트로 채운 칸 값 — 필드 id → 값 */
@@ -37,6 +39,7 @@ export type TemplateSession = {
 export function createEmptyTemplateSession(): TemplateSession {
   return {
     schema: null,
+    sourceSchema: null,
     profile: normalizeProfileKeepWhitespace({}),
     result: "",
     fieldValues: {},
@@ -159,6 +162,7 @@ export function loadTemplateSession(id?: string): TemplateSession {
     const parsed = JSON.parse(raw || "{}");
     return {
       schema: sanitizeTemplateSchema(parsed.schema),
+      sourceSchema: sanitizeTemplateSchema(parsed.sourceSchema),
       profile: normalizeProfileKeepWhitespace(parsed.profile),
       result: typeof parsed.result === "string" ? parsed.result.slice(0, 200000) : "",
       fieldValues: sanitizeFieldValues(parsed.fieldValues),
@@ -175,6 +179,7 @@ export function saveTemplateSession(session: TemplateSession, id?: string) {
   try {
     localStorage.setItem(templateStorageKey(id), JSON.stringify({
       schema: session.schema,
+      sourceSchema: session.sourceSchema,
       profile: normalizeProfileKeepWhitespace(session.profile),
       result: session.result.slice(0, 200000),
       fieldValues: sanitizeFieldValues(session.fieldValues),
