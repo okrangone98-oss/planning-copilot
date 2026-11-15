@@ -1063,7 +1063,7 @@
   }
 
   /* 표는 칸을 짓누르지 않고 가로로 넘긴다 — 숫자가 한 글자씩 쪼개지지 않게 */
-  .import-table {
+  .table-wrap > .import-table {
     min-width: 560px;
   }
 

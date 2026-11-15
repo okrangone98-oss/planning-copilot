@@ -1396,8 +1396,8 @@ export default function App() {
 
         {section === "projectBoard" && (
           <Panel
-            title="사업 관리"
-            description="여러 정부·공모·자체 사업을 한 브라우저에 나눠 두고, 사업마다 입력값·예산·정산·양식 작업을 따로 보관합니다. 전환해도 서로 섞이지 않습니다."
+            title="사업마다 입력값과 예산을 따로 보관합니다"
+            description="정부·공모·자체 사업을 한 브라우저에 나눠 두고 전환해도 서로 섞이지 않습니다. 진행률은 계획서·예산·정산·결과보고를 합쳐 자동으로 계산합니다."
           >
             <ProjectBoardView
               workspace={workspace}
