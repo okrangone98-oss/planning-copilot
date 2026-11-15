@@ -1,4 +1,5 @@
 export type SectionId =
+  | "home"
   | "agentOffice"
   | "modelSettings"
   | "approvalInbox"

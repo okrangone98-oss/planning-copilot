@@ -113,12 +113,34 @@ export const REMOTE_MODEL_FIELDS = {
 
 export const MODEL_PROVIDERS = new Set(["simulation", "ollama", ...Object.keys(REMOTE_PROVIDERS)]);
 
+/**
+ * 모델 설정 화면의 기본 노출 순서. 브라우저에서 바로 호출되는 무료 경로만 먼저 보여준다.
+ * 차단·로컬 설치는 '고급 / 로컬 연결' 접이식 영역으로 내린다.
+ */
+export const PRIMARY_MODEL_PROVIDERS = ["simulation", "openrouter-free", "groq-free", "gemini-openai"];
+export const ADVANCED_MODEL_PROVIDERS = ["exaone", "github-models", "amd-tokenlab", "custom-openai", "ollama"];
+
+export function isAdvancedModelProvider(provider) {
+  return ADVANCED_MODEL_PROVIDERS.includes(provider);
+}
+
 export function isRemoteProvider(provider) {
   return Object.prototype.hasOwnProperty.call(REMOTE_PROVIDERS, provider);
 }
 
 export function providerConfig(provider) {
   return isRemoteProvider(provider) ? REMOTE_PROVIDERS[provider] : null;
+}
+
+/** 기본 노출 카드에 붙는 짧은 상태 표시. */
+export function providerAvailabilityNote(provider) {
+  if (provider === "simulation") return "키 없이 바로 사용";
+  if (provider === "ollama") return "내 컴퓨터에 설치 필요";
+  const config = providerConfig(provider);
+  if (!config) return "";
+  if (config.cors === "allowed") return "브라우저 직접 호출 가능";
+  if (config.cors === "blocked") return "브라우저 호출 차단 · 프록시/복붙 필요";
+  return "주소 직접 입력";
 }
 
 export function remoteModelField(provider) {

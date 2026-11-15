@@ -34,7 +34,20 @@ export type ReportSummary = {
 
 export type FollowUp = { kind: string; label: string; detail: string };
 
+export type GrantStep = { id: string; label: string; section: string };
+
+export type GrantProgressStep = GrantStep & { percent: number; detail: string };
+
+export type GrantProgress = {
+  steps: GrantProgressStep[];
+  overall: number;
+  total: number;
+  lineCount: number;
+};
+
 export const GRANT_SCHEMA_VERSION: number;
+export const GRANT_STEPS: GrantStep[];
+export function grantProgress(plan: GrantPlan | null | undefined): GrantProgress;
 
 export function createEmptyGrantPlan(): GrantPlan;
 export function toText(value: unknown, max?: number): string;

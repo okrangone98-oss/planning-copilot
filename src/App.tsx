@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { agentRoles } from "./data/agentRoles";
 import { grantPresets } from "./data/grantPresets";import { ControlTowerView } from "./components/ControlTowerView";
 import { GrantBudgetView, GrantChecklistView, GrantReportView } from "./components/GrantWorkflowViews";
+import { GrantStepFlow } from "./components/GrantStepFlow";
+import { WorkHomeView } from "./components/WorkHomeView";
 import { WorkbrainExportView } from "./components/WorkbrainExportView";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
@@ -9,7 +11,7 @@ import { generateDraftText } from "./lib/draft";
 import { extractTextFromFile } from "./lib/fileText";
 import { absorbModelResponse, buildDraftPolishPrompt, buildModelPrompt } from "./lib/prompts";
 import { currentModelName, listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
-import { providerConfig, remoteModelField, validateApiKey } from "./lib/modelSafety.mjs";
+import { providerConfig, remoteModelField, validateApiKey, ADVANCED_MODEL_PROVIDERS, PRIMARY_MODEL_PROVIDERS, isAdvancedModelProvider, providerAvailabilityNote } from "./lib/modelSafety.mjs";
 import { WORKSPACE_LINKS } from "./lib/davidWorkbrainExport.mjs";
 import { applyPreset as applyGrantPreset, createEmptyGrantPlan, hasGrantWork, sanitizeGrantPlan } from "./lib/grantWorkflow.mjs";
 import { findGrantPreset } from "./data/grantPresets";
@@ -38,14 +40,24 @@ import {
 } from "./lib/storage";
 import { loadGrantPlan, saveGrantPlan } from "./lib/grantStorage";
 import { buildMermaid } from "./lib/visuals";
-import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type GrantPlan, type KnowledgeDoc, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
+import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type GrantPlan, type KnowledgeDoc, type ModelProvider, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
 
 const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: string }> }> = [
   {
     title: "업무 홈",
     items: [
+      { id: "home", label: "시작 화면" },
       { id: "agentOffice", label: "AI 사무국" },
       { id: "controlTower", label: "업무 관제탑" }
+    ]
+  },
+  {
+    title: "사업 흐름",
+    items: [
+      { id: "grantBudget", label: "예산 편성" },
+      { id: "grantChecklist", label: "정산 증빙" },
+      { id: "grantReport", label: "결과보고" },
+      { id: "workbrainExport", label: "워크브레인 내보내기" }
     ]
   },
   {
@@ -70,21 +82,12 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
     ]
   },
   {
-    title: "예산·정산",
-    items: [
-      { id: "grantBudget", label: "예산 편성" },
-      { id: "grantChecklist", label: "정산 증빙" },
-      { id: "grantReport", label: "결과보고" }
-    ]
-  },
-  {
     title: "산출물·검토",
     items: [
       { id: "draft", label: "초안 조립" },
       { id: "visuals", label: "시각자료" },
       { id: "approvalInbox", label: "승인함" },
-      { id: "aiBridge", label: "외부 AI 질문" },
-      { id: "workbrainExport", label: "워크브레인 내보내기" }
+      { id: "aiBridge", label: "외부 AI 질문" }
     ]
   },
   {
@@ -98,6 +101,10 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
 ];
 
 const navItems = navGroups.flatMap((group) => group.items);
+const DEFAULT_NAV_GROUP = navGroups[0].title;
+// 모델 설정 화면: 브라우저에서 바로 쓰는 경로를 먼저, 차단·로컬 경로는 접이식 영역으로 내린다.
+const primaryModelOptions = modelProviderOptions.filter((option) => PRIMARY_MODEL_PROVIDERS.includes(option.id));
+const advancedModelOptions = modelProviderOptions.filter((option) => ADVANCED_MODEL_PROVIDERS.includes(option.id));
 const quickOfficeCommands = [
   "2026 청년 관광두레 플러스사업 지원 전략 짜줘",
   "다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘",
@@ -213,7 +220,7 @@ function TableEditor({
         </button>
       </div>
       <div className="table-wrap">
-        <table>
+        <table className="stacked-table">
           <thead>
             <tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr>
           </thead>
@@ -221,8 +228,13 @@ function TableEditor({
             {rows.map((row, rowIndex) => (
               <tr key={rowIndex}>
                 {headers.map((header, cellIndex) => (
-                  <td key={header}>
-                    <input value={row[cellIndex] || ""} placeholder={header} onChange={(event) => updateCell(rowIndex, cellIndex, event.target.value)} />
+                  <td key={header} data-label={header}>
+                    <input
+                      value={row[cellIndex] || ""}
+                      placeholder={header}
+                      aria-label={`${rowIndex + 1}행 ${header}`}
+                      onChange={(event) => updateCell(rowIndex, cellIndex, event.target.value)}
+                    />
                   </td>
                 ))}
               </tr>
@@ -237,8 +249,10 @@ function TableEditor({
 export default function App() {
   const [project, setProject] = useState<ProjectData>(() => loadProject());
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(() => loadKnowledgeDocs());
-  const [section, setSection] = useState<SectionId>("agentOffice");
-  const [expandedNavGroup, setExpandedNavGroup] = useState("업무 홈");
+  const [section, setSection] = useState<SectionId>("home");
+  const [expandedNavGroups, setExpandedNavGroups] = useState<string[]>([DEFAULT_NAV_GROUP]);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [advancedModelOpen, setAdvancedModelOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [knowledgeTitle, setKnowledgeTitle] = useState("");
   const [knowledgeType, setKnowledgeType] = useState("");
@@ -276,8 +290,13 @@ export default function App() {
 
   useEffect(() => {
     const activeGroup = navGroups.find((group) => group.items.some((item) => item.id === section));
-    if (activeGroup) setExpandedNavGroup(activeGroup.title);
+    if (!activeGroup) return;
+    setExpandedNavGroups((current) => current.includes(activeGroup.title) ? current : [...current, activeGroup.title]);
   }, [section]);
+
+  useEffect(() => {
+    if (isAdvancedModelProvider(modelSettings.provider)) setAdvancedModelOpen(true);
+  }, [modelSettings.provider]);
 
   useEffect(() => {
     if (!toast) return;
@@ -321,6 +340,15 @@ export default function App() {
         onText(text);
       })
       .catch(() => notify("파일을 읽지 못했습니다. 문서 내용을 복사해 붙여넣어 주세요."));
+  };
+
+  const importDocument = (file: File) => {
+    if (project.noticeText.trim() && !window.confirm("공고 해석 화면에 이미 입력된 내용이 있습니다. 불러온 문서 내용으로 바꿀까요?")) return;
+    readFile(file, (text) => {
+      updateProject({ noticeText: text });
+      setSection("notice");
+      notify(`${file.name} 내용을 공고 해석 화면에 불러왔습니다. 내용을 확인하고 분석을 눌러 주세요.`);
+    });
   };
 
   const runNoticeAnalysis = () => {
@@ -726,35 +754,86 @@ export default function App() {
     addApprovalItem({ title: `${officeResult.report.command} GPT 질문`, type: "prompt", content: officeResult.promptPackage.unifiedPrompt, source: "GPT 질문 패키지" });
   };
 
+  const renderProviderCard = (option: { id: ModelProvider; label: string; description: string }) => {
+    const config = providerConfig(option.id);
+    return (
+      <button
+        className={`provider-card ${modelSettings.provider === option.id ? "is-active" : ""}`}
+        key={option.id}
+        type="button"
+        aria-pressed={modelSettings.provider === option.id}
+        onClick={() => updateModelSettings({ provider: option.id })}
+      >
+        <strong>{option.label}</strong>
+        <span>{option.description}</span>
+        <small className={`cors-badge ${config ? `cors-${config.cors}` : "cors-local"}`}>{providerAvailabilityNote(option.id)}</small>
+      </button>
+    );
+  };
+
+  const apiKeyHandlers = {
+    onApiKeyChange: (value: string) => setApiKeys((current) => ({ ...current, [modelSettings.provider]: value })),
+    onClearApiKey: () => setApiKeys((current) => ({ ...current, [modelSettings.provider]: "" })),
+    onSettingsChange: updateModelSettings,
+    remoteAck,
+    onRemoteAckChange: setRemoteAck
+  };
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="업무 영역">
-        <div className="brand-block">
-          <p className="eyebrow">Planning Copilot</p>
-          <h1>로컬기획 사무국</h1>
+        <div className="sidebar-brand-row">
+          <div className="brand-block">
+            <p className="eyebrow">Planning Copilot</p>
+            <h1>로컬기획 사무국</h1>
+          </div>
+          <button
+            className="mobile-nav-toggle"
+            type="button"
+            aria-expanded={mobileNavOpen}
+            aria-controls="sidebar-body"
+            onClick={() => setMobileNavOpen((current) => !current)}
+          >
+            {mobileNavOpen ? "메뉴 닫기" : "메뉴 열기"}
+          </button>
         </div>
+        <div id="sidebar-body" className={`sidebar-body ${mobileNavOpen ? "" : "is-collapsed-mobile"}`}>
         <TextInput label="프로젝트명" value={project.projectName} onChange={(projectName) => updateProject({ projectName })} placeholder="예: 생활문화 혁신 지원사업" />
         <nav className="step-nav" aria-label="업무 영역">
-          {navGroups.map((group) => (
-            <section className="nav-group" key={group.title}>
-              <button
-                className={`nav-group-toggle ${group.items.some((item) => item.id === section) ? "is-current" : ""}`}
-                type="button"
-                aria-expanded={expandedNavGroup === group.title}
-                onClick={() => setExpandedNavGroup((current) => current === group.title ? "" : group.title)}
-              >
-                <span>{group.title}</span>
-                <span className="nav-group-meta"><small>{group.items.length}</small><i aria-hidden="true" /></span>
-              </button>
-              {expandedNavGroup === group.title && <div className="nav-group-items">
-                {group.items.map((item) => (
-                  <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => { setSection(item.id); setExpandedNavGroup(group.title); }}>
-                    {item.label}
-                  </button>
-                ))}
-              </div>}
-            </section>
-          ))}
+          <div className="nav-head-row">
+            <span className="nav-head-label">업무 메뉴</span>
+            <button
+              className="nav-expand-all"
+              type="button"
+              onClick={() => setExpandedNavGroups((current) => current.length === navGroups.length ? [DEFAULT_NAV_GROUP] : navGroups.map((group) => group.title))}
+            >
+              {expandedNavGroups.length === navGroups.length ? "모두 접기" : "모두 펼치기"}
+            </button>
+          </div>
+          {navGroups.map((group) => {
+            const isOpen = expandedNavGroups.includes(group.title);
+            const hasActive = group.items.some((item) => item.id === section);
+            return (
+              <section className="nav-group" key={group.title}>
+                <button
+                  className={`nav-group-toggle ${hasActive ? "is-current" : ""}`}
+                  type="button"
+                  aria-expanded={isOpen}
+                  onClick={() => setExpandedNavGroups((current) => current.includes(group.title) ? current.filter((title) => title !== group.title) : [...current, group.title])}
+                >
+                  <span>{group.title}</span>
+                  <span className="nav-group-meta"><small>{group.items.length}</small><i aria-hidden="true" /></span>
+                </button>
+                {isOpen && <div className="nav-group-items">
+                  {group.items.map((item) => (
+                    <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => { setSection(item.id); setMobileNavOpen(false); }}>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>}
+              </section>
+            );
+          })}
         </nav>
         <div className="sidebar-actions">
           <button className="secondary-button" type="button" onClick={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}>
@@ -763,6 +842,7 @@ export default function App() {
           <button className="ghost-button" type="button" onClick={() => { if (window.confirm("현재 입력값을 초기화할까요?")) { clearProject(); setProject(emptyProject); notify("초기화했습니다."); } }}>
             초기화
           </button>
+        </div>
         </div>
       </aside>
 
@@ -781,6 +861,17 @@ export default function App() {
             }}>Markdown 내보내기</button>
           </div>
         </header>
+
+        {section === "home" && (
+          <WorkHomeView
+            projectName={project.projectName}
+            plan={grantPlan}
+            started={hasGrantWork(grantPlan) || Boolean(project.projectName.trim() || project.noticeText.trim() || project.draftOutput.trim())}
+            onNavigate={setSection}
+            onImportFile={importDocument}
+            onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
+          />
+        )}
 
         {section === "controlTower" && (
           <Panel title="업무 관제탑" description="로컬 하네스의 실행 기록을 가져와 단계, 알림, 산출물과 검토 대상을 한곳에서 확인합니다.">
@@ -844,106 +935,69 @@ export default function App() {
         )}
 
         {section === "modelSettings" && (
-          <Panel title="모델 설정" description="기본값은 안전한 템플릿 모드입니다. API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
+          <Panel title="모델 설정" description="기본값은 안전한 템플릿 모드입니다. 브라우저에서 바로 호출되는 무료 경로 3종만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
             <div className="model-status-bar">
               <strong>현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
             </div>
-            <div className="model-provider-grid">
-              {modelProviderOptions.map((option) => {
-                const config = providerConfig(option.id);
-                return (
-                  <button className={`provider-card ${modelSettings.provider === option.id ? "is-active" : ""}`} key={option.id} type="button" onClick={() => updateModelSettings({ provider: option.id })}>
-                    <strong>{option.label}</strong>
-                    <span>{option.description}</span>
-                    {config && <small className={`cors-badge cors-${config.cors}`}>{config.cors === "allowed" ? "브라우저 호출 가능" : config.cors === "blocked" ? "브라우저 호출 차단 · 프록시/복붙 필요" : "주소 직접 입력"}</small>}
-                  </button>
-                );
-              })}
-            </div>
-            {providerConfig(modelSettings.provider) && (() => {
-              const config = providerConfig(modelSettings.provider);
-              const field = remoteModelField(modelSettings.provider);
-              if (!config) return null;
-              return (
-                <div className="remote-key-block">
-                  <div className="remote-key-head">
-                    <strong>{config.label} 연결</strong>
-                    <span>{config.corsNote}</span>
-                  </div>
+
+            <section className="model-section" aria-label="바로 쓸 수 있는 모델 경로">
+              <div className="model-section-head">
+                <div>
+                  <strong>바로 쓸 수 있는 경로</strong>
+                  <span>템플릿 모드는 키 없이 동작합니다. 아래 무료 3종은 브라우저에서 바로 호출되는 것을 2026-11-15에 확인했습니다.</span>
+                </div>
+                <span className="model-section-count">{primaryModelOptions.length}개</span>
+              </div>
+              <div className="model-provider-grid">
+                {primaryModelOptions.map(renderProviderCard)}
+              </div>
+              {!isAdvancedModelProvider(modelSettings.provider) && (
+                <RemoteKeyBlock provider={modelSettings.provider} settings={modelSettings} apiKey={apiKeys[modelSettings.provider] || ""} {...apiKeyHandlers} />
+              )}
+            </section>
+
+            <details
+              className="advanced-model-details"
+              open={advancedModelOpen}
+              onToggle={(event) => setAdvancedModelOpen(event.currentTarget.open)}
+            >
+              <summary>
+                <span>고급 / 로컬 연결</span>
+                <small>브라우저 호출이 막힌 3종 · 로컬 프록시 · Ollama ({advancedModelOptions.length}개)</small>
+              </summary>
+              <div className="advanced-model-body">
+                <p className="advanced-model-note">
+                  K-EXAONE·GitHub Models·AMD Token Lab은 브라우저 직접 호출이 차단됩니다. 쓰려면 로컬 프록시로 중계하거나 질문을 복사해 외부 AI에서 실행하세요.
+                  Ollama는 이 컴퓨터에 설치된 로컬 모델만 허용합니다.
+                </p>
+                <div className="model-provider-grid is-advanced">
+                  {advancedModelOptions.map(renderProviderCard)}
+                </div>
+                {isAdvancedModelProvider(modelSettings.provider) && (
+                  <RemoteKeyBlock provider={modelSettings.provider} settings={modelSettings} apiKey={apiKeys[modelSettings.provider] || ""} {...apiKeyHandlers} />
+                )}
+                {modelSettings.provider === "ollama" && (
                   <div className="form-grid">
-                    {modelSettings.provider === "custom-openai" && (
-                      <label className="field wide">
-                        <span>프록시 Base URL(예: http://127.0.0.1:8080/v1)</span>
-                        <input
-                          value={modelSettings.customBaseUrl}
-                          placeholder="로컬·사설망 주소만 사용할 수 있습니다"
-                          onChange={(event) => updateModelSettings({ customBaseUrl: event.target.value })}
-                        />
-                      </label>
-                    )}
-                    <label className="field wide">
-                      <span>API 키(저장하지 않음 · {config.keyLabel})</span>
-                      <input
-                        type="password"
-                        value={apiKeys[modelSettings.provider] || ""}
-                        placeholder="이 탭에서만 사용하고 닫으면 사라집니다"
-                        autoComplete="new-password"
-                        spellCheck={false}
-                        onChange={(event) => setApiKeys((current) => ({ ...current, [modelSettings.provider]: event.target.value }))}
-                      />
-                    </label>
-                    {field && (
-                      <label className="field">
-                        <span>모델 이름</span>
-                        <input
-                          value={String(modelSettings[field as keyof ModelSettings] ?? "")}
-                          placeholder={config.defaultModel || "예: openai/gpt-4o-mini"}
-                          onChange={(event) => updateModelSettings({ [field]: event.target.value } as Partial<ModelSettings>)}
-                        />
-                      </label>
-                    )}
+                    <TextInput label="Ollama 로컬 주소" value={modelSettings.ollamaBaseUrl} onChange={(ollamaBaseUrl) => updateModelSettings({ ollamaBaseUrl })} placeholder="http://127.0.0.1:11434" />
+                    <TextInput label="Ollama 모델 이름" value={modelSettings.ollamaModel} onChange={(ollamaModel) => updateModelSettings({ ollamaModel })} placeholder="예: llama3.1" />
                     <div className="ollama-model-controls">
-                      <button className="ghost-light-button" type="button" onClick={() => setApiKeys((current) => ({ ...current, [modelSettings.provider]: "" }))}>입력한 키 지우기</button>
+                      <button className="secondary-button" type="button" onClick={() => { void refreshOllamaModels(); }} disabled={ollamaModelsBusy}>{ollamaModelsBusy ? "모델 확인 중" : "설치된 모델 확인"}</button>
+                      {ollamaModels.length > 0 && <label className="field">
+                        <span>설치 모델 선택</span>
+                        <select value={modelSettings.ollamaModel} onChange={(event) => updateModelSettings({ ollamaModel: event.target.value })}>
+                          {!ollamaModels.includes(modelSettings.ollamaModel) && modelSettings.ollamaModel && <option value={modelSettings.ollamaModel}>{modelSettings.ollamaModel} · 목록 외 입력</option>}
+                          <option value="">모델 선택</option>
+                          {ollamaModels.map((model) => <option key={model} value={model}>{model}</option>)}
+                        </select>
+                      </label>}
                     </div>
                   </div>
-                  {config.models.length > 0 && (
-                    <div className="grant-check-options">
-                      {config.models.map((model) => (
-                        <button
-                          className="quick-command"
-                          key={model}
-                          type="button"
-                          onClick={() => field && updateModelSettings({ [field]: model } as Partial<ModelSettings>)}
-                        >
-                          {model}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <label className="grant-inline-check">
-                    <input type="checkbox" checked={remoteAck} onChange={(event) => setRemoteAck(event.target.checked)} />
-                    <span>이 경로로 실행하면 프로젝트 입력란과 저장 자료 최대 3건이 외부 API로 전송되는 것을 확인했습니다.</span>
-                  </label>
-                </div>
-              );
-            })()}
-            <div className="form-grid">
-              {modelSettings.provider === "ollama" && <>
-                <TextInput label="Ollama 로컬 주소" value={modelSettings.ollamaBaseUrl} onChange={(ollamaBaseUrl) => updateModelSettings({ ollamaBaseUrl })} placeholder="http://127.0.0.1:11434" />
-                <TextInput label="Ollama 모델 이름" value={modelSettings.ollamaModel} onChange={(ollamaModel) => updateModelSettings({ ollamaModel })} placeholder="예: llama3.1" />
-                <div className="ollama-model-controls">
-                  <button className="secondary-button" type="button" onClick={() => { void refreshOllamaModels(); }} disabled={ollamaModelsBusy}>{ollamaModelsBusy ? "모델 확인 중" : "설치된 모델 확인"}</button>
-                  {ollamaModels.length > 0 && <label className="field">
-                    <span>설치 모델 선택</span>
-                    <select value={modelSettings.ollamaModel} onChange={(event) => updateModelSettings({ ollamaModel: event.target.value })}>
-                      {!ollamaModels.includes(modelSettings.ollamaModel) && modelSettings.ollamaModel && <option value={modelSettings.ollamaModel}>{modelSettings.ollamaModel} · 목록 외 입력</option>}
-                      <option value="">모델 선택</option>
-                      {ollamaModels.map((model) => <option key={model} value={model}>{model}</option>)}
-                    </select>
-                  </label>}
-                </div>
-              </>}
+                )}
+              </div>
+            </details>
+
+            <div className="model-test-grid">
               <Field label="모델 테스트 프롬프트" value={modelTestPrompt} onChange={setModelTestPrompt} rows={6} wide />
             </div>
             <div className="draft-actions bridge-actions">
@@ -1233,6 +1287,7 @@ export default function App() {
               <button className="secondary-button" type="button" onClick={() => setSection("grantReport")}>결과보고로</button>
               <button className="ghost-light-button" type="button" onClick={resetGrantPlan}>예산·정산 초기화</button>
             </div>
+            <GrantStepFlow current="grantBudget" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
@@ -1243,6 +1298,7 @@ export default function App() {
               <button className="secondary-button" type="button" onClick={() => setSection("grantBudget")}>예산 편성으로</button>
               <button className="secondary-button" type="button" onClick={() => setSection("grantReport")}>결과보고로</button>
             </div>
+            <GrantStepFlow current="grantChecklist" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
@@ -1253,12 +1309,14 @@ export default function App() {
               <button className="secondary-button" type="button" onClick={() => setSection("grantChecklist")}>정산 증빙으로</button>
               <button className="primary-button" type="button" onClick={() => setSection("workbrainExport")}>워크브레인으로 내보내기</button>
             </div>
+            <GrantStepFlow current="grantReport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
         {section === "workbrainExport" && (
           <Panel title="워크브레인 내보내기" description="사업계획서·예산·정산 체크리스트·결과보고를 david-workbrain Markdown 한 편으로 묶어 복사하거나 내려받습니다.">
             <WorkbrainExportView plan={grantPlan} project={project} notify={notify} />
+            <GrantStepFlow current="workbrainExport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
@@ -1473,5 +1531,91 @@ function SimpleGrid({
         ))}
       </div>
     </Panel>
+  );
+}
+
+function RemoteKeyBlock({
+  provider,
+  settings,
+  apiKey,
+  onApiKeyChange,
+  onClearApiKey,
+  onSettingsChange,
+  remoteAck,
+  onRemoteAckChange
+}: {
+  provider: ModelProvider;
+  settings: ModelSettings;
+  apiKey: string;
+  onApiKeyChange: (value: string) => void;
+  onClearApiKey: () => void;
+  onSettingsChange: (patch: Partial<ModelSettings>) => void;
+  remoteAck: boolean;
+  onRemoteAckChange: (value: boolean) => void;
+}) {
+  const config = providerConfig(provider);
+  const field = remoteModelField(provider);
+  if (!config) return null;
+  return (
+    <div className="remote-key-block">
+      <div className="remote-key-head">
+        <strong>{config.label} 연결</strong>
+        <span>{config.corsNote}</span>
+      </div>
+      <div className="form-grid">
+        {provider === "custom-openai" && (
+          <label className="field wide">
+            <span>프록시 Base URL(예: http://127.0.0.1:8080/v1)</span>
+            <input
+              value={settings.customBaseUrl}
+              placeholder="로컬·사설망 주소만 사용할 수 있습니다"
+              onChange={(event) => onSettingsChange({ customBaseUrl: event.target.value })}
+            />
+          </label>
+        )}
+        <label className="field wide">
+          <span>API 키(저장하지 않음 · {config.keyLabel})</span>
+          <input
+            type="password"
+            value={apiKey}
+            placeholder="이 탭에서만 사용하고 닫으면 사라집니다"
+            autoComplete="new-password"
+            spellCheck={false}
+            onChange={(event) => onApiKeyChange(event.target.value)}
+          />
+        </label>
+        {field && (
+          <label className="field">
+            <span>모델 이름</span>
+            <input
+              value={String(settings[field] ?? "")}
+              placeholder={config.defaultModel || "예: openai/gpt-4o-mini"}
+              onChange={(event) => onSettingsChange({ [field]: event.target.value } as Partial<ModelSettings>)}
+            />
+          </label>
+        )}
+        <div className="ollama-model-controls">
+          <button className="ghost-light-button" type="button" onClick={onClearApiKey}>입력한 키 지우기</button>
+        </div>
+      </div>
+      {config.models.length > 0 && (
+        <div className="grant-check-options">
+          {config.models.map((model) => (
+            <button
+              className="quick-command"
+              key={model}
+              type="button"
+              onClick={() => field && onSettingsChange({ [field]: model } as Partial<ModelSettings>)}
+            >
+              {model}
+            </button>
+          ))}
+        </div>
+      )}
+      <label className="grant-inline-check">
+        <input type="checkbox" checked={remoteAck} onChange={(event) => onRemoteAckChange(event.target.checked)} />
+        <span>이 경로로 실행하면 프로젝트 입력란과 저장 자료 최대 3건이 외부 API로 전송되는 것을 확인했습니다.</span>
+      </label>
+    </div>
   );
 }
