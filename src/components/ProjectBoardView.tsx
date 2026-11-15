@@ -84,7 +84,6 @@ export function ProjectBoardView({
       <section className="board-summary" aria-label="사업 현황">
         <div>
           <strong>사업 {summary.total}개</strong>
-          <span>사업마다 입력값·예산·정산 데이터를 따로 보관합니다. 전환해도 서로 섞이지 않습니다.</span>
         </div>
         <div className="board-summary-counts">
           {summary.byStatus.map((status) => (

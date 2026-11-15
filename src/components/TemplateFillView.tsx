@@ -8,6 +8,7 @@ import {
   type TemplateProfile,
   type TemplateSchema
 } from "../lib/sampleTemplateParser.mjs";
+import { HwpxExportPanel } from "./HwpxExportPanel";
 
 const KIND_LABEL: Record<string, string> = {
   blank: "빈칸",
@@ -62,6 +63,7 @@ export function TemplateFillView({
   onAddToApproval,
   onOpenModelSettings,
   onClear,
+  notify,
   piiGuard
 }: {
   schema: TemplateSchema | null;
@@ -85,6 +87,7 @@ export function TemplateFillView({
   onAddToApproval: () => void;
   onOpenModelSettings: () => void;
   onClear: () => void;
+  notify: (message: string) => void;
   piiGuard?: React.ReactNode;
 }) {
   const [pasteText, setPasteText] = useState("");
@@ -108,22 +111,28 @@ export function TemplateFillView({
         </div>
       </section>
 
-      <label className="file-drop">
+      <div className="file-drop">
         <span>샘플 양식 파일</span>
-        <input
-          type="file"
-          accept={SAMPLE_ACCEPT}
-          aria-label="샘플 양식 파일 올리기"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) onPickFile(file);
-            event.currentTarget.value = "";
-          }}
-        />
+        <div className="draft-actions">
+          <label className="file-pick">
+            양식 파일 선택
+            <input
+              type="file"
+              accept={SAMPLE_ACCEPT}
+              aria-label="샘플 양식 파일 올리기"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) onPickFile(file);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+          <span className="file-name">{schema?.fileName ? `읽은 파일: ${schema.fileName}` : "아직 고른 파일이 없습니다"}</span>
+        </div>
         <small title={HWP_BINARY_GUIDANCE}>
           HWPX · DOCX · PDF · MD · TXT · CSV를 읽습니다. 구형 .hwp는 한글에서 HWPX·DOCX·PDF로 저장해 올려 주세요.
         </small>
-      </label>
+      </div>
 
       <details className="setup-details template-paste">
         <summary>파일 없이 양식 내용을 붙여넣기</summary>
@@ -343,6 +352,11 @@ export function TemplateFillView({
             value={result}
             aria-label="양식에 맞춰 채운 결과"
             onChange={(event) => onResultChange(event.target.value)}
+          />
+          <HwpxExportPanel
+            markdown={result}
+            fileName={(schema?.fileName || "양식-초안").replace(/\.[^.]+$/, "")}
+            notify={notify}
           />
         </section>
       )}

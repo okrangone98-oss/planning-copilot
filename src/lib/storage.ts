@@ -5,6 +5,7 @@ import { sanitizeModelSettings } from "./modelSafety.mjs";
 const STORAGE_KEY = "planningCopilotProject";
 const KNOWLEDGE_KEY = "planningCopilotKnowledgeDocs";
 const DRIVE_ENDPOINT_KEY = "planningCopilotDriveEndpoint";
+const HWPX_BRIDGE_KEY = "planningCopilotHwpxBridge";
 const OFFICE_SESSION_KEY = "planningCopilotOfficeSession";
 const MODEL_SETTINGS_KEY = "planningCopilotModelSettings";
 const APPROVAL_ITEMS_KEY = "planningCopilotApprovalItems";
@@ -63,6 +64,15 @@ export function saveDriveEndpoint(endpoint: string) {
 
 export function loadDriveEndpoint() {
   return localStorage.getItem(DRIVE_ENDPOINT_KEY) || "";
+}
+
+// 한글(.hwpx) 변환을 맡길 로컬 브릿지 주소. 비어 있으면 브릿지를 쓰지 않는다.
+export function saveHwpxBridgeEndpoint(endpoint: string) {
+  localStorage.setItem(HWPX_BRIDGE_KEY, endpoint);
+}
+
+export function loadHwpxBridgeEndpoint() {
+  return localStorage.getItem(HWPX_BRIDGE_KEY) || "";
 }
 
 export function loadOfficeSession(): { command: string; result: OfficeResult | null } {

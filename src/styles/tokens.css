@@ -1,0 +1,143 @@
+/* 디자인 토큰 — k-style-ui-ux 파운데이션(derive.py)에서 뽑은 값.
+   색은 팔레트 한 벌씩만 바꾼다. 화면 CSS는 아래 변수만 쓰고 색 값을 직접 적지 않는다. */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
+
+:root {
+  /* ── 타이포 (Pretendard, 제목/본문 대비 ≥1.5) ───────────── */
+  --font: "Pretendard", "Pretendard Variable", -apple-system, BlinkMacSystemFont, "Noto Sans KR",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "D2Coding", "Noto Sans Mono CJK KR", monospace;
+  --tracking: -0.02em;
+
+  --fs-title: 26px;
+  --fw-title: 700;
+  --lh-title: 1.36;
+  --fs-h2: 20px;
+  --fw-h2: 700;
+  --lh-h2: 1.4;
+  --fs-h3: 17px;
+  --fw-h3: 600;
+  --lh-h3: 1.45;
+  --fs-body: 16px;
+  --fw-body: 400;
+  --lh-body: 1.55;
+  --fs-strong: 16px;
+  --fw-strong: 600;
+  --lh-strong: 1.5;
+  --fs-sub: 14px;
+  --fw-sub: 500;
+  --lh-sub: 1.5;
+  --fs-caption: 12px;
+  --fw-caption: 500;
+  --lh-caption: 1.4;
+
+  /* ── 여백 (4pt 스케일, comfy) ───────────── */
+  --page-x: 24px;
+  --block-pad: 24px;
+  --block-gap: 16px;
+  --row-py: 14px;
+  --stack-xs: 4px;
+  --stack-s: 8px;
+  --stack-m: 16px;
+  --stack-l: 32px;
+
+  /* ── 모양 ───────────── */
+  --r-s: 8px;
+  --r-m: 12px;
+  --r-l: 18px;
+  --r-pill: 999px;
+
+  /* ── 크기 (터치 타겟 44px 이상) ───────────── */
+  --h-topbar: 76px;
+  --h-btn: 48px;
+  --h-btn-s: 44px;
+  --h-row: 60px;
+  --h-tab: 60px;
+  --h-input: 46px;
+  --icon: 22px;
+  --sidebar-w: 272px;
+  --content-w: 880px;
+
+  /* ── 표면 ───────────── */
+  --c-bg: #f3f3f4;
+  --c-surface: #ffffff;
+  --c-fill: #f1f2f4; /* 흰 카드 안의 입력·보조 버튼 바탕 */
+  --c-btn2: var(--c-surface); /* 회색 바탕 위 보조 버튼 — 카드 안에서는 --c-fill로 바뀐다 */
+  --c-fill-strong: #e9eaec;
+  --c-line: #e8e9ea;
+  --c-line-strong: #c0c1c2;
+  --c-text-1: #1e2025;
+  --c-text-2: #4e525a;
+  --c-text-3: #6a6e76;
+  --c-text-disabled: #9e9fa1;
+  --c-disabled-bg: #e8e9ea;
+  --c-overlay: rgba(30, 32, 37, 0.45);
+  --c-focus: #1f7a68;
+  --c-focus-ring: rgba(31, 122, 104, 0.16);
+  --shadow-1: 0 2px 8px rgba(30, 32, 37, 0.08);
+  --shadow-2: 0 8px 24px rgba(30, 32, 37, 0.14);
+
+  /* ── 의미색 (한 색에 뜻 하나) ───────────── */
+  --c-danger: #e12d33;
+  --c-danger-tint: #fdf0f1;
+  --c-danger-tint-text: #d61e24;
+  --c-warning: #9b6c00;
+  --c-warning-tint: #fdf6e6;
+  --c-warning-tint-text: #966800;
+  --c-info: #1872eb;
+  --c-info-tint: #eaf2fd;
+  --c-info-tint-text: #1368db;
+  --c-success: #0c8375;
+  --c-success-tint: #e7f5f4;
+  --c-success-tint-text: #0b7a6d;
+}
+
+/* 현장 초록 — 기본. 농촌·현장 업무에 맞춘 차분한 초록 */
+:root,
+:root[data-palette="forest"] {
+  --c-brand: #1f7a68;
+  --c-on-brand: #ffffff;
+  --c-brand-line: #1f7a68;
+  --c-brand-text: #1f7a68;
+  --c-brand-pressed: #1a6a5b;
+  --c-brand-tint: #e9f2f0;
+  --c-brand-tint-text: #1f7a68;
+  --c-accent: #1f7a68;
+  --c-accent-text: #1f7a68;
+  --c-focus: #1f7a68;
+  --c-focus-ring: rgba(31, 122, 104, 0.18);
+}
+
+/* 행정 파랑 — 공고·보고서 중심으로 볼 때 */
+:root[data-palette="blue"] {
+  --c-brand: #1177ca;
+  --c-on-brand: #ffffff;
+  --c-brand-line: #1177ca;
+  --c-brand-text: #1177ca;
+  --c-brand-pressed: #0e6ab4;
+  --c-brand-tint: #e7f1fa;
+  --c-brand-tint-text: #106fbc;
+  --c-accent: #1177ca;
+  --c-accent-text: #1177ca;
+  --c-focus: #1177ca;
+  --c-focus-ring: rgba(17, 119, 202, 0.18);
+  /* 파랑 브랜드와 안내색이 겹쳐 안내는 보라로 밀어 둔다 */
+  --c-info: #7257ff;
+  --c-info-tint: #f2efff;
+  --c-info-tint-text: #6a4dff;
+}
+
+/* 문서 먹색 — 서류 작업처럼 색을 최소로 */
+:root[data-palette="ink"] {
+  --c-brand: #19191a;
+  --c-on-brand: #ffffff;
+  --c-brand-line: #19191a;
+  --c-brand-text: #19191a;
+  --c-brand-pressed: #000000;
+  --c-brand-tint: #ececed;
+  --c-brand-tint-text: #19191a;
+  --c-accent: #19191a;
+  --c-accent-text: #19191a;
+  --c-focus: #19191a;
+  --c-focus-ring: rgba(25, 25, 26, 0.14);
+}

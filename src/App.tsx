@@ -86,19 +86,21 @@ import { templateStorageKey } from "./lib/templateStorage";
 import { buildMermaid } from "./lib/visuals";
 import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type GrantPlan, type KnowledgeDoc, type ModelProvider, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
 
+// 사이드바에 남기는 메뉴는 실제로 매일 쓰는 10개다. 나머지 실험 화면은 코드·주소를 그대로 두고
+// '실험실'을 열었을 때만 보여 준다(쓰지 않는 메뉴로 첫 화면을 채우지 않는다).
 const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: string }> }> = [
   {
     title: "업무 홈",
     items: [
       { id: "home", label: "시작 화면" },
-      { id: "projectBoard", label: "사업 관리" },
-      { id: "agentOffice", label: "AI 사무국" },
-      { id: "controlTower", label: "업무 관제탑" }
+      { id: "projectBoard", label: "사업 관리" }
     ]
   },
   {
-    title: "사업 흐름",
+    title: "문서·예산 실무",
     items: [
+      { id: "notice", label: "공고 해석" },
+      { id: "templateFill", label: "샘플 양식 채우기" },
       { id: "grantBudget", label: "예산 편성" },
       { id: "grantChecklist", label: "정산 증빙" },
       { id: "grantReport", label: "결과보고" },
@@ -106,48 +108,46 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
     ]
   },
   {
-    title: "프로젝트",
+    title: "설정",
     items: [
-      { id: "cowork", label: "질문 받기" },
-      { id: "idea", label: "아이디어 인터뷰" },
-      { id: "problem", label: "문제정의" },
-      { id: "logic", label: "논리모형" },
-      { id: "metrics", label: "성과지표" },
-      { id: "execution", label: "실행설계" },
-      { id: "blueprint", label: "서비스 블루프린트" }
-    ]
-  },
-  {
-    title: "자료·근거",
-    items: [
-      { id: "notice", label: "공고 해석" },
-      { id: "ragRoom", label: "사례 모으기" },
-      { id: "sample", label: "샘플 분해" },
-      { id: "projectMemory", label: "프로젝트 기억" }
-    ]
-  },
-  {
-    title: "산출물·검토",
-    items: [
-      { id: "draft", label: "초안 조립" },
-      { id: "templateFill", label: "샘플 양식 채우기" },
-      { id: "visuals", label: "시각자료" },
-      { id: "approvalInbox", label: "승인함" },
-      { id: "aiBridge", label: "외부 AI 질문" }
-    ]
-  },
-  {
-    title: "설정·연결",
-    items: [
-      { id: "modelSettings", label: "모델 설정" },
-      { id: "integrations", label: "프로젝트 링크" },
-      { id: "driveBackup", label: "백업" }
+      { id: "modelSettings", label: "모델·보안 설정" },
+      { id: "driveBackup", label: "백업·가져오기" }
     ]
   }
 ];
 
-const navItems = navGroups.flatMap((group) => group.items);
+// 실험실: 기본 화면에서 뺐지만 지우지는 않은 화면. 실제 작업 흐름에 섞이지 않게 따로 모아 둔다.
+const labNavItems: Array<{ id: SectionId; label: string }> = [
+  { id: "agentOffice", label: "AI 사무국" },
+  { id: "controlTower", label: "업무 관제탑" },
+  { id: "draft", label: "초안 조립" },
+  { id: "aiBridge", label: "외부 AI 질문" },
+  { id: "approvalInbox", label: "승인함" },
+  { id: "projectMemory", label: "프로젝트 기억" },
+  { id: "ragRoom", label: "사례 모으기" },
+  { id: "sample", label: "샘플 분해" },
+  { id: "visuals", label: "시각자료" },
+  { id: "integrations", label: "프로젝트 링크" },
+  { id: "cowork", label: "질문 받기" },
+  { id: "idea", label: "아이디어 인터뷰" },
+  { id: "problem", label: "문제정의" },
+  { id: "logic", label: "논리모형" },
+  { id: "metrics", label: "성과지표" },
+  { id: "execution", label: "실행설계" },
+  { id: "blueprint", label: "서비스 블루프린트" }
+];
+
+const navItems = [...navGroups.flatMap((group) => group.items), ...labNavItems];
 const DEFAULT_NAV_GROUP = navGroups[0].title;
+
+const PALETTES: Array<{ id: string; label: string }> = [
+  { id: "forest", label: "현장 초록" },
+  { id: "blue", label: "행정 파랑" },
+  { id: "ink", label: "문서 먹색" }
+];
+const PALETTE_KEY = "planningCopilotPalette";
+const LAB_KEY = "planningCopilotLabOpen";
+
 // 모델 설정 화면: 브라우저에서 바로 쓰는 경로를 먼저, 차단·로컬 경로는 접이식 영역으로 내린다.
 // 카드 순서는 안내 문구의 순서와 맞춘다: 템플릿 → 무료 3종 / 차단 3종 → 로컬 프록시 → Ollama.
 function pickModelOptions(ids: readonly string[]) {
@@ -306,8 +306,24 @@ export default function App() {
   const [project, setProject] = useState<ProjectData>(initial.project);
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(() => loadKnowledgeDocs());
   const [section, setSection] = useState<SectionId>("home");
-  const [expandedNavGroups, setExpandedNavGroups] = useState<string[]>([DEFAULT_NAV_GROUP]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // 색 팔레트는 사용자가 고른 것을 기억한다(기본: 현장 초록).
+  const [palette, setPalette] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(PALETTE_KEY) || "";
+      return PALETTES.some((item) => item.id === saved) ? saved : "forest";
+    } catch {
+      return "forest";
+    }
+  });
+  // 실험실: 기본 메뉴에서 뺀 화면. 사용자가 열어 둔 상태를 기억한다.
+  const [labOpen, setLabOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(LAB_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [advancedModelOpen, setAdvancedModelOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [knowledgeTitle, setKnowledgeTitle] = useState("");
@@ -362,10 +378,26 @@ export default function App() {
   }, [knowledgeDocs]);
 
   useEffect(() => {
-    const activeGroup = navGroups.find((group) => group.items.some((item) => item.id === section));
-    if (!activeGroup) return;
-    // 그룹은 누적하지 않는다. 기본 보기(업무 홈)와 지금 화면의 그룹만 펼친다.
-    setExpandedNavGroups(Array.from(new Set([DEFAULT_NAV_GROUP, activeGroup.title])));
+    // 색 팔레트는 문서 뿌리에 표시를 달아 CSS 토큰만 바꾼다.
+    document.documentElement.dataset.palette = palette;
+    try {
+      localStorage.setItem(PALETTE_KEY, palette);
+    } catch {
+      /* 저장할 수 없는 환경(사생활 보호 모드)에서는 이번 화면에만 적용한다. */
+    }
+  }, [palette]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAB_KEY, labOpen ? "1" : "0");
+    } catch {
+      /* 위와 같은 이유로 무시한다. */
+    }
+  }, [labOpen]);
+
+  useEffect(() => {
+    // 실험실 화면으로 들어오면 그 그룹을 펼쳐 어디에 있는지 보이게 한다.
+    if (labNavItems.some((item) => item.id === section)) setLabOpen(true);
   }, [section]);
 
   useEffect(() => {
@@ -1210,7 +1242,8 @@ export default function App() {
   return (
     <main className={`app-shell ${mobileNavOpen ? "nav-open" : ""}`}>
       <aside className="sidebar" aria-label="업무 영역">
-        <div className="sidebar-brand-row">
+        <div className="sidebar-brand">
+          <span className="brand-mark" aria-hidden="true">기</span>
           <div className="brand-block">
             <p className="eyebrow">Planning Copilot</p>
             <h1>로컬기획 사무국</h1>
@@ -1222,96 +1255,115 @@ export default function App() {
             aria-controls="sidebar-body"
             onClick={() => setMobileNavOpen((current) => !current)}
           >
-            {mobileNavOpen ? "메뉴 닫기" : "메뉴 열기"}
+            {mobileNavOpen ? "닫기" : "메뉴"}
           </button>
         </div>
+
         <div id="sidebar-body" className={`sidebar-body ${mobileNavOpen ? "" : "is-collapsed-mobile"}`}>
-        <div className="project-switcher">
-          <label className="field project-switcher-select">
-            <span>현재 사업</span>
-            <select value={workspace.activeProjectId} onChange={(event) => switchProject(event.target.value)} aria-label="사업 전환">
-              {workspace.projects.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          </label>
-          <div className="project-switcher-row">
-            <button className="secondary-button" type="button" onClick={() => { setSection("projectBoard"); setMobileNavOpen(false); }}>사업 관리</button>
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => createNewProject({ name: `새 사업 ${workspace.projects.length + 1}`, type: "contest", status: "planning", deadline: "" })}
-            >
-              + 새 사업
+          <div className="project-switcher">
+            <label className="field">
+              <span>현재 사업</span>
+              <select value={workspace.activeProjectId} onChange={(event) => switchProject(event.target.value)} aria-label="사업 전환">
+                {workspace.projects.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </label>
+            {activeMeta && (
+              <p className="project-switcher-meta">
+                <span className={`board-status is-${activeMeta.status}`}>{PROJECT_STATUSES.find((status) => status.id === activeMeta.status)?.label}</span>
+                <span className={`board-dday is-${dDayInfo(activeMeta.deadline).tone}`}>{dDayInfo(activeMeta.deadline).label}</span>
+                <span>진행 {activeMeta.progress}%</span>
+              </p>
+            )}
+            <button className="secondary-button full" type="button" onClick={() => { setSection("projectBoard"); setMobileNavOpen(false); }}>
+              사업 관리 · 새 사업
             </button>
           </div>
-          {activeMeta && (
-            <p className="project-switcher-meta">
-              <span className={`board-status is-${activeMeta.status}`}>{PROJECT_STATUSES.find((status) => status.id === activeMeta.status)?.label}</span>
-              <span className={`board-dday is-${dDayInfo(activeMeta.deadline).tone}`}>{dDayInfo(activeMeta.deadline).label}</span>
-              <span>진행 {activeMeta.progress}%</span>
-            </p>
-          )}
-          <TextInput label="사업명" value={project.projectName} onChange={(projectName) => updateProject({ projectName })} placeholder={activeMeta?.name || "예: 생활문화 혁신 지원사업"} />
-        </div>
-        <nav className="step-nav" aria-label="업무 영역">
-          <div className="nav-head-row">
-            <span className="nav-head-label">업무 메뉴</span>
-            <button
-              className="nav-expand-all"
-              type="button"
-              onClick={() => setExpandedNavGroups((current) => current.length === navGroups.length ? [DEFAULT_NAV_GROUP] : navGroups.map((group) => group.title))}
-            >
-              {expandedNavGroups.length === navGroups.length ? "기본 보기로" : "모두 펼치기"}
-            </button>
-          </div>
-          {navGroups.map((group) => {
-            const isOpen = expandedNavGroups.includes(group.title);
-            const hasActive = group.items.some((item) => item.id === section);
-            return (
+
+          <nav className="step-nav" aria-label="업무 메뉴">
+            {navGroups.map((group) => (
               <section className="nav-group" key={group.title}>
-                <button
-                  className={`nav-group-toggle ${hasActive ? "is-current" : ""}`}
-                  type="button"
-                  aria-expanded={isOpen}
-                  onClick={() => setExpandedNavGroups((current) => current.includes(group.title) ? current.filter((title) => title !== group.title) : [...current, group.title])}
-                >
-                  <span>{group.title}</span>
-                  <span className="nav-group-meta"><small>{group.items.length}</small><i aria-hidden="true" /></span>
-                </button>
-                {isOpen && <div className="nav-group-items">
+                <p className="nav-group-title">{group.title}</p>
+                <div className="nav-group-items">
                   {group.items.map((item) => (
-                    <button key={item.id} className={`nav-item ${section === item.id ? "is-active" : ""}`} type="button" onClick={() => { setSection(item.id); setMobileNavOpen(false); }}>
+                    <button
+                      key={item.id}
+                      className={`nav-item ${section === item.id ? "is-active" : ""}`}
+                      type="button"
+                      aria-current={section === item.id ? "page" : undefined}
+                      onClick={() => { setSection(item.id); setMobileNavOpen(false); }}
+                    >
                       {item.label}
                     </button>
                   ))}
-                </div>}
+                </div>
               </section>
-            );
-          })}
-        </nav>
-        <div className="sidebar-actions">
-          <button className="secondary-button" type="button" onClick={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}>
-            예시 불러오기
-          </button>
-          <button className="ghost-button" type="button" onClick={() => { if (window.confirm("현재 사업의 사업계획 입력값을 초기화할까요? 사업 목록·예산·다른 사업은 그대로 남습니다.")) { setProject({ ...emptyProject, projectName: project.projectName }); notify("현재 사업의 사업계획 입력값을 초기화했습니다. 예산·정산은 그대로입니다."); } }}>
-            초기화
-          </button>
-        </div>
+            ))}
+
+            <section className="nav-group">
+              <button className={`lab-toggle ${labOpen ? "is-open" : ""}`} type="button" aria-expanded={labOpen} onClick={() => setLabOpen((current) => !current)}>
+                <span>실험실</span>
+                <small>{labNavItems.length}개 · 기본 숨김</small>
+              </button>
+              {labOpen && (
+                <div className="nav-group-items is-lab">
+                  {labNavItems.map((item) => (
+                    <button
+                      key={item.id}
+                      className={`nav-item ${section === item.id ? "is-active" : ""}`}
+                      type="button"
+                      aria-current={section === item.id ? "page" : undefined}
+                      onClick={() => { setSection(item.id); setMobileNavOpen(false); }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </nav>
+
+          <div className="sidebar-actions">
+            <button className="secondary-button full" type="button" onClick={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}>
+              예시 불러오기
+            </button>
+            <button className="ghost-light-button full" type="button" onClick={() => { if (window.confirm("현재 사업의 사업계획 입력값을 초기화할까요? 사업 목록·예산·다른 사업은 그대로 남습니다.")) { setProject({ ...emptyProject, projectName: project.projectName }); notify("현재 사업의 사업계획 입력값을 초기화했습니다. 예산·정산은 그대로입니다."); } }}>
+              사업계획 입력값 초기화
+            </button>
+            <div className="palette-switch" role="radiogroup" aria-label="색 팔레트">
+              {PALETTES.map((item) => (
+                <button
+                  key={item.id}
+                  className={`palette-chip ${palette === item.id ? "is-selected" : ""}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={palette === item.id}
+                  onClick={() => setPalette(item.id)}
+                >
+                  <span className={`palette-dot is-${item.id}`} aria-hidden="true" />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </aside>
 
       <section className={GRANT_SECTIONS.includes(section) ? "workspace has-step-dock" : "workspace"}>
         <header className="topbar">
-          <div>
+          <button className="mobile-menu-toggle" type="button" aria-label="업무 메뉴 열기" onClick={() => setMobileNavOpen(true)}>
+            메뉴
+          </button>
+          <div className="topbar-title">
             <p className="eyebrow">{project.projectName || activeMeta?.name || "새 프로젝트"}</p>
-            <h2>{sectionTitle}</h2>
+            <h1>{sectionTitle}</h1>
           </div>
           <div className="topbar-actions">
             <button className="secondary-button" type="button" onClick={() => { saveProjectData(workspace.activeProjectId, project); saveSlotGrantPlan(workspace.activeProjectId, grantPlan); saveWorkspace(workspace); notify("저장했습니다."); }}>저장</button>
             {/* 시작 화면에서는 시작 카드 3개가 주인공이 되도록 내보내기를 낮춰 둔다. */}
             <button
-              className={section === "home" ? "secondary-button" : "primary-button"}
+              className={`topbar-export ${section === "home" ? "secondary-button" : "primary-button"}`}
               type="button"
               disabled={section === "home" && !hasAnyWork}
               title={section === "home" && !hasAnyWork ? "시작 카드에서 내용을 채우면 내보낼 수 있습니다." : undefined}
@@ -1323,6 +1375,7 @@ export default function App() {
           </div>
         </header>
 
+        <div className="page">
         {section === "home" && (
           <WorkHomeView
             projectName={project.projectName || activeMeta?.name || ""}
@@ -1330,6 +1383,7 @@ export default function App() {
             started={hasAnyWork}
             projects={workspace.projects}
             activeProjectId={workspace.activeProjectId}
+            meta={activeMeta ?? undefined}
             onSelectProject={switchProject}
             onOpenProjectBoard={() => setSection("projectBoard")}
             onNavigate={setSection}
@@ -1342,8 +1396,8 @@ export default function App() {
 
         {section === "projectBoard" && (
           <Panel
-            title="사업 관리"
-            description="여러 정부·공모·자체 사업을 한 브라우저에 나눠 두고, 사업마다 입력값·예산·정산·양식 작업을 따로 보관합니다. 전환해도 서로 섞이지 않습니다."
+            title="사업마다 입력값과 예산을 따로 보관합니다"
+            description="정부·공모·자체 사업을 한 브라우저에 나눠 두고 전환해도 서로 섞이지 않습니다. 진행률은 계획서·예산·정산·결과보고를 합쳐 자동으로 계산합니다."
           >
             <ProjectBoardView
               workspace={workspace}
@@ -1423,7 +1477,7 @@ export default function App() {
         )}
 
         {section === "modelSettings" && (
-          <Panel title="모델 설정" description="기본값은 안전한 템플릿 모드입니다. 브라우저에서 바로 호출되는 무료 경로 3종만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
+          <Panel title="AI 연결은 직접 고르고, 키는 이 탭에만 둡니다" description="기본값은 안전한 템플릿 모드입니다. 브라우저에서 바로 호출되는 무료 경로 3종만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
             <div className="model-status-bar">
               <strong>현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
@@ -1554,15 +1608,21 @@ export default function App() {
               compact
               note="공고문 분석은 브라우저 안에서만 합니다. 이 공고문을 외부 AI 질문에 넣을 때는 위에서 켠 마스킹 설정을 따라 가린 텍스트가 전송됩니다."
             />
-            <label className="file-drop">
+            <div className="file-drop">
               <span>공고문 파일 첨부</span>
-              <input type="file" accept=".pdf,.docx,.hwpx,.txt,.md,.csv,.html,.htm,.json,.xml" onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) readFile(file, (text) => { updateProject({ noticeText: text }); notify("파일 내용을 불러왔습니다. 공고문 분석을 눌러 주세요."); });
-                event.currentTarget.value = "";
-              }} />
+              <div className="draft-actions">
+                <label className="file-pick">
+                  공고문 파일 선택
+                  <input type="file" accept=".pdf,.docx,.hwpx,.txt,.md,.csv,.html,.htm,.json,.xml" onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) readFile(file, (text) => { updateProject({ noticeText: text }); notify("파일 내용을 불러왔습니다. 공고문 분석을 눌러 주세요."); });
+                    event.currentTarget.value = "";
+                  }} />
+                </label>
+                <span className="file-name">{project.noticeText.trim() ? `공고문 ${project.noticeText.trim().length.toLocaleString()}자를 읽었습니다` : "아직 고른 파일이 없습니다"}</span>
+              </div>
               <small>PDF, DOCX, HWPX, TXT 파일을 읽습니다. 스캔 이미지 PDF는 추후 OCR 단계에서 보완합니다.</small>
-            </label>
+            </div>
             <div className="form-grid">
               <Field label="공고문 핵심 내용" value={project.noticeText} onChange={(noticeText) => updateProject({ noticeText })} rows={8} wide />
               <Field label="정책 목적" value={project.policyGoal} onChange={(policyGoal) => updateProject({ policyGoal })} />
@@ -1736,7 +1796,7 @@ export default function App() {
         )}
 
         {section === "driveBackup" && (
-          <Panel title="작업을 백업합니다" description="현재 프로젝트, 저장한 사례, AI 답변 메모를 파일 또는 Google Drive로 보관합니다.">
+          <Panel title="백업과 복원" description="현재 프로젝트, 저장한 사례, AI 답변 메모를 파일 또는 Google Drive로 보관합니다.">
             <div className="coach-bar">
               <div><strong>현재 저장 구조</strong><span>빠른 작업 데이터는 브라우저에 저장하고, 원본 파일은 Google Drive에 보관하는 구조를 권장합니다.</span></div>
               <button className="primary-button" type="button" onClick={downloadArchive}>백업 파일 받기</button>
@@ -1788,7 +1848,7 @@ export default function App() {
         ]} project={project} update={updateProject} />}
         {section === "blueprint" && <Panel title="서비스 디자인 관점으로 운영 경험을 봅니다" description="사용자 여정과 운영 접점을 분리하면 실행계획의 현실감이 높아집니다."><TableEditor headers={["단계", "사용자 행동", "접점", "운영 방식", "실패 가능성"]} rows={project.blueprintTable} onChange={(blueprintTable) => updateProject({ blueprintTable })} addLabel="접점 추가" /></Panel>}
         {section === "grantBudget" && (
-          <Panel title="국고보조사업 예산 편성" description="비목별 예산표와 재원 구성을 잡고, 정산·결과보고로 이어지는 한 묶음으로 관리합니다.">
+          <Panel title="비목과 재원을 한 판에서 잡습니다" description="비목별 예산표와 재원 구성을 잡고, 정산·결과보고로 이어지는 한 묶음으로 관리합니다.">
             <div className="model-status-bar">
               <strong>{grantPlan.presetName ? `프리셋: ${grantPlan.presetName}` : "프리셋 미적용"}</strong>
               <span>국고보조사업·공모사업 프리셋을 골라 적용하거나 직접 편성할 수 있습니다. 금액은 단가×수량으로 계산되며 이 브라우저에만 저장됩니다.</span>
@@ -1811,21 +1871,21 @@ export default function App() {
         )}
 
         {section === "grantChecklist" && (
-          <Panel title="정산 증빙 체크리스트" description="교부·집행·인건비·실적·마감 증빙을 순서대로 점검하고, 확인한 메모를 남깁니다.">
+          <Panel title="증빙을 순서대로 확인합니다" description="교부·집행·인건비·실적·마감 증빙을 순서대로 점검하고, 확인한 메모를 남깁니다.">
             <GrantChecklistView plan={grantPlan} onChange={updateGrantPlan} notify={notify} />
             <GrantStepFlow current="grantChecklist" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
         {section === "grantReport" && (
-          <Panel title="결과보고서 초안" description="기관 결과보고 양식 순서대로 섹션을 만들고 초안을 채웁니다. 프로젝트 입력값에서 가져올 수 있습니다.">
+          <Panel title="결과보고 초안을 양식 순서대로 씁니다" description="기관 결과보고 양식 순서대로 섹션을 만들고 초안을 채웁니다. 프로젝트 입력값에서 가져올 수 있습니다.">
             <GrantReportView plan={grantPlan} project={project} onChange={updateGrantPlan} notify={notify} onNavigate={setSection} />
             <GrantStepFlow current="grantReport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
         {section === "workbrainExport" && (
-          <Panel title="워크브레인 내보내기" description="사업계획서·예산·정산 체크리스트·결과보고를 david-workbrain Markdown 한 편으로 묶어 복사하거나 내려받습니다.">
+          <Panel title="한 문서로 묶어 내보냅니다" description="사업계획서·예산·정산 체크리스트·결과보고를 david-workbrain Markdown 한 편으로 묶어 복사하거나 내려받습니다.">
             <WorkbrainExportView plan={grantPlan} project={project} notify={notify} />
             <GrantStepFlow current="workbrainExport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
@@ -1833,7 +1893,7 @@ export default function App() {
 
         {section === "templateFill" && (
           <Panel
-            title="샘플 양식 구조를 읽고 내 내용으로 채웁니다"
+            title="읽은 양식 구조 그대로 채웁니다"
             description="공고·기관 양식 파일을 올리면 섹션 목차, 표의 열과 행, 빈칸·작성 항목을 먼저 보여 줍니다. 그 구조를 유지한 Markdown 초안을 만들고 복사·내려받기·워크브레인 내보내기로 이어집니다."
           >
             <TemplateFillView
@@ -1858,6 +1918,7 @@ export default function App() {
               onAddToApproval={addTemplateResultToApproval}
               onOpenModelSettings={() => setSection("modelSettings")}
               onClear={clearTemplateSchema}
+              notify={notify}
               piiGuard={(
                 <PiiGuardNotice
                   text={templatePromptPreview}
@@ -1881,7 +1942,29 @@ export default function App() {
             <textarea className="draft-output" rows={24} value={project.draftOutput} onChange={(event) => updateProject({ draftOutput: event.target.value })} />
           </Panel>
         )}
+        </div>
       </section>
+
+      <nav className="tabbar" aria-label="빠른 이동">
+        {([
+          ["home", "홈"],
+          ["projectBoard", "사업"],
+          ["grantBudget", "예산"],
+          ["templateFill", "양식"]
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            className="tab"
+            type="button"
+            aria-current={section === id ? "page" : undefined}
+            onClick={() => setSection(id as SectionId)}
+          >
+            {label}
+          </button>
+        ))}
+        <button className="tab" type="button" onClick={() => setMobileNavOpen(true)}>전체 메뉴</button>
+      </nav>
+
       <div className={`toast ${toast ? "is-visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </main>
   );
@@ -2051,11 +2134,27 @@ function draftStatusLabel(draft: AgentDraft) {
   return draft.reviewNote ? `${status} · ${draft.reviewNote}` : status;
 }
 
-function Panel({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function Panel({
+  title,
+  description,
+  children,
+  actions
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
   return (
     <section className="panel is-visible">
-      <div className="section-intro"><h3>{title}</h3><p>{description}</p></div>
-      {children}
+      <header className="panel-head">
+        <div className="panel-head-text">
+          <h2 className="panel-title">{title}</h2>
+          <p className="panel-note">{description}</p>
+        </div>
+        {actions ? <div className="panel-actions">{actions}</div> : null}
+      </header>
+      <div className="panel-body">{children}</div>
     </section>
   );
 }

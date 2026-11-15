@@ -3,6 +3,7 @@ import type { GrantPlan, ProjectData } from "../types";
 import { downloadTextFile, safeFileName } from "../lib/storage";
 import { buildNotionPasteMarkdown, buildWorkbrainFileName, buildWorkbrainMarkdown, WORKSPACE_LINKS, type WorkbrainExportOptions } from "../lib/davidWorkbrainExport.mjs";
 import { describePiiScan, maskPii, scanPii } from "../lib/piiGuard.mjs";
+import { HwpxExportPanel } from "./HwpxExportPanel";
 
 type ExportState = {
   domain: "company" | "personal" | "shared";
@@ -212,6 +213,7 @@ export function WorkbrainExportView({
           </div>
         </div>
         <textarea className="draft-output export-preview" rows={26} value={exportText} readOnly aria-label="내보낼 Markdown 미리보기" />
+        <HwpxExportPanel markdown={exportText} fileName={fileName.replace(/\.[^.]+$/, "")} notify={notify} />
       </section>
     </div>
   );
