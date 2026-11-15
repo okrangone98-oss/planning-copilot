@@ -27,6 +27,11 @@ export type RemoteProviderConfig = {
 export const REMOTE_PROVIDERS: Record<RemoteProviderId, RemoteProviderConfig>;
 export const REMOTE_MODEL_FIELDS: Record<RemoteProviderId, keyof ModelSettings>;
 export const MODEL_PROVIDERS: Set<ModelProvider | string>;
+export const PRIMARY_MODEL_PROVIDERS: string[];
+export const ADVANCED_MODEL_PROVIDERS: string[];
+
+export function isAdvancedModelProvider(provider: string): boolean;
+export function providerAvailabilityNote(provider: string): string;
 
 export function isRemoteProvider(provider: string): boolean;
 export function providerConfig(provider: string): RemoteProviderConfig | null;

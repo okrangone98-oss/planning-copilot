@@ -198,3 +198,32 @@ test("마감일 D-day와 후속 할 일을 만든다", () => {
   assert.ok(followUps.some((item) => item.kind === "증빙"));
   assert.ok(followUps.some((item) => item.kind === "보고서"));
 });
+
+test("사업 흐름 4단계 진행률을 같은 순서로 계산한다", async () => {
+  const { GRANT_STEPS, grantProgress } = await import("../../../src/lib/grantWorkflow.mjs");
+  assert.deepEqual(GRANT_STEPS.map((step) => step.id), ["budget", "checklist", "report", "export"]);
+
+  const empty = grantProgress(createEmptyGrantPlan());
+  assert.equal(empty.overall, 0);
+  assert.equal(empty.steps.length, 4);
+  assert.ok(empty.steps.every((step) => step.percent === 0));
+
+  const plan = applyPreset(standard, createEmptyGrantPlan());
+  const applied = grantProgress(plan);
+  // 프리셋은 비목·세목·단가·수량을 모두 채우므로 예산 단계는 100%다.
+  assert.equal(applied.steps[0].percent, 100);
+  assert.ok(applied.total > 0);
+  assert.equal(applied.steps[1].percent, 0);
+
+  plan.checklist = plan.checklist.map((item, index) => ({ ...item, checked: index < 5 }));
+  plan.reportSections = plan.reportSections.map((section, index) => (index === 0 ? { ...section, content: "초안" } : section));
+  const worked = grantProgress(plan);
+  assert.ok(worked.steps[1].percent > 0);
+  assert.ok(worked.steps[2].percent > 0);
+  assert.equal(worked.steps[3].percent, worked.overall);
+  assert.ok(worked.overall > 0 && worked.overall < 100);
+
+  // 빈 행만 늘리면 예산 진행률이 오르지 않는다.
+  plan.budgetLines = [...plan.budgetLines, emptyBudgetLine("blank-1")];
+  assert.ok(grantProgress(plan).steps[0].percent < 100);
+});

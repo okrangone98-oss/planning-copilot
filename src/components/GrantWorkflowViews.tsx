@@ -210,16 +210,28 @@ export function GrantBudgetView({
               <tbody>
                 {plan.budgetLines.map((line, index) => (
                   <tr key={line.id || index}>
-                    <td>
-                      <input list="grant-category-list" value={line.category} placeholder="인건비" onChange={(event) => updateLine(index, { category: event.target.value })} />
+                    <td data-label="비목">
+                      <input list="grant-category-list" value={line.category} placeholder="인건비" aria-label={`${index + 1}행 비목`} onChange={(event) => updateLine(index, { category: event.target.value })} />
                     </td>
-                    <td><input value={line.item} placeholder="외래강사비" onChange={(event) => updateLine(index, { item: event.target.value })} /></td>
-                    <td><input value={line.unitCost} placeholder="250,000" inputMode="numeric" onChange={(event) => updateLine(index, { unitCost: event.target.value })} /></td>
-                    <td><input value={line.quantity} placeholder="8회" onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
-                    <td className="grant-amount">{formatWon(lineAmount(line))}</td>
-                    <td><input value={line.basis} placeholder="250,000원 × 8회" onChange={(event) => updateLine(index, { basis: event.target.value })} /></td>
-                    <td><input value={line.note} placeholder="메모" onChange={(event) => updateLine(index, { note: event.target.value })} /></td>
-                    <td><button className="ghost-light-button grant-row-remove" type="button" onClick={() => removeLine(index)} aria-label={`${line.item || "항목"} 삭제`}>삭제</button></td>
+                    <td data-label="세목">
+                      <input value={line.item} placeholder="외래강사비" aria-label={`${index + 1}행 세목`} onChange={(event) => updateLine(index, { item: event.target.value })} />
+                    </td>
+                    <td data-label="단가">
+                      <input value={line.unitCost} placeholder="250,000" inputMode="numeric" aria-label={`${index + 1}행 단가`} onChange={(event) => updateLine(index, { unitCost: event.target.value })} />
+                    </td>
+                    <td data-label="수량">
+                      <input value={line.quantity} placeholder="8회" aria-label={`${index + 1}행 수량`} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
+                    </td>
+                    <td className="grant-amount" data-label="금액">{formatWon(lineAmount(line))}</td>
+                    <td data-label="산출근거">
+                      <input value={line.basis} placeholder="250,000원 × 8회" aria-label={`${index + 1}행 산출근거`} onChange={(event) => updateLine(index, { basis: event.target.value })} />
+                    </td>
+                    <td data-label="비고">
+                      <input value={line.note} placeholder="메모" aria-label={`${index + 1}행 비고`} onChange={(event) => updateLine(index, { note: event.target.value })} />
+                    </td>
+                    <td className="grant-row-actions" data-label="">
+                      <button className="ghost-light-button grant-row-remove" type="button" onClick={() => removeLine(index)} aria-label={`${index + 1}행 ${line.item || "항목"} 삭제`}>삭제</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

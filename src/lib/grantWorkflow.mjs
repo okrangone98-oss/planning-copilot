@@ -289,6 +289,52 @@ export function hasGrantWork(plan) {
   return hasLine || hasCheck || hasSection;
 }
 
+/** 사업 흐름 4단계. 화면 하단 이동 버튼과 업무 홈 진행률이 같은 순서를 쓴다. */
+export const GRANT_STEPS = [
+  { id: "budget", label: "예산 편성", section: "grantBudget" },
+  { id: "checklist", label: "정산 증빙", section: "grantChecklist" },
+  { id: "report", label: "결과보고", section: "grantReport" },
+  { id: "export", label: "워크브레인 내보내기", section: "workbrainExport" }
+];
+
+/** 예산표에서 비목·세목·단가·수량이 채워진 비율. 빈 행만 늘어도 진행률이 오르지 않게 한다. */
+function budgetFillPercent(plan) {
+  const lines = Array.isArray(plan?.budgetLines) ? plan.budgetLines : [];
+  if (!lines.length) return 0;
+  let filled = 0;
+  lines.forEach((line) => {
+    if (toText(line?.category, MAX_SHORT)) filled += 1;
+    if (toText(line?.item, MAX_SHORT)) filled += 1;
+    if (parseAmount(line?.unitCost) > 0) filled += 1;
+    if (parseQuantity(line?.quantity) > 0) filled += 1;
+  });
+  return Math.round((filled / (lines.length * 4)) * 100);
+}
+
+/**
+ * 단계별 진행률과 전체 진행률. 전체는 측정 가능한 앞 세 단계(예산·증빙·보고서)의 평균이다.
+ * 내보내기 단계는 앞 단계가 채워진 만큼 준비된 것으로 본다.
+ */
+export function grantProgress(plan) {
+  const budget = budgetSummary(plan);
+  const checks = checklistSummary(plan);
+  const report = reportSummary(plan);
+  const budgetPercent = budgetFillPercent(plan);
+  const overall = Math.round((budgetPercent + checks.percent + report.percent) / 3);
+  const details = {
+    budget: `${budget.lineCount}개 비목 · ${formatWon(budget.total)}`,
+    checklist: `확인 ${checks.done}/${checks.total} · 필수 ${checks.requiredDone}/${checks.requiredTotal}`,
+    report: `작성 ${report.written}/${report.total}섹션`,
+    export: overall >= 100 ? "내보낼 내용이 준비되었습니다" : "앞 단계를 마치면 문서가 완성됩니다"
+  };
+  const steps = GRANT_STEPS.map((step) => ({
+    ...step,
+    percent: step.id === "export" ? overall : step.id === "budget" ? budgetPercent : step.id === "checklist" ? checks.percent : report.percent,
+    detail: details[step.id]
+  }));
+  return { steps, overall, total: budget.total, lineCount: budget.lineCount };
+}
+
 export function emptyBudgetLine(id = "") {
   return { id, category: "", item: "", unitCost: "", quantity: "", basis: "", note: "" };
 }
