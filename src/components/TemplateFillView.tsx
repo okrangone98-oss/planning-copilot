@@ -46,6 +46,14 @@ function TemplateField({
   );
 }
 
+/** 일반 사용자의 주 작업 순서 — ① 양식을 불러오고 ② 자료를 붙여넣고 ③ 결과를 검토·수정한 뒤 ④ .hwpx로 내려받는다. */
+const FLOW_STEPS = [
+  { no: "①", title: "양식 불러오기", hint: "기관 양식 파일(.hwpx)" },
+  { no: "②", title: "자료 붙여넣기", hint: "카톡·메모·기존 문서" },
+  { no: "③", title: "검토·수정", hint: "칸별 값 확인" },
+  { no: "④", title: "HWPX 다운로드", hint: "원본 서식 그대로" }
+];
+
 export function TemplateFillView({
   schema,
   profile,
@@ -87,7 +95,8 @@ export function TemplateFillView({
   onSmartToggleAll,
   onSmartClear,
   onSmartLeftoversToDraft,
-  fillValues
+  fillValues,
+  onFillValueChange
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -130,19 +139,32 @@ export function TemplateFillView({
   onSmartClear: () => void;
   onSmartLeftoversToDraft: () => void;
   fillValues: Record<string, string>;
+  /** 3단계 검토 표에서 값을 고칠 때 — 칸 id 로 값을 바꾼다. */
+  onFillValueChange: (fieldId: string, value: string) => void;
 }) {
   const [pasteText, setPasteText] = useState("");
-  const [showTables, setShowTables] = useState(true);
+  const [showStructure, setShowStructure] = useState(false);
   const summary = summarizeSchema(schema);
   const ready = Boolean(schema && (summary.sections || summary.tables || summary.slots));
+  const filledCount = Object.values(fillValues).filter((value) => String(value ?? "").trim()).length;
 
   return (
     <div className="template-layout">
-      <section className="coach-bar">
+      <ol className="template-flow-steps" aria-label="작업 순서">
+        {FLOW_STEPS.map((step) => (
+          <li key={step.title} className={step.title === "검토·수정" && !filledCount ? "is-todo" : ""}>
+            <strong>{step.no} {step.title}</strong>
+            <span>{step.hint}</span>
+          </li>
+        ))}
+      </ol>
+
+      <section className="coach-bar" aria-label="1단계 양식 불러오기">
         <div>
-          <strong>샘플 양식 1 · 올리기</strong>
+          <strong>① 양식 불러오기</strong>
           <span>
-            사업계획서·공고 양식 파일을 올리면 목차, 표의 열과 행, 빈칸·작성 항목을 먼저 읽어 보여 줍니다. 읽는 일은 브라우저 안에서만 합니다.
+            사업계획서·청구서·계약서 같은 기관 양식 파일을 올리면 목차, 표의 열과 행, 빈칸·작성 항목을 먼저 읽어 보여 줍니다.
+            읽는 일은 브라우저 안에서만 하고, 원본 파일은 고치지 않습니다.
           </span>
         </div>
         <div className="draft-actions">
@@ -153,7 +175,7 @@ export function TemplateFillView({
       </section>
 
       <div className="file-drop">
-        <span>샘플 양식 파일</span>
+        <span>양식 파일</span>
         <div className="draft-actions">
           <label className="file-pick">
             양식 파일 선택
@@ -179,32 +201,31 @@ export function TemplateFillView({
           </button>
           <span>기관 표준 사업계획서 연습 양식(예시)을 그대로 읽어 칸 모양을 눈으로 익혀 봅니다.</span>
         </div>
+        <details className="setup-details template-paste">
+          <summary>파일 없이 양식 내용을 붙여넣기</summary>
+          <div className="template-paste-body">
+            <TemplateField
+              label="양식 텍스트(붙여넣기)"
+              value={pasteText}
+              onChange={setPasteText}
+              rows={10}
+              wide
+              placeholder={"Ⅰ. 사업 개요\n1. 추진 배경\n○ (작성 요령) ...\n\n| 구분 | 사업명 | 내용 |\n| --- | --- | --- |"}
+            />
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                if (!pasteText.trim()) return;
+                onParsePaste(pasteText);
+                setPasteText("");
+              }}
+            >
+              붙여넣은 내용 구조 분석
+            </button>
+          </div>
+        </details>
       </div>
-
-      <details className="setup-details template-paste">
-        <summary>파일 없이 양식 내용을 붙여넣기</summary>
-        <div className="template-paste-body">
-          <TemplateField
-            label="양식 텍스트(붙여넣기)"
-            value={pasteText}
-            onChange={setPasteText}
-            rows={10}
-            wide
-            placeholder={"Ⅰ. 사업 개요\n1. 추진 배경\n○ (작성 요령) ...\n\n| 구분 | 사업명 | 내용 |\n| --- | --- | --- |"}
-          />
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => {
-              if (!pasteText.trim()) return;
-              onParsePaste(pasteText);
-              setPasteText("");
-            }}
-          >
-            붙여넣은 내용 구조 분석
-          </button>
-        </div>
-      </details>
 
       {schema && (
         <section className="template-summary" aria-label="읽은 양식 요약">
@@ -213,6 +234,7 @@ export function TemplateFillView({
               <strong>{summary.title || "샘플 양식"}</strong>
               <span>
                 {schema.fileName || "붙여넣은 양식"} · 섹션 {summary.sections}개 · 표 {summary.tables}개 · 작성 항목 {summary.slots}개 · 표 빈칸 {summary.emptyCells}개
+                {fields.length ? ` · 넣을 수 있는 칸 ${fields.length}개` : ""}
               </span>
             </div>
             <span className={`template-badge is-${ready ? "ready" : "warn"}`}>{ready ? "구조 읽음" : "구조 없음"}</span>
@@ -226,19 +248,12 @@ export function TemplateFillView({
       )}
 
       {schema && (
-        <section className="grant-block" aria-label="양식 구조 미리보기">
-          <div className="grant-block-head">
-            <div>
-              <strong>2 · 구조 미리보기</strong>
-              <span>AI가 이 목차와 표 구조를 그대로 지킵니다. 빈칸은 채울 자리로 표시됩니다.</span>
-            </div>
-            <div className="draft-actions">
-              <button className="secondary-button" type="button" onClick={() => setShowTables((current) => !current)}>
-                {showTables ? "표 접기" : "표 펼치기"}
-              </button>
-            </div>
-          </div>
-
+        <details
+          className="setup-details template-structure"
+          open={showStructure}
+          onToggle={(event) => setShowStructure((event.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary>읽은 양식 구조 보기 — 목차 {summary.sections}개 · 표 {summary.tables}개 · 칸 {fields.length}개</summary>
           <div className="template-preview-grid">
             <div className="template-preview-block">
               <h4>목차 · 섹션 {summary.sections}개</h4>
@@ -276,7 +291,7 @@ export function TemplateFillView({
           </div>
 
           {fields.length > 0 && (
-            <details className="setup-details template-field-details" open>
+            <details className="setup-details template-field-details">
               <summary>이 양식의 칸 {fields.length}개 — 무엇을 넣는 자리인지</summary>
               <ul className="template-field-list">
                 {fields.slice(0, 60).map((field, index) => {
@@ -298,10 +313,10 @@ export function TemplateFillView({
             </details>
           )}
 
-          {showTables && schema.tables.length > 0 && (
+          {schema.tables.length > 0 && (
             <div className="template-tables">
               <h4>표 {summary.tables}개</h4>
-              {schema.tables.map((table) => (
+              {schema.tables.slice(0, 6).map((table) => (
                 <div className="template-table-card" key={table.id}>
                   <div className="template-table-head">
                     <strong>{table.caption}</strong>
@@ -313,7 +328,7 @@ export function TemplateFillView({
                         <tr>{table.headers.map((header, index) => <th key={`${table.id}-${index}`}>{header}</th>)}</tr>
                       </thead>
                       <tbody>
-                        {table.rows.slice(0, 12).map((row, rowIndex) => (
+                        {table.rows.slice(0, 8).map((row, rowIndex) => (
                           <tr key={`${table.id}-r${rowIndex}`}>
                             {table.headers.map((header, column) => {
                               const value = String(row[column] ?? "").trim();
@@ -328,39 +343,13 @@ export function TemplateFillView({
                       </tbody>
                     </table>
                   </div>
-                  {table.rowCount > 12 && <p className="template-empty-note">… {table.rowCount - 12}행 더 있음</p>}
+                  {table.rowCount > 8 && <p className="template-empty-note">… {table.rowCount - 8}행 더 있음</p>}
                 </div>
               ))}
+              {schema.tables.length > 6 && <p className="template-empty-note">… 표 {schema.tables.length - 6}개 더 있음</p>}
             </div>
           )}
-        </section>
-      )}
-
-      {schema && (
-        <section className="grant-block" aria-label="내 사업 정보">
-          <div className="grant-block-head">
-            <div>
-              <strong>3 · 내 사업 정보</strong>
-              <span>여기에 적은 값으로 양식을 채웁니다. 비워 두면 결과에 ‘확인 필요’로 남습니다.</span>
-            </div>
-            <div className="draft-actions">
-              <button className="secondary-button" type="button" onClick={onUseProjectValues}>프로젝트 입력값 가져오기</button>
-            </div>
-          </div>
-          <div className="form-grid">
-            {TEMPLATE_PROFILE_FIELDS.map((field) => (
-              <TemplateField
-                key={field.key}
-                label={field.label}
-                value={profile[field.key]}
-                onChange={(value) => onProfileChange({ [field.key]: value })}
-                placeholder={field.placeholder}
-                rows={field.key === "summary" || field.key === "notes" ? 5 : 2}
-                wide={field.key === "projectName" || field.key === "summary" || field.key === "notes"}
-              />
-            ))}
-          </div>
-        </section>
+        </details>
       )}
 
       {schema && (
@@ -383,72 +372,10 @@ export function TemplateFillView({
         />
       )}
 
-      {schema && (
-        <section className="grant-block" aria-label="양식에 맞춰 채우기">
-          <div className="grant-block-head">
-            <div>
-              <strong>6 · 이 양식에 맞춰 채우기</strong>
-              <span>현재 실행 경로: {providerLabel}. AI가 실패하면 규칙 기반 초안과 프롬프트 복사로 이어집니다.</span>
-            </div>
-            <div className="draft-actions">
-              <button className="primary-button" type="button" onClick={() => onFill("ai")} disabled={busy}>
-                {busy ? "채우는 중" : "이 양식에 맞춰 채우기"}
-              </button>
-              <button className="secondary-button" type="button" onClick={() => onFill("rule")} disabled={busy}>규칙 기반으로 채우기</button>
-              <button className="ghost-light-button" type="button" onClick={onCopyPrompt}>프롬프트 복사</button>
-            </div>
-          </div>
-          {piiGuard}
-          <div className="model-status-bar">
-            <strong>입력 자료는 이 브라우저 안에서 정리됩니다</strong>
-            <span>{modelNote}</span>
-          </div>
-          {error && (
-            <div className="office-execution-note has-error" role="alert">
-              <strong>AI 채우기 실패</strong>
-              <span>{error}</span>
-              <div className="draft-actions">
-                <button className="secondary-button" type="button" onClick={() => onFill("rule")}>규칙 기반 초안 만들기</button>
-                <button className="secondary-button" type="button" onClick={onCopyPrompt}>프롬프트 복사</button>
-                <button className="ghost-light-button" type="button" onClick={onOpenModelSettings}>모델 설정 열기</button>
-              </div>
-            </div>
-          )}
-          <details className="setup-details template-outline-details">
-            <summary>AI에 보내는 양식 구조 미리보기</summary>
-            <textarea className="draft-output" rows={14} readOnly value={renderSchemaOutline(schema)} />
-          </details>
-        </section>
-      )}
-
-      {result && (
-        <section className="grant-block" aria-label="양식에 맞춘 결과">
-          <div className="grant-block-head">
-            <div>
-              <strong>7 · 결과 (원본 목차·표 구조 유지)</strong>
-              <span>검토 전 초안입니다. 기관명·예산·일정·수치는 원본 자료와 대조한 뒤 사용하세요.</span>
-            </div>
-            <div className="draft-actions">
-              <button className="secondary-button" type="button" onClick={onCopyResult}>복사</button>
-              <button className="secondary-button" type="button" onClick={onDownload}>.md 받기</button>
-              <button className="secondary-button" type="button" onClick={onExportWorkbrain}>워크브레인 내보내기</button>
-              <button className="secondary-button" type="button" onClick={onAddToApproval}>승인함에 추가</button>
-              <button className="ghost-light-button" type="button" onClick={onSendToDraft}>초안 조립으로</button>
-            </div>
-          </div>
-          <textarea
-            className="draft-output template-result"
-            rows={26}
-            value={result}
-            aria-label="양식에 맞춰 채운 결과"
-            onChange={(event) => onResultChange(event.target.value)}
-          />
-          <HwpxExportPanel
-            markdown={result}
-            fileName={(schema?.fileName || "양식-초안").replace(/\.[^.]+$/, "")}
-            notify={notify}
-          />
-        </section>
+      {schema && filledCount > 0 && (
+        <p className="pc-notice is-success" role="status">
+          2단계에서 <strong>{filledCount}칸</strong>을 채웠습니다. 아래 3단계에서 칸별 값을 확인하고, 잘못 들어간 값은 그 자리에서 고쳐 주세요.
+        </p>
       )}
 
       {schema && (
@@ -459,13 +386,115 @@ export function TemplateFillView({
           fileBase64={fileBase64}
           markdown={result}
           notify={notify}
+          onValueChange={onFillValueChange}
         />
+      )}
+
+      {schema && (
+        <details className="setup-details template-advanced">
+          <summary>고급 설정 — AI 초안·사업 정보·프롬프트·JSON (개발자·반복 작업용)</summary>
+          <p className="block-note">
+            위 4단계만으로 .hwpx를 만들 수 있습니다. 여기는 AI가 문장까지 써 주는 초안 경로, 사업 정보 직접 입력,
+            프롬프트 복사처럼 반복 작업이나 개발자용 기능을 모아 둔 곳입니다.
+          </p>
+
+          <section className="grant-block" aria-label="내 사업 정보">
+            <div className="grant-block-head">
+              <div>
+                <strong>사업 정보 직접 입력</strong>
+                <span>AI 초안을 만들 때 쓰는 값입니다. 비워 두면 결과에 ‘확인 필요’로 남습니다.</span>
+              </div>
+              <div className="draft-actions">
+                <button className="secondary-button" type="button" onClick={onUseProjectValues}>프로젝트 입력값 가져오기</button>
+              </div>
+            </div>
+            <div className="form-grid">
+              {TEMPLATE_PROFILE_FIELDS.map((field) => (
+                <TemplateField
+                  key={field.key}
+                  label={field.label}
+                  value={profile[field.key]}
+                  onChange={(value) => onProfileChange({ [field.key]: value })}
+                  placeholder={field.placeholder}
+                  rows={field.key === "summary" || field.key === "notes" ? 5 : 2}
+                  wide={field.key === "projectName" || field.key === "summary" || field.key === "notes"}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="grant-block" aria-label="양식에 맞춰 채우기">
+            <div className="grant-block-head">
+              <div>
+                <strong>AI로 양식 초안 쓰기</strong>
+                <span>현재 실행 경로: {providerLabel}. AI가 실패하면 규칙 기반 초안과 프롬프트 복사로 이어집니다.</span>
+              </div>
+              <div className="draft-actions">
+                <button className="primary-button" type="button" onClick={() => onFill("ai")} disabled={busy}>
+                  {busy ? "채우는 중" : "이 양식에 맞춰 채우기"}
+                </button>
+                <button className="secondary-button" type="button" onClick={() => onFill("rule")} disabled={busy}>규칙 기반으로 채우기</button>
+                <button className="ghost-light-button" type="button" onClick={onCopyPrompt}>프롬프트 복사</button>
+              </div>
+            </div>
+            {piiGuard}
+            <div className="model-status-bar">
+              <strong>입력 자료는 이 브라우저 안에서 정리됩니다</strong>
+              <span>{modelNote}</span>
+            </div>
+            {error && (
+              <div className="office-execution-note has-error" role="alert">
+                <strong>AI 채우기 실패</strong>
+                <span>{error}</span>
+                <div className="draft-actions">
+                  <button className="secondary-button" type="button" onClick={() => onFill("rule")}>규칙 기반 초안 만들기</button>
+                  <button className="secondary-button" type="button" onClick={onCopyPrompt}>프롬프트 복사</button>
+                  <button className="ghost-light-button" type="button" onClick={onOpenModelSettings}>모델 설정 열기</button>
+                </div>
+              </div>
+            )}
+            <details className="setup-details template-outline-details">
+              <summary>AI에 보내는 양식 구조 미리보기</summary>
+              <textarea className="draft-output" rows={14} readOnly value={renderSchemaOutline(schema)} />
+            </details>
+          </section>
+
+          {result && (
+            <section className="grant-block" aria-label="양식에 맞춘 결과">
+              <div className="grant-block-head">
+                <div>
+                  <strong>AI 초안 결과 (원본 목차·표 구조 유지)</strong>
+                  <span>검토 전 초안입니다. 기관명·예산·일정·수치는 원본 자료와 대조한 뒤 사용하세요.</span>
+                </div>
+                <div className="draft-actions">
+                  <button className="secondary-button" type="button" onClick={onCopyResult}>복사</button>
+                  <button className="secondary-button" type="button" onClick={onDownload}>.md 받기</button>
+                  <button className="secondary-button" type="button" onClick={onExportWorkbrain}>워크브레인 내보내기</button>
+                  <button className="secondary-button" type="button" onClick={onAddToApproval}>승인함에 추가</button>
+                  <button className="ghost-light-button" type="button" onClick={onSendToDraft}>초안 조립으로</button>
+                </div>
+              </div>
+              <textarea
+                className="draft-output template-result"
+                rows={26}
+                value={result}
+                aria-label="양식에 맞춰 채운 결과"
+                onChange={(event) => onResultChange(event.target.value)}
+              />
+              <HwpxExportPanel
+                markdown={result}
+                fileName={(schema?.fileName || "양식-초안").replace(/\.[^.]+$/, "")}
+                notify={notify}
+              />
+            </section>
+          )}
+        </details>
       )}
 
       {!schema && (
         <div className="office-empty">
           <strong>아직 읽은 양식이 없습니다.</strong>
-          <span>위에서 샘플 양식 파일을 올리거나 양식 내용을 붙여넣으면 목차·표·작성 항목을 바로 보여 줍니다.</span>
+          <span>위 ①단계에서 양식 파일을 올리거나 양식 내용을 붙여넣으면 목차·표·작성 항목을 바로 보여 줍니다.</span>
         </div>
       )}
     </div>

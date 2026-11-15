@@ -42,8 +42,11 @@ function periodText(schedule) {
 }
 
 function numberCell(value) {
-  const number = Math.round(Number(value) || 0);
-  return number ? String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "";
+  // 미입력(null·undefined·"")은 빈 칸, 적힌 숫자 0은 '0'으로 구분해 적는다.
+  if (value === null || value === undefined || value === "") return "";
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return "";
+  return String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 /** 본문 글을 줄 단위 블록으로 나눈다. 항목 기호로 시작하는 줄은 불릿으로 둔다. */
@@ -60,8 +63,21 @@ export function contentBlocks(content) {
 }
 
 /**
+ * 결과보고에 넣을 참석 연인원 문장. 적힌 값만 더한 합계임을 밝히고,
+ * 아직 안 적은 회차가 있으면 확정 0명처럼 읽히지 않게 함께 적는다(GrantReportView.autoSummary와 같은 취지).
+ */
+function attendedText(attendance) {
+  const base = `${attendance.attended}명 (완료 회차 ${attendance.attendedDone}명)`;
+  const notes = [];
+  if (attendance.missingCount > 0) notes.push(`참석을 적지 않은 ${attendance.missingCount}회차는 합계에서 뺌(0명으로 세지 않음)`);
+  if (attendance.untracked > 0) notes.push(`인원 기록을 끈 ${attendance.untracked}회차는 집계 제외`);
+  if (!attendance.complete && !notes.length) notes.push("집계 미완료");
+  return notes.length ? `${base} · ${notes.join(" · ")}` : base;
+}
+
+/**
  * 결과보고 문서의 내용 모델. 화면(GrantReportView)과 같은 계산 함수를 써서 숫자가 어긋나지 않는다.
- * @returns {{title:string, subtitle:string, metaRows:Array<{label:string,value:string}>, sections:Array<{title:string, blocks:Array}>, summary:Array<{label:string,value:string}>, budget:{headers:string[], rows:string[][]}|null, footer:string}}
+ * @returns {{title:string, subtitle:string, metaRows:Array<{label:string,value:string}>, sections:Array<{title:string, blocks:Array}>, summary:Array<{label:string,value:string}>, budget:{headers:string[], rows:string[][], total:string[]}|null, warnings:string[], footer:string}}
  */
 export function buildReportDocument({ plan, project, work, generatedAt } = {}) {
   const reportSections = Array.isArray(plan?.reportSections) ? plan.reportSections : [];
@@ -94,7 +110,7 @@ export function buildReportDocument({ plan, project, work, generatedAt } = {}) {
     summary.push({ label: "회차", value: `전체 ${attendance.sessionTotal}회 · 집계 대상 ${attendance.tracked}회 · 완료 ${attendance.doneSessions}회` });
     summary.push({
       label: "참석 연인원",
-      value: attendance.tracked ? `${attendance.attended}명 (완료 회차 ${attendance.attendedDone}명)` : "인원을 기록한 회차가 없습니다(0명이 아니라 집계 제외)"
+      value: attendance.tracked ? attendedText(attendance) : "인원을 기록한 회차가 없습니다(0명이 아니라 집계 제외)"
     });
   }
   if (work && (ledger.expenseCount || ledger.total.plan)) {
@@ -111,8 +127,12 @@ export function buildReportDocument({ plan, project, work, generatedAt } = {}) {
   const hasExpense = ledger.expenseCount > 0;
   const basisById = new Map((Array.isArray(plan?.budgetLines) ? plan.budgetLines : []).map((line) => [String(line?.id ?? ""), text(line?.basis, 80)]));
   const budgetRows = [];
+  let breakdownPlan = 0;
+  let breakdownSpent = 0;
   for (const bucket of ledger.rows || []) {
     for (const line of bucket.lines || []) {
+      breakdownPlan += Math.round(Number(line.plan) || 0);
+      breakdownSpent += Math.round(Number(line.spent) || 0);
       budgetRows.push([
         text(bucket.category, 40),
         text(line.item, 60),
@@ -121,6 +141,26 @@ export function buildReportDocument({ plan, project, work, generatedAt } = {}) {
         hasExpense ? numberCell(line.spent || 0) : ""
       ]);
     }
+    // 비목을 지정하지 않았거나 비목이 사라진 지출은 bucket.lines 가 비어 있다.
+    // 합계에는 들어 있으니 세부내역에도 한 줄로 적어, 표의 합과 집계 합이 어긋나지 않게 한다.
+    if (!(bucket.lines || []).length && (bucket.count > 0 || bucket.plan > 0)) {
+      breakdownPlan += Math.round(Number(bucket.plan) || 0);
+      breakdownSpent += Math.round(Number(bucket.spent) || 0);
+      budgetRows.push([
+        text(bucket.category, 40) || "비목 미지정",
+        bucket.count > 0 ? `비목을 지정하지 않은 지출 ${bucket.count}건` : "세목 없이 편성한 예산",
+        bucket.count > 0 ? "지출 원장에서 비목을 골라 주세요" : "세목을 적으면 여기에 나뉘어 적힙니다",
+        bucket.plan ? numberCell(bucket.plan) : "",
+        hasExpense ? numberCell(bucket.spent || 0) : ""
+      ]);
+    }
+  }
+  const warnings = [];
+  if (hasExpense && breakdownSpent !== Math.round(ledger.total.spent)) {
+    warnings.push(`예산 세부내역 집행 합 ${formatWon(breakdownSpent)}이(가) 전체 집행 ${formatWon(ledger.total.spent)}와 다릅니다. 비목별 지출과 합계를 대조해 주세요.`);
+  }
+  if (Math.round(ledger.total.plan) && breakdownPlan !== Math.round(ledger.total.plan)) {
+    warnings.push(`예산 세부내역 계획 합 ${formatWon(breakdownPlan)}이(가) 편성 총액 ${formatWon(ledger.total.plan)}와 다릅니다. 예산 편성을 확인해 주세요.`);
   }
   const budgetTable = budgetRows.length
     ? {
@@ -144,6 +184,7 @@ export function buildReportDocument({ plan, project, work, generatedAt } = {}) {
     sections,
     summary,
     budget: budgetTable,
+    warnings,
     footer: `이 문서는 계획·회차·지출 원장에 적힌 값으로 만든 초안입니다. ${stampText ? `${stampText} 작성. ` : ""}기관 양식 순서와 다를 수 있으니 제출 전 증빙·출석부와 대조해 주세요.`
   };
 }
@@ -263,6 +304,10 @@ export function renderReportBodyXml(document) {
       total: document.budget.total,
       tableId: "1200002"
     }));
+  }
+
+  for (const warning of document.warnings || []) {
+    paragraphs.push(textParagraph(`※ 확인 필요: ${warning}`, NOTE_STYLE));
   }
 
   if (document.footer) paragraphs.push(textParagraph(document.footer, NOTE_STYLE));

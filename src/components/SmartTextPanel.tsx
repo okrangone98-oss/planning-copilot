@@ -63,9 +63,9 @@ export function SmartTextPanel({
     <section className="grant-block smart-text" aria-label="자유 텍스트로 칸 채우기">
       <div className="grant-block-head">
         <div>
-          <strong>4 · 자유 텍스트로 칸 채우기</strong>
+          <strong>② 자료 붙여넣기</strong>
           <span>
-            카톡·메모·회의록·기존 문서의 글을 통째로 붙여넣으면, 위 양식의 칸 {fields.length}개(빈 칸 {fillable}개) 중
+            카톡·메모·회의록·기존 문서의 글을 통째로 붙여넣으면, 위 양식의 칸 {fields.length}개(번 칸 {fillable}개) 중
             알맞은 곳으로 나눠 넣습니다. 지금 실행 경로: {providerLabel}.
           </span>
         </div>
@@ -83,7 +83,7 @@ export function SmartTextPanel({
       </div>
 
       {!fields.length && (
-        <p className="block-note">먼저 양식을 읽어야 칸을 알 수 있습니다. 위에서 양식을 올리거나 연습 양식을 불러와 주세요.</p>
+        <p className="block-note">먼저 ①단계에서 양식을 읽어야 칸을 알 수 있습니다. 양식을 올리거나 연습 양식을 불러와 주세요.</p>
       )}
 
       <label className="field wide">

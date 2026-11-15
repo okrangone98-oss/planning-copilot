@@ -17,6 +17,11 @@ const SECTION_ENTRY_RE = /^Contents\/section\d+\.xml$/i;
 /** 칸 글자를 모을 때 넘어가는 요소 — 안쪽 표·글상자의 글자는 그 칸 글자가 아니다. */
 const OPAGUE_LOCALS = new Set(["tbl", "drawtext", "equation", "chart", "header", "footer"]);
 const FILL_PLACEHOLDER_RE = /^\{\{\s*[^{}]{1,40}?\s*\}\}$|^\[\s*[가-힣A-Za-z0-9 ]{0,20}\s*\]$|^_{2,}$|^[ㅇ○◯]{2,}$|^\.{3,}$/;
+/**
+ * `<hp:t>` 안에 섞여 들어오는 인라인 요소 — 한글에서 줄바꿈(Shift+Enter)·탭·고정폭 빈칸을 쓴 자리.
+ * 이런 요소를 글자로 세면 라벨·값 비교가 어긋나므로 같은 길이의 빈칸으로 바꾼다(위치 offset 유지).
+ */
+const INLINE_MARKUP_RE = /<(?:[\w.-]+:)?(?:lineBreak|tab|fwSpace|nbspace|nonBreakSpace)\b[^>]*\/?>/gi;
 
 /* ────────────────────────── XML 읽기 ────────────────────────── */
 
@@ -81,6 +86,11 @@ export function parseHwpxXml(xml) {
 
 function elementsOf(node) {
   return (node?.children || []).filter((child) => child.type !== "text");
+}
+
+/** 글자 안 인라인 요소를 같은 길이의 빈칸으로 바꾼다 — offset 을 그대로 두고 글자만 깨끗하게. */
+function neutralizeInlineMarkup(text) {
+  return String(text ?? "").replace(INLINE_MARKUP_RE, (tag) => " ".repeat(tag.length));
 }
 
 function attrOf(attrs, name) {
@@ -152,7 +162,7 @@ function rawTextOf(xml, runs) {
 }
 
 function visibleTextOf(xml, runs) {
-  return decodeEntities(rawTextOf(xml, runs)).replace(/&lt;\/(?:hp:)?[a-zA-Z]+&gt;/g, " ").replace(/\s+/g, " ").trim();
+  return decodeEntities(neutralizeInlineMarkup(rawTextOf(xml, runs))).replace(/&lt;\/(?:hp:)?[a-zA-Z]+&gt;/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /** 칸 하나의 모델 — 글자·문단·병합 정보를 함께 들고 다닌다. */
@@ -230,7 +240,10 @@ function collectTables(root, xml) {
   const walk = (node) => {
     for (const child of elementsOf(node)) {
       if (child.local === "tbl") {
+        // 표마다 행 수집은 격리하지만(안쪽 표의 행은 바깥 표 행이 아니다),
+        // 레이아웃 칸 안에 든 라벨/값 표도 채우기 대상이 되도록 안쪽까지 계속 내려간다.
         tables.push(readTable(child, xml, tables.length));
+        walk(child);
         continue;
       }
       walk(child);
@@ -446,7 +459,8 @@ function applyTextEdits(paragraph, edits, splices) {
 function planInlineWrite(xml, paragraph, cursors, filled, where) {
   const runs = textRuns(paragraph);
   if (!runs.length) return [];
-  const text = rawTextOf(xml, runs);
+  // 인라인 요소는 같은 길이의 빈칸으로 바꿔 두어, 편집 위치(offset)가 원문과 계속 맞게 한다.
+  const text = neutralizeInlineMarkup(rawTextOf(xml, runs));
   if (!text.trim()) return [];
   const edits = [];
   const consumed = new Set();
@@ -675,8 +689,12 @@ export async function patchHwpxBytes({ bytes, values, jszip } = {}) {
   }
   const outBytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
 
+  const skippedKeys = new Set(skipped.map((item) => item.key).filter(Boolean));
   const unmatched = Object.keys(values && typeof values === "object" ? values : {}).filter((label) => {
-    const cursor = cursors.get(normalizeFormLabel(label));
+    const normalized = normalizeFormLabel(label);
+    // 원본 칸을 그대로 둔 값은 ‘자리가 없는 값’이 아니다 — 찾았지만 덮어쓰지 않은 경우로 따로 센다.
+    if (skippedKeys.has(normalized)) return false;
+    const cursor = cursors.get(normalized);
     return !cursor || cursor.index === 0;
   });
 

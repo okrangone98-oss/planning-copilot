@@ -75,6 +75,10 @@ test("라벨·빈칸·날짜 자리표시 판정은 kordoc 규칙을 따른다",
   assert.equal(isFormLabelCell("1억원"), false);
   assert.equal(isFormLabelCell("지역 청년이 참여합니다"), false);
   assert.equal(isFormLabelCell("성 명"), true);
+  // 항목 번호가 붙은 라벨 — 실제 지점서·증명서 양식에서 흔한 모양
+  assert.equal(isFormLabelCell("1. 기관명 :"), true);
+  assert.equal(isFormLabelCell("② 대표자 :"), true);
+  assert.equal(isFormLabelCell("가) 소재지 :"), true);
 
   assert.equal(isBlankValueCell(""), true);
   assert.equal(isBlankValueCell("   "), true);
@@ -99,6 +103,11 @@ test("라벨·빈칸·날짜 자리표시 판정은 kordoc 규칙을 따른다",
 test("라벨은 콜론·공백을 걷어 비교하고 접두사 매칭은 60% 이상만 인정한다", () => {
   assert.equal(normalizeFormLabel(" 사 업 명 : "), "사업명");
   assert.equal(normalizeFormLabel("면적(m<sup>2</sup>)"), "면적m2");
+  // “1. 기관명 :”과 “기관명”은 같은 칸으로 본다
+  assert.equal(normalizeFormLabel("1. 기관명 :"), "기관명");
+  assert.equal(normalizeFormLabel("② 대표자"), "대표자");
+  assert.equal(findMatchingFieldKey("1. 기관명 :", new Set(["기관명", "대표자"])), "기관명");
+  assert.equal(normalizeFormLabel("2027년 사업비"), "2027년사업비");
   assert.equal(findMatchingFieldKey("사업명", new Set(["사업명", "수행기관"])), "사업명");
   assert.equal(findMatchingFieldKey("사업기간", new Set(["사업", "수행기관"])), undefined);
   assert.equal(findMatchingFieldKey("수행기관명", new Set(["수행기관"])), "수행기관");

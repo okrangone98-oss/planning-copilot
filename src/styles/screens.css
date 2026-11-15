@@ -2168,3 +2168,76 @@
     min-width: 0;
   }
 }
+
+/* ── 샘플 양식 채우기 4단계 안내 ─────────────────────────── */
+.template-flow-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--stack-s);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.template-flow-steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+  min-width: 0;
+}
+
+.template-flow-steps li strong {
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--c-text-1);
+  word-break: keep-all;
+}
+
+.template-flow-steps li span {
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+  word-break: keep-all;
+}
+
+.template-flow-steps li.is-todo {
+  border-style: dashed;
+}
+
+/* 3단계 검토 표에서 값을 직접 고치는 입력칸 */
+.kordoc-fill-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-s);
+  background: var(--c-surface);
+  color: var(--c-text-1);
+  font: inherit;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  resize: vertical;
+}
+
+.kordoc-fill-input:focus {
+  outline: 2px solid var(--c-brand-line);
+  outline-offset: 1px;
+}
+
+.template-advanced {
+  border-top: 1px dashed var(--c-line);
+  padding-top: var(--stack-m);
+}
+
+@media (max-width: 760px) {
+  .template-flow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kordoc-fill-input {
+    font-size: var(--fs-body);
+  }
+}
