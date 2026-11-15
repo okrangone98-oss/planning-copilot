@@ -23,6 +23,8 @@ export type AssignmentRow = {
   checked: boolean;
   /** 칸에 이미 글이 있어 기본은 유지 — 사용자가 체크해야 바뀐다 */
   conflict: boolean;
+  /** 서로 다른 곳의 글이 한 칸에 모였는지 — 사람이 확인해야 한다. */
+  merged?: boolean;
   score: number;
   reasons: string[];
   source: "rule" | "ai";

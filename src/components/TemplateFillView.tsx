@@ -97,7 +97,10 @@ export function TemplateFillView({
   onSmartClear,
   onSmartLeftoversToDraft,
   fillValues,
-  onFillValueChange
+  onFillValueChange,
+  onLoadProjectData,
+  projectDataNote,
+  projectDataStale
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -142,6 +145,10 @@ export function TemplateFillView({
   fillValues: Record<string, string>;
   /** 3단계 검토 표에서 값을 고칠 때 — 칸 id 로 값을 바꾼다. */
   onFillValueChange: (fieldId: string, value: string) => void;
+  /** 2단계에 이 사업의 데이터를 한 번에 넣는다. */
+  onLoadProjectData: () => void;
+  projectDataNote: string;
+  projectDataStale: boolean;
 }) {
   const [pasteText, setPasteText] = useState("");
   const [showStructure, setShowStructure] = useState(false);
@@ -158,9 +165,13 @@ export function TemplateFillView({
         .map((row) => row.fieldId)
     );
   }, [smartResult, smartSelected, fillValues]);
-  /** 자동 배치 점수가 낮아 사람이 봐야 하는 칸 — ‘확인 필요’로 표시한다. */
+  /** 점수가 낮거나 여러 곳의 글이 모인 칸 — 사람이 봐야 하므로 ‘확인 필요’로 표시한다. */
   const lowConfidenceIds = useMemo(
-    () => new Set((smartResult?.rows || []).filter((row) => Number(row.score) < 0.6).map((row) => row.fieldId)),
+    () => new Set(
+      (smartResult?.rows || [])
+        .filter((row) => Number(row.score) < 0.6 || row.merged === true)
+        .map((row) => row.fieldId)
+    ),
     [smartResult]
   );
 
@@ -400,6 +411,9 @@ export function TemplateFillView({
           onToggleAll={onSmartToggleAll}
           clear={onSmartClear}
           onSendLeftoversToDraft={onSmartLeftoversToDraft}
+          onLoadProjectData={onLoadProjectData}
+          projectDataNote={projectDataNote}
+          projectDataStale={projectDataStale}
         />
       )}
 

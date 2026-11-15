@@ -313,6 +313,10 @@ export function scoreSegmentForField(segment, field) {
 }
 
 const ACCEPT_SCORE = 0.42;
+/** 이미 글이 들어간 칸에 다른 글을 합칠 때 필요한 점수 — 낮으면 합치지 않고 남긴다. */
+const MERGE_SCORE = 0.6;
+/** 한 칸에 값 하나만 들어가는 칸 — 날짜·금액·수량·전화·메일·번호는 두 값을 붙이지 않는다. */
+const SINGLE_VALUE_TYPES = new Set(["date", "amount", "phone", "email", "idnum"]);
 
 /**
  * 규칙 기반 배치 — 조각마다 가장 잘 맞는 빈 칸 하나를 고른다.
@@ -341,8 +345,16 @@ export function mapFreeTextToFields({ fields, text } = {}) {
     }
     const existing = byField.get(best.field.id);
     if (existing) {
-      existing.segments.push(segment);
-      existing.score = Math.max(existing.score, best.score);
+      // 이미 정해진 칸에 다른 글이 붙을 때는 그 글도 그 칸에 충분히 맞을 때만 합친다.
+      // (다른 구역의 일정·마감 글이 날짜 칸에 섞여 들어가는 것을 막는다 — 낮은 점수는 배치 못한 글로 남긴다)
+      if (best.score >= MERGE_SCORE && !SINGLE_VALUE_TYPES.has(best.field.type)) {
+        existing.segments.push(segment);
+        existing.score = Math.max(existing.score, best.score);
+        // 한 칸에 서로 다른 곳의 글이 모이면 그 칸은 사람이 꼭 봐야 한다 — 점수가 높아도 그대로 두지 않는다.
+        existing.merged = true;
+      } else {
+        leftovers.push({ ...segment, reason: "이미 정해진 다른 칸의 글과 겹침" });
+      }
       continue;
     }
     const assignment = {
@@ -351,6 +363,7 @@ export function mapFreeTextToFields({ fields, text } = {}) {
       score: best.score,
       reasons: best.reasons,
       segments: [segment],
+      merged: false,
       source: "rule"
     };
     byField.set(best.field.id, assignment);
@@ -376,6 +389,8 @@ function finalizeAssignments({ assignments, leftovers, fields }) {
       mode: empty ? "new" : "replace",
       checked: empty,
       conflict: !empty,
+      /** 서로 다른 곳의 글이 모인 칸 — 점수와 무관하게 ‘확인 필요’로 보여 준다. */
+      merged: assignment.merged === true,
       score: Number(assignment.score.toFixed(2)),
       reasons: assignment.reasons,
       source: assignment.source || "rule",

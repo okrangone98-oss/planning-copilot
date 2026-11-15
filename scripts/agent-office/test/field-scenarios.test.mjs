@@ -209,21 +209,27 @@ test("B. 프로그램 운영계획서 — 예산 합계가 어긋나면 알리�
 
 test("B. 엉뚱한 칸에 붙은 값은 조용히 넘어가지 않고 ‘확인 필요’로 잡아낸다", async () => {
   const { schema } = await loadPractice();
-  // 연습 양식에는 ‘출석 인원’ 칸이 없다 — 자유 배치가 비슷한 ‘참여 인원’ 칸에 붙일 수 있다.
+  // 연습 양식에는 ‘출석 인원’ 칸이 없다. 자유 배치가 그 값을 수량 칸(‘참여 인원’)에 겹쳐 넣지 않고
+  // 배치 못한 글로 남긴다 — 한 칸에 값 하나만 들어가는 칸이기 때문이다.
   const text = `${PLAN_TEXT_B}\n출석 인원: 0명`;
   const { fields, values, mapped, preflight } = fillFlow({ schema, text });
-  const joinRow = mapped.rows.find((row) => row.label === "참여 인원");
-  assert.ok(joinRow.proposed.includes("0명"), "규칙 배치가 두 값을 한 칸에 붙이는 상황을 재현하지 못했습니다");
+  const peopleRow = mapped.rows.find((row) => row.label === "참여 인원");
+  assert.equal(peopleRow.proposed, "60명", "수량 칸에 두 값이 붙었습니다");
+  assert.ok(mapped.leftovers.some((item) => item.text.includes("0명")), "겹친 값이 배치 못한 글로 남지 않았습니다");
+  assert.equal(preflight.canDownload, true, "겹친 값을 남기면 내려받기를 막을 이유가 없습니다");
 
-  const flagged = preflight.items.find((item) => item.id === "invalid-format");
-  assert.ok(flagged, `형식 오류로 잡지 못했습니다: ${preflight.items.map((item) => item.id).join(", ")}`);
+  // 예전에 저장된 칸 값이나 AI 배치처럼 두 줄이 한 칸에 들어와 있으면 내려받기 전에 막는다.
+  const doubled = { ...values, [peopleRow.fieldId]: "60명\n출석 인원 0명" };
+  const blocked = buildDownloadPreflight({ fields, values: doubled, hasFile: true });
+  const flagged = blocked.items.find((item) => item.id === "invalid-format");
+  assert.ok(flagged, `형식 오류로 잡지 못했습니다: ${blocked.items.map((item) => item.id).join(", ")}`);
   assert.equal(flagged.level, "block");
   assert.match(flagged.detail, /참여 인원/);
-  assert.equal(preflight.canDownload, false);
-  assert.match(preflight.gateMessage, /한 번 더 누르면/);
+  assert.equal(blocked.canDownload, false);
+  assert.match(blocked.gateMessage, /한 번 더 누르면/);
 
   // 사람이 칸에서 직접 고치면 그 값만 바뀌고 다른 칸 값은 그대로다.
-  const fixed = { ...values, [joinRow.fieldId]: "60명" };
+  const fixed = { ...values, [peopleRow.fieldId]: "60명" };
   const after = buildDownloadPreflight({ fields, values: fixed, hasFile: true });
   assert.equal(after.items.some((item) => item.id === "invalid-format"), false);
   assert.equal(fixed[fields.find((field) => field.label === "사업명").id], "2026 양양 생활문화 프로그램 운영");
