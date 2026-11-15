@@ -1595,7 +1595,7 @@ export default function App() {
               error={templateError}
               providerLabel={modelLabel(modelSettings.provider)}
               modelNote={modelSafetyNote(modelSettings)}
-              onProfileChange={(patch) => updateTemplateSession({ profile: normalizeProfile({ ...templateSession.profile, ...patch }) })}
+              onProfileChange={(patch) => updateTemplateSession({ profile: { ...templateSession.profile, ...patch } })}
               onPickFile={parseTemplateFile}
               onParsePaste={parseTemplateText}
               onUseProjectValues={useProjectValuesForTemplate}
