@@ -12,11 +12,34 @@ export type TemplateSession = {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
   result: string;
+  /** 자유 텍스트로 채운 칸 값 — 필드 id → 값 */
+  fieldValues: Record<string, string>;
+  /** 자유 텍스트 자동 배치에 붙여넣은 원문 */
+  smartText: string;
   updatedAt: string;
 };
 
 export function createEmptyTemplateSession(): TemplateSession {
-  return { schema: null, profile: normalizeProfileKeepWhitespace({}), result: "", updatedAt: "" };
+  return {
+    schema: null,
+    profile: normalizeProfileKeepWhitespace({}),
+    result: "",
+    fieldValues: {},
+    smartText: "",
+    updatedAt: ""
+  };
+}
+
+/** 저장된 칸 값을 믿지 않고 글자만 남긴다(필드 id·값 길이 제한). */
+export function sanitizeFieldValues(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  const output: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const id = text(key, 20);
+    const raw_value = text(raw, 2000);
+    if (id && raw_value.trim()) output[id] = raw_value;
+  }
+  return output;
 }
 
 function text(value: unknown, limit = 400) {
@@ -102,6 +125,8 @@ export function loadTemplateSession(id?: string): TemplateSession {
       schema: sanitizeTemplateSchema(parsed.schema),
       profile: normalizeProfileKeepWhitespace(parsed.profile),
       result: typeof parsed.result === "string" ? parsed.result.slice(0, 200000) : "",
+      fieldValues: sanitizeFieldValues(parsed.fieldValues),
+      smartText: typeof parsed.smartText === "string" ? parsed.smartText.slice(0, 20000) : "",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : ""
     };
   } catch {
@@ -115,6 +140,8 @@ export function saveTemplateSession(session: TemplateSession, id?: string) {
       schema: session.schema,
       profile: normalizeProfileKeepWhitespace(session.profile),
       result: session.result.slice(0, 200000),
+      fieldValues: sanitizeFieldValues(session.fieldValues),
+      smartText: String(session.smartText ?? "").slice(0, 20000),
       updatedAt: session.updatedAt || new Date().toISOString()
     }));
   } catch {

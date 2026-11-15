@@ -211,17 +211,41 @@ function normalizeRows(rows, width) {
   });
 }
 
-/** 표 한 덩어리를 { headers, rows }로 만든다. 첫 줄이 머리글처럼 보이지 않으면 열 이름을 만든다. */
-export function buildTable(headers, rows) {
+/**
+ * 표 한 덩어리를 { headers, rows }로 만든다. 첫 줄이 머리글처럼 보이지 않으면 열 이름을 만든다.
+ * spans는 칸마다 [rowSpan, colSpan]이고, 병합이 없는 표는 담지 않는다(저장·미리보기를 가볍게 둔다).
+ */
+export function buildTable(headers, rows, spans) {
   const safeRows = (Array.isArray(rows) ? rows : []).filter((row) => Array.isArray(row));
   const headerCells = (Array.isArray(headers) ? headers : []).map((cell) => clampText(cell, 60));
   const width = Math.max(headerCells.length, ...safeRows.map((row) => row.length), 1);
   const normalizedHeaders = headerCells.slice(0, MAX_TABLE_COLUMNS);
   while (normalizedHeaders.length < width) normalizedHeaders.push("");
-  return {
+  const table = {
     headers: normalizedHeaders.map((cell, index) => cell || `열 ${index + 1}`),
     rows: normalizeRows(safeRows, width)
   };
+  const safeSpans = compactSpans(spans, width);
+  if (safeSpans) table.spans = safeSpans;
+  return table;
+}
+
+/** 병합 정보를 표 크기에 맞춰 다듬는다. 병합이 하나도 없으면 null. */
+function compactSpans(spans, width) {
+  if (!Array.isArray(spans) || !spans.length) return null;
+  let merged = false;
+  const rows = spans.slice(0, MAX_TABLE_ROWS).map((row) => {
+    const cells = Array.isArray(row) ? row.slice(0, width) : [];
+    const normalized = cells.map((cell) => {
+      const rowSpan = Math.max(1, Math.min(Number(cell?.[0]) || 1, MAX_TABLE_ROWS));
+      const colSpan = Math.max(1, Math.min(Number(cell?.[1]) || 1, MAX_TABLE_COLUMNS));
+      if (rowSpan > 1 || colSpan > 1) merged = true;
+      return [rowSpan, colSpan];
+    });
+    while (normalized.length < width) normalized.push([1, 1]);
+    return normalized;
+  });
+  return merged ? rows : null;
 }
 
 function readTable(lines, start) {
@@ -349,7 +373,7 @@ function normalizeBlocks(blocks) {
       const title = cleanHeadingTitle(block.title ?? block.text);
       if (title) output.push({ type: "heading", level: Number(block.level) || 1, title: clampText(title, 120) });
     } else if (type === "table") {
-      const table = buildTable(block.headers, block.rows);
+      const table = buildTable(block.headers, block.rows, block.spans);
       if (table.headers.length > 1 || table.rows.length) output.push({ type: "table", ...table });
     } else if (type === "list") {
       const text = cleanListItem(block.text);
@@ -366,9 +390,21 @@ function normalizeBlocks(blocks) {
 
 const HWPX_TAG = /<(\/?)([A-Za-z_][\w.:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
 
+/** XML 속성값 — 따옴표 큰따옴표·홑따옴표 모두 읽는다. */
+function xmlAttr(attrs, name) {
+  const pattern = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`);
+  const found = pattern.exec(String(attrs ?? ""));
+  return found ? (found[1] ?? found[2] ?? "") : "";
+}
+
+/** 장 띠(‘Ⅰ’ · ‘1.’ · ‘제1장’) 처럼 번호만 든 칸 — 옆 칸 제목과 짝을 이룬다 */
+const SECTION_MARKER = new RegExp(`^(?:[${ROMAN_NUMERAL}]|제\\s*\\d{1,2}\\s*[장편절관]|\\d{1,2}\\s*[.)]|[가-하]\\.)$`);
+
 /**
  * HWPX 섹션 XML을 문단·표 블록으로 바꾼다.
  * 문단 안의 표는 표 블록으로 떼어 내고, 표 칸 안의 문단은 칸 글자로 모은다.
+ * 칸 좌표(cellAddr)와 병합(cellSpan)을 읽어 병합 칸 글자가 제자리에 놓이게 한다(kordoc IR과 같은 경계).
+ * 1×1 틀(표지·요약 상자)과 장 띠는 표가 아니라 문단·제목으로 돌려준다.
  */
 export function extractHwpxBlocks(xml) {
   const source = String(xml ?? "");
@@ -385,7 +421,7 @@ export function extractHwpxBlocks(xml) {
   const appendText = (chunk) => {
     const frame = currentFrame();
     if (!chunk) return;
-    if (frame && frame.cell !== null) frame.cell += chunk;
+    if (frame && frame.cell) frame.cell.text += chunk;
     else if (paragraphDepth > 0) paragraphBuffer += chunk;
   };
 
@@ -398,6 +434,10 @@ export function extractHwpxBlocks(xml) {
     else blocks.push({ type: "paragraph", text: clampText(text, 2000) });
   };
 
+  const emitTable = (frame) => {
+    for (const block of hwpxTableBlocks(frame)) blocks.push(block);
+  };
+
   HWPX_TAG.lastIndex = 0;
   while ((match = HWPX_TAG.exec(source))) {
     if (match.index > lastIndex && textDepth > 0) appendText(decodeEntities(source.slice(lastIndex, match.index)));
@@ -406,33 +446,48 @@ export function extractHwpxBlocks(xml) {
     const closing = match[1] === "/";
     const local = match[2].split(":").pop().toLowerCase();
     const selfClosing = match[4] === "/";
+    const attrs = match[3] || "";
 
     if (closing) {
       if (local === "t") {
         textDepth = Math.max(0, textDepth - 1);
       } else if (local === "p") {
         const frame = currentFrame();
-        if (frame && frame.cell !== null) {
-          frame.cell += " ";
+        if (frame && frame.cell) {
+          frame.cell.text += " ";
         } else if (paragraphDepth <= 1) {
           flushParagraph();
         }
         paragraphDepth = Math.max(0, paragraphDepth - 1);
       } else if (local === "tc") {
         const frame = currentFrame();
-        if (frame && Array.isArray(frame.row)) {
-          frame.row.push(clampText(normalizeInline(frame.cell || ""), 300));
+        if (frame && Array.isArray(frame.row) && frame.cell) {
+          frame.row.push(frame.cell);
           frame.cell = null;
         }
       } else if (local === "tr") {
         const frame = currentFrame();
         if (frame && Array.isArray(frame.row)) {
-          frame.rows.push(frame.row);
+          if (frame.row.length) frame.rows.push(frame.row);
           frame.row = null;
         }
       } else if (local === "tbl") {
         const frame = tableStack.pop();
-        if (frame && frame.rows.length) blocks.push({ type: "table", ...rowsToTable(frame.rows) });
+        if (frame) emitTable(frame);
+      }
+      continue;
+    }
+
+    if (local === "celladdr" || local === "cellspan") {
+      const frame = currentFrame();
+      if (frame && frame.cell) {
+        if (local === "celladdr") {
+          frame.cell.colAddr = Number(xmlAttr(attrs, "colAddr")) || 0;
+          frame.cell.rowAddr = Number(xmlAttr(attrs, "rowAddr")) || 0;
+        } else {
+          frame.cell.colSpan = Math.max(1, Number(xmlAttr(attrs, "colSpan")) || 1);
+          frame.cell.rowSpan = Math.max(1, Number(xmlAttr(attrs, "rowSpan")) || 1);
+        }
       }
       continue;
     }
@@ -448,7 +503,7 @@ export function extractHwpxBlocks(xml) {
       if (frame) frame.row = [];
     } else if (local === "tc") {
       const frame = currentFrame();
-      if (frame) frame.cell = "";
+      if (frame) frame.cell = { text: "", colAddr: 0, rowAddr: 0, colSpan: 1, rowSpan: 1 };
     } else if (local === "p") {
       paragraphDepth += 1;
       if (paragraphDepth === 1) paragraphBuffer = "";
@@ -459,12 +514,68 @@ export function extractHwpxBlocks(xml) {
   return blocks;
 }
 
-function rowsToTable(rows) {
+/** 표 칸들을 좌표·병합에 맞춰 격자로 펴고, 표가 아닌 틀은 문단·제목으로 돌려준다. */
+function hwpxTableBlocks(frame) {
+  const rows = (frame.rows || []).filter((row) => Array.isArray(row) && row.length);
+  if (!rows.length) return [];
+
+  const grid = [];
+  const spans = [];
+  rows.forEach((cells, rowIndex) => {
+    // cellAddr가 없거나 전부 0이면 칸 순서를 그대로 쓴다.
+    const hasAddr = cells.some((cell) => cell.colAddr > 0);
+    const rowCells = grid[rowIndex] || (grid[rowIndex] = []);
+    const rowSpans = spans[rowIndex] || (spans[rowIndex] = []);
+    cells.forEach((cell, index) => {
+      let column = hasAddr ? cell.colAddr : index;
+      while (rowCells[column] !== undefined && column < MAX_TABLE_COLUMNS * 2) column += 1;
+      rowCells[column] = cell.text;
+      rowSpans[column] = [cell.rowSpan, cell.colSpan];
+    });
+  });
+
+  const width = Math.min(Math.max(1, ...grid.map((row) => row.length)), MAX_TABLE_COLUMNS);
+  const plain = grid.map((row) => {
+    const cells = [];
+    for (let column = 0; column < width; column += 1) cells.push(normalizeInline(row[column] ?? ""));
+    return cells;
+  });
+  const spanRows = spans.map((row) => {
+    const cells = [];
+    for (let column = 0; column < width; column += 1) cells.push(row[column] || [1, 1]);
+    return cells;
+  });
+
+  // 1×1 틀 — 문서 제목·요약 상자를 표로 세지 않는다.
+  if (plain.length === 1 && width === 1) {
+    const text = plain[0][0];
+    if (!text) return [];
+    const heading = classifyHeading(text);
+    if (heading) return [{ type: "heading", level: heading.level, title: heading.title }];
+    return [{ type: "paragraph", text: clampText(text, 2000) }];
+  }
+
+  // 장 띠 — ‘Ⅰ | (빈칸) | 사업 개요’ 처럼 번호 칸과 제목 칸만 찬 한 줄 표
+  if (plain.length === 1) {
+    const filled = plain[0].map((text, column) => ({ text, column })).filter((cell) => cell.text);
+    const marker = filled.find((cell) => SECTION_MARKER.test(cell.text));
+    if (filled.length === 2 && marker) {
+      const title = cleanHeadingTitle(filled.find((cell) => cell !== marker).text);
+      if (title) return [{ type: "heading", level: 1, title }];
+    }
+  }
+
+  return [{ type: "table", ...rowsToTable(plain, spanRows) }];
+}
+
+function rowsToTable(rows, spans) {
   const cleaned = rows.map((row) => row.map((cell) => String(cell ?? "").trim()));
   const headerLike = looksLikeHeader(cleaned[0] || []);
   const headers = headerLike ? cleaned[0] : (cleaned[0] || []).map((_, index) => `열 ${index + 1}`);
   const body = headerLike ? cleaned.slice(1) : cleaned;
-  return buildTable(headers, body);
+  // 병합 정보도 머리 행과 같은 경계로 자른다 — 머리 행을 걸러낸 만큼 같이 밀린다.
+  const bodySpans = Array.isArray(spans) ? (headerLike ? spans.slice(1) : spans) : spans;
+  return buildTable(headers, body, bodySpans);
 }
 
 /**
@@ -543,6 +654,8 @@ const BLANK_PATTERNS = [  /_{3,}/,
   /\.{4,}/
 ];
 const LABEL_PATTERN = /^([^:：]{1,40})\s*[:：]\s*$/;
+/** 문서에 글자로 남은 값 자리 — `{{사업명}}`, `[입력]`, `[사업명]` (kordoc 플레이스홀더 규격) */
+const PLACEHOLDER_MARK = /\{\{\s*[^{}]{1,40}?\s*\}\}|\[\s*(?:입력|작성|기입|[가-힣A-Za-z][가-힣A-Za-z0-9 ]{1,18})\s*\]/;
 
 function hasBlank(text) {
   return BLANK_PATTERNS.some((pattern) => pattern.test(text));
@@ -566,6 +679,7 @@ export function detectSlotKind(text, blockType) {
   if (!line || line.length > 240) return null;
   if (GUIDE_PATTERN.test(line)) return "guide";
   if (hasBlank(line)) return "blank";
+  if (PLACEHOLDER_MARK.test(line)) return "blank";
   // '다음과 같습니다:' 같은 안내 문장은 라벨이 아니라 문단으로 둔다.
   if (LABEL_PATTERN.test(line) && !/(습니다|입니다|합니다)\s*[:：]?$/.test(line)) return "label";
   if (blockType === "list" && line.length <= 120) return "item";
@@ -731,7 +845,19 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
     warnings.push(`작성 항목이 많아 ${MAX_TEXT_SLOTS + MAX_CELL_SLOTS}개까지만 미리보기에 담았습니다.`);
   }
 
+  // 문서 제목 — 첫 제목 앞에 홀로 놓인 짧은 문단(표지 상자·문서 제목)이 있으면 그것을 쓴다.
+  const lead = sourceBlocks.find(
+    (block) =>
+      block.type === "paragraph" &&
+      (block.text || "").trim() &&
+      block.text.length <= 60 &&
+      !GUIDE_PATTERN.test(block.text) &&
+      !/[:：]/.test(block.text) &&
+      !detectSlotKind(block.text, "paragraph")
+  );
+  const leadTitle = lead ? cleanHeadingTitle(lead.text).slice(0, 80) : "";
   schema.title =
+    (leadTitle && leadTitle.length <= 60 && !/[.?!]$/.test(leadTitle) ? leadTitle : "") ||
     (sections.find((section) => section.level === 1) || sections[0])?.title ||
     String(fileName || "").replace(/\.[^.]+$/, "") ||
     "샘플 양식";

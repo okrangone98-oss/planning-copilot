@@ -16,6 +16,7 @@ https://okrangone98-oss.github.io/planning-copilot/
 - [무료 API 직접 호출(키 미저장)](docs/free-model-api.md)
 - [david-workbrain·Notion 연계 Markdown 내보내기](docs/workbrain-export.md)
 - [샘플 양식 구조 파싱·맞춤 채우기](docs/sample-template-fill.md)
+- [kordoc 양식 규격 채우기·자유 텍스트 자동 배치](docs/kordoc-smart-fill.md)
 - [다중 사업 관리 보드·개인정보 마스킹 가드](docs/multi-project-and-pii-guard.md)
 - [UI/UX 개편 노트(k-style-ui-ux 기반)](docs/ui-ux-k-style.md)
 - [사업 운영 1단계: 업무·일정·회차·예산 연동](docs/project-operations-phase1.md)
@@ -46,6 +47,7 @@ https://okrangone98-oss.github.io/planning-copilot/
 ### 시트 복붙 · 한글(.hwpx) 변환
 
 - `예산 편성`의 **구글 시트·CSV 붙여넣기로 채우기**에 시트에서 복사한 줄(탭·쉼표·Markdown 표)이나 CSV 파일을 넣으면 비목·세목·단가·수량·산출근거·비고로 읽어 표에 넣습니다. 머리글 순서가 달라도 열 이름으로 찾고, 합계 행은 건너뜁니다.
+- `샘플 양식 채우기`에서는 **연습 양식**을 버튼 한 번으로 읽어 칸 모양을 익힐 수 있고, 카톡·메모·회의록 글을 통째로 붙여넣으면 알맞은 칸으로 나눠 보여 준 뒤 체크한 칸만 채웁니다. 채운 값은 kordoc `fill`/`patch`용 JSON과 명령, 로컬 브릿지(`node scripts/kordoc-bridge.mjs`)로 실제 .hwpx에 들어갑니다. 자세한 규칙은 [kordoc 양식 규격 채우기](docs/kordoc-smart-fill.md)에 정리했습니다.
 - `샘플 양식 채우기`·`워크브레인 내보내기` 결과에는 **한글(.hwpx)로 변환하기**가 붙습니다. 브라우저만으로는 .hwpx를 만들지 않는다는 점을 화면에 적고, ① .md 내려받기 ② `npx kordoc generate <파일>.md -o <파일>.hwpx --preset 보고서` 명령 복사 ③ 로컬 브릿지가 있으면 그 주소로 변환을 맡기는 세 갈래를 제공합니다.
 
 ## 실행 방법
