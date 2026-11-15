@@ -40,8 +40,7 @@ import {
   CARRYOVER_MODE_HINT,
   detectPreviousYearDocument,
   findLeftoverYearValues,
-  markCarryoverRows,
-  type CarryoverDetection
+  markCarryoverRows
 } from "./lib/yearCarryover.mjs";
 import {
   MATERIALS_ACCEPT,
@@ -454,9 +453,8 @@ export default function App() {
   const [materialFileName, setMaterialFileName] = useState("");
   /** 활동사진 파일 이름으로 만든 캡션 */
   const [photoCaptionsState, setPhotoCaptionsState] = useState<PhotoCaptions | null>(null);
-  /** 전년도 결과보고서 양식 이양 모드 — 작년 값을 올해 값으로 갈아끼운다 */
-  const [carryoverEnabled, setCarryoverEnabled] = useState(false);
-  const [carryoverDetection, setCarryoverDetection] = useState<CarryoverDetection | null>(null);
+  /** 전년도 결과보고서 양식 이양 모드 — 작년 값을 올해 값으로 갈아끼운다. null이면 감지에 따른다. */
+  const [carryoverUserChoice, setCarryoverUserChoice] = useState<boolean | null>(null);
   // 자유 텍스트 → 칸 배치 미리보기. 결과는 메모리에만 두고, 원문은 세션에 저장한다.
   const [smartResult, setSmartResult] = useState<SmartMapResult | null>(null);
   const [smartSelected, setSmartSelected] = useState<Set<string>>(() => new Set());
@@ -895,10 +893,8 @@ export default function App() {
     });
     const summary = summarizeSchema(schema);
     setTemplateError("");
-    // 작년 결과보고서처럼 값이 채워진 문서인지 미리 본다 — 맞으면 양식 이양을 자동으로 켠다.
-    const detection = detectPreviousYearDocument({ schema, fileName, currentYear: new Date().getFullYear() });
-    setCarryoverDetection(detection);
-    setCarryoverEnabled(detection.suggested);
+    // 새 양식에서는 이양 여부를 다시 감지에 맡긴다 — 사용자가 직접 고른 적이 있어도 새 양식이면 초기화.
+    setCarryoverUserChoice(null);
     updateTemplateSession({
       schema,
       result: "",
@@ -1250,8 +1246,7 @@ export default function App() {
     if (!window.confirm("읽은 양식 구조와 결과를 지울까요? 올린 파일 자체는 삭제되지 않습니다.")) return;
     setTemplateSession(createEmptyTemplateSession());
     setTemplateError("");
-    setCarryoverDetection(null);
-    setCarryoverEnabled(false);
+    setCarryoverUserChoice(null);
     notify("읽은 양식을 지웠습니다.");
   };
 
@@ -1265,6 +1260,20 @@ export default function App() {
   /* ── 전년도 결과보고서 양식 이양 ───────────────────────── */
 
   const currentYear = new Date().getFullYear();
+  /** 올린 양식이 작년 결과보고서인지 — 저장된 양식에서 다시 계산하므로 새로고침 뒤에도 유지된다 */
+  const carryoverDetection = useMemo(
+    () =>
+      templateSession.schema
+        ? detectPreviousYearDocument({
+            schema: templateSession.schema,
+            fileName: templateSession.schema.fileName,
+            currentYear
+          })
+        : null,
+    [templateSession.schema, currentYear]
+  );
+  /** 사용자가 토글로 직접 정하지 않았으면 감지 결과를 따른다 */
+  const carryoverEnabled = carryoverUserChoice === null ? Boolean(carryoverDetection?.suggested) : carryoverUserChoice;
   /** 이양 대상 칸 — 원본에 적힌 전년도 값(연도·날짜·금액·인원)이 있는 칸 */
   const carryoverPlan = useMemo(
     () =>
@@ -2811,7 +2820,7 @@ export default function App() {
               onPickPhotoFiles={pickPhotoFiles}
               carryoverDetection={carryoverDetection}
               carryoverEnabled={carryoverEnabled}
-              onCarryoverToggle={setCarryoverEnabled}
+              onCarryoverToggle={setCarryoverUserChoice}
               carryoverPlanCounts={carryoverPlan.counts}
               carryoverLeftover={carryoverLeftover}
               piiGuard={(
