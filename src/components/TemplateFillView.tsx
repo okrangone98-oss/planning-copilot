@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   HWP_BINARY_GUIDANCE,
   SAMPLE_ACCEPT,
@@ -147,6 +147,21 @@ export function TemplateFillView({
   const summary = summarizeSchema(schema);
   const ready = Boolean(schema && (summary.sections || summary.tables || summary.slots));
   const filledCount = Object.values(fillValues).filter((value) => String(value ?? "").trim()).length;
+  /** 2단계 자동 배치로 들어간 값 — 검토 표의 ‘자동 채움’ 표시에 쓴다. */
+  const autoFieldIds = useMemo(() => {
+    const rows = smartResult?.rows || [];
+    return new Set(
+      rows
+        .filter((row) => smartSelected.has(row.fieldId))
+        .filter((row) => String(fillValues[row.fieldId] ?? "").trim() === String(row.proposed ?? "").trim())
+        .map((row) => row.fieldId)
+    );
+  }, [smartResult, smartSelected, fillValues]);
+  /** 자동 배치 점수가 낮아 사람이 봐야 하는 칸 — ‘확인 필요’로 표시한다. */
+  const lowConfidenceIds = useMemo(
+    () => new Set((smartResult?.rows || []).filter((row) => Number(row.score) < 0.6).map((row) => row.fieldId)),
+    [smartResult]
+  );
 
   return (
     <div className="template-layout">
@@ -195,11 +210,11 @@ export function TemplateFillView({
         <small title={HWP_BINARY_GUIDANCE}>
           HWPX · DOCX · PDF · MD · TXT · CSV를 읽습니다. 구형 .hwp는 한글에서 HWPX·DOCX·PDF로 저장해 올려 주세요.
         </small>
-        <div className="practice-template-row">
+        <div className="practice-template-row is-primary-path">
           <button className="secondary-button" type="button" onClick={onLoadPractice} disabled={practiceLoading}>
-            {practiceLoading ? "연습 양식 불러오는 중" : "올릴 파일이 없으면 연습 양식 불러오기"}
+            {practiceLoading ? "연습 양식 불러오는 중" : "처음이면 여기부터 — 연습 양식 불러오기"}
           </button>
-          <span>기관 표준 사업계획서 연습 양식(예시)을 그대로 읽어 칸 모양을 눈으로 익혀 봅니다.</span>
+          <span>올릴 양식이 없어도 기관 표준 사업계획서 연습 양식(예시)으로 ①→④단계를 그대로 따라 해 볼 수 있습니다. 실제로 낼 때는 공고에서 받은 양식으로 바꿔 주세요.</span>
         </div>
         <details className="setup-details template-paste">
           <summary>파일 없이 양식 내용을 붙여넣기</summary>
@@ -387,6 +402,10 @@ export function TemplateFillView({
           markdown={result}
           notify={notify}
           onValueChange={onFillValueChange}
+          autoFieldIds={autoFieldIds}
+          lowConfidenceIds={lowConfidenceIds}
+          leftovers={smartResult?.leftovers || []}
+          schema={schema}
         />
       )}
 
@@ -492,9 +511,15 @@ export function TemplateFillView({
       )}
 
       {!schema && (
-        <div className="office-empty">
+        <div className="office-empty template-first-visit">
           <strong>아직 읽은 양식이 없습니다.</strong>
           <span>위 ①단계에서 양식 파일을 올리거나 양식 내용을 붙여넣으면 목차·표·작성 항목을 바로 보여 줍니다.</span>
+          <div className="draft-actions">
+            <button className="primary-button" type="button" onClick={onLoadPractice} disabled={practiceLoading}>
+              {practiceLoading ? "연습 양식 불러오는 중" : "연습 양식 불러와서 4단계 따라 해 보기"}
+            </button>
+            <span className="template-first-visit-note">실제 양식이 없어도 연습 양식으로 ① 양식 불러오기 → ② 자료 붙여넣기 → ③ 검토·수정 → ④ .hwpx 다운로드까지 그대로 해 볼 수 있습니다.</span>
+          </div>
         </div>
       )}
     </div>
