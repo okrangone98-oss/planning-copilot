@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { agentRoles } from "./data/agentRoles";
 import { grantPresets } from "./data/grantPresets";import { ControlTowerView } from "./components/ControlTowerView";
 import { GrantBudgetView, GrantChecklistView, GrantReportView } from "./components/GrantWorkflowViews";
@@ -27,6 +27,22 @@ import {
   type TemplateSchema
 } from "./lib/sampleTemplateParser.mjs";
 import { createEmptyTemplateSession, loadTemplateSession, saveTemplateSession, type TemplateSession } from "./lib/templateStorage";
+import { applyFieldValues, extractFormFields } from "./lib/kordocFormSpec.mjs";
+import {
+  buildSmartTextPrompt,
+  collectSelectedValues,
+  mapFreeTextToFields,
+  mergeWithRuleMap,
+  parseSmartTextResponse,
+  type SmartMapResult
+} from "./lib/smartTextMapper.mjs";
+import {
+  PRACTICE_TEMPLATE_FILE,
+  PRACTICE_TEMPLATE_LABEL,
+  PRACTICE_TEMPLATE_NOTE,
+  PRACTICE_TEMPLATE_TEXT,
+  practiceTemplateUrl
+} from "./lib/practiceTemplate.mjs";
 import { absorbModelResponse, buildDraftPolishPrompt, buildModelPrompt } from "./lib/prompts";
 import { currentModelName, listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
 import { providerConfig, remoteModelField, validateApiKey, ADVANCED_MODEL_PROVIDERS, PRIMARY_MODEL_PROVIDERS, isAdvancedModelProvider, providerAvailabilityNote } from "./lib/modelSafety.mjs";
@@ -396,6 +412,15 @@ export default function App() {
   const [templateSession, setTemplateSession] = useState<TemplateSession>(() => loadTemplateSession(initial.workspace.activeProjectId));
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateError, setTemplateError] = useState("");
+  // 올린 양식 파일 원본(base64) — kordoc fill/patch 브릿지에 넘긴다. 저장소에는 남기지 않는다.
+  const [templateFileData, setTemplateFileData] = useState<{ name: string; base64: string }>({ name: "", base64: "" });
+  const [practiceLoading, setPracticeLoading] = useState(false);
+  // 자유 텍스트 → 칸 배치 미리보기. 결과는 메모리에만 두고, 원문은 세션에 저장한다.
+  const [smartResult, setSmartResult] = useState<SmartMapResult | null>(null);
+  const [smartSelected, setSmartSelected] = useState<Set<string>>(() => new Set());
+  const [smartBusy, setSmartBusy] = useState(false);
+  const [smartNote, setSmartNote] = useState("");
+  const [smartError, setSmartError] = useState("");
   // 개인정보 마스킹은 기본 켜짐. 끄면 그 선택을 기억하되, 켜라는 안내는 화면에 남긴다.
   const [piiMaskEnabled, setPiiMaskEnabled] = useState(() => loadPiiMaskPreference());
   // API 키는 이 탭의 메모리에만 둔다. localStorage·백업·아카이브 어디에도 저장하지 않는다.
@@ -492,6 +517,18 @@ export default function App() {
   useEffect(() => {
     saveTemplateSession(templateSession, workspace.activeProjectId);
   }, [templateSession, workspace.activeProjectId]);
+
+  // 다른 사업으로 바꾸면 앞 사업의 자유 텍스트 배치 미리보기와 올린 파일 바이트를 들고 가지 않는다.
+  const templateProjectRef = useRef(workspace.activeProjectId);
+  useEffect(() => {
+    if (templateProjectRef.current === workspace.activeProjectId) return;
+    templateProjectRef.current = workspace.activeProjectId;
+    setSmartResult(null);
+    setSmartSelected(new Set());
+    setSmartNote("");
+    setSmartError("");
+    setTemplateFileData({ name: "", base64: "" });
+  }, [workspace.activeProjectId]);
 
   useEffect(() => {
     saveWorkspace(workspace);
@@ -788,8 +825,13 @@ export default function App() {
     updateTemplateSession({
       schema,
       result: "",
+      fieldValues: {},
       profile: normalizeProfile({ ...templateSession.profile, projectName: templateSession.profile.projectName || project.projectName })
     });
+    setSmartResult(null);
+    setSmartSelected(new Set());
+    setSmartNote("");
+    setSmartError("");
     if (!summary.sections && !summary.tables && !summary.slots) {
       notify("양식 구조를 찾지 못했습니다. 목차 번호와 표를 확인하거나 내용을 붙여넣어 보세요.");
       return;
@@ -809,6 +851,12 @@ export default function App() {
         if (document.warning) notify(document.warning);
         if (!document.text) return;
         applyTemplateDocument(document, file.name);
+        // kordoc fill/patch 에 넘길 원본 — HWPX만 실제 채우기가 된다. 저장소에는 남기지 않는다.
+        if (/\.hwpx$/i.test(file.name)) {
+          void readFileBase64(file).then((base64) => setTemplateFileData({ name: file.name, base64 }));
+        } else {
+          setTemplateFileData({ name: file.name, base64: "" });
+        }
       })
       .catch(() => notify("양식 파일을 읽지 못했습니다. 양식 내용을 복사해 붙여넣어 주세요."))
       .finally(() => setTemplateBusy(false));
@@ -972,6 +1020,174 @@ export default function App() {
     setTemplateSession(createEmptyTemplateSession());
     setTemplateError("");
     notify("읽은 양식을 지웠습니다.");
+  };
+
+  /* ── 자유 텍스트 자동 배치 · kordoc 채우기 ───────────────────── */
+
+  const templateFields = useMemo(
+    () => (templateSession.schema ? extractFormFields(templateSession.schema) : []),
+    [templateSession.schema]
+  );
+
+  const readFileBase64 = (file: File) =>
+    new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+      reader.onerror = () => resolve("");
+      reader.readAsDataURL(file);
+    });
+
+  const resetSmartState = () => {
+    setSmartResult(null);
+    setSmartSelected(new Set());
+    setSmartNote("");
+    setSmartError("");
+  };
+
+  /** 파일이 없어도 양식 구조를 익힐 수 있게, 저장소에 둔 연습 양식(.hwpx)을 그대로 읽는다. */
+  const loadPracticeTemplate = async () => {
+    if (practiceLoading) return;
+    setPracticeLoading(true);
+    setTemplateError("");
+    try {
+      const response = await fetch(practiceTemplateUrl(document.baseURI), { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const file = new File([blob], PRACTICE_TEMPLATE_FILE, { type: blob.type || "application/vnd.hancom.hwpx" });
+      const document_ = await extractDocument(file);
+      if (!document_.text) throw new Error("연습 양식이 비어 있습니다.");
+      applyTemplateDocument(document_, file.name);
+      const base64 = await readFileBase64(file);
+      setTemplateFileData({ name: file.name, base64 });
+      notify(`${PRACTICE_TEMPLATE_LABEL}을(를) 불러왔습니다. ${PRACTICE_TEMPLATE_NOTE}`);
+    } catch {
+      applyTemplateDocument({ text: PRACTICE_TEMPLATE_TEXT, blocks: [], format: "markdown" }, "연습 양식(글자)");
+      setTemplateFileData({ name: "", base64: "" });
+      notify("연습 양식 파일을 불러오지 못해 같은 내용을 글자로 읽었습니다. 실제 .hwpx로 채우려면 양식 파일을 올려 주세요.");
+    } finally {
+      setPracticeLoading(false);
+    }
+  };
+
+  const applySmartRows = (result: SmartMapResult, note: string) => {
+    setSmartResult(result);
+    setSmartSelected(new Set(result.rows.filter((row) => row.checked).map((row) => row.fieldId)));
+    setSmartNote(note);
+  };
+
+  /** 자유 텍스트 배치 — AI 키가 있으면 AI, 없거나 실패하면 규칙. 어느 쪽이든 미리보기부터. */
+  const runSmartMap = async (mode: "auto" | "rule") => {
+    if (!templateSession.schema) {
+      notify("먼저 샘플 양식을 올리거나 연습 양식을 불러와 주세요.");
+      return;
+    }
+    const text = templateSession.smartText.trim();
+    if (!text) {
+      notify("붙여넣을 글을 먼저 넣어 주세요.");
+      return;
+    }
+    const fields = templateFields;
+    if (!fields.length) {
+      notify("이 양식에서 값을 넣을 칸을 찾지 못했습니다. 표의 ‘라벨 | 빈칸’이나 ‘라벨: ___’ 형태를 확인해 주세요.");
+      return;
+    }
+    setSmartError("");
+    setSmartNote("");
+    const ruleResult = mapFreeTextToFields({ fields, text });
+    const ruleNote = ruleResult.rows.length
+      ? `규칙으로 ${ruleResult.rows.length}칸을 나눴습니다. 칸별로 확인하고 체크한 칸만 채우세요.`
+      : "규칙으로는 칸을 찾지 못했습니다. ‘라벨: 값’ 꼴로 적거나 AI 경로를 써 보세요.";
+
+    if (mode === "rule" || modelSettings.provider === "simulation") {
+      applySmartRows(ruleResult, mode === "rule" ? ruleNote : `템플릿 모드라 규칙으로 나눴습니다. ${ruleNote}`);
+      return;
+    }
+
+    const remoteConfig = providerConfig(modelSettings.provider);
+    if (remoteConfig) {
+      const keyCheck = validateApiKey(modelSettings.provider, apiKeys[modelSettings.provider] || "");
+      if (!keyCheck.ok || !remoteAck) {
+        applySmartRows(ruleResult, ruleNote);
+        setSmartError(keyCheck.ok ? "모델 설정에서 외부 전송 확인을 먼저 체크해 주세요. 지금은 규칙으로 나눴습니다." : keyCheck.message);
+        return;
+      }
+    }
+
+    setSmartBusy(true);
+    try {
+      const prompt = maskForExternal(buildSmartTextPrompt({ fields, text }), "자유 텍스트 배치");
+      const modelResult = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
+      if (!modelResult.ok) {
+        applySmartRows(ruleResult, `AI 호출이 실패해 규칙으로 나눴습니다. ${ruleNote}`);
+        setSmartError(modelResult.error || "모델 실행에 실패했습니다.");
+        return;
+      }
+      const aiResult = parseSmartTextResponse(modelResult.output, { fields, fallbackText: text });
+      if (!aiResult) {
+        applySmartRows(ruleResult, `AI 응답을 JSON으로 읽지 못해 규칙으로 나눴습니다. ${ruleNote}`);
+        return;
+      }
+      const merged = mergeWithRuleMap(aiResult, ruleResult) || aiResult;
+      applySmartRows(
+        merged,
+        `AI가 ${aiResult.rows.length}칸, 규칙이 ${merged.ruleRows || 0}칸을 나눴습니다. 칸별로 확인하고 체크한 칸만 채우세요.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "모델 실행에 실패했습니다.";
+      applySmartRows(ruleResult, `AI 호출이 실패해 규칙으로 나눴습니다. ${ruleNote}`);
+      setSmartError(message);
+    } finally {
+      setSmartBusy(false);
+    }
+  };
+
+  const applySmartSelection = () => {
+    if (!templateSession.schema || !smartResult) return;
+    const { values, count, replaced } = collectSelectedValues(smartResult.rows, smartSelected);
+    if (!count) {
+      notify("채울 칸을 하나 이상 체크해 주세요.");
+      return;
+    }
+    const applied = applyFieldValues(templateSession.schema, values, { force: true });
+    if (!applied || !("schema" in applied)) return;
+    updateTemplateSession({
+      schema: applied.schema,
+      fieldValues: { ...templateSession.fieldValues, ...values }
+    });
+    setSmartNote(
+      `${applied.applied}칸을 채웠습니다${replaced ? ` (이미 글이 있던 ${replaced}칸은 체크해서 바꿈)` : ""}. 위 미리보기와 아래 kordoc 채우기 데이터에서 확인하세요.`
+    );
+    notify(`양식 ${applied.applied}칸을 붙여넣은 글로 채웠습니다.`);
+  };
+
+  const toggleSmartField = (fieldId: string, checked: boolean) => {
+    setSmartSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(fieldId);
+      else next.delete(fieldId);
+      return next;
+    });
+  };
+
+  const toggleAllSmartFields = (checked: boolean) => {
+    setSmartSelected(new Set(checked ? (smartResult?.rows || []).map((row) => row.fieldId) : []));
+  };
+
+  const clearSmartText = () => {
+    updateTemplateSession({ smartText: "" });
+    resetSmartState();
+    notify("붙여넣은 글과 칸 배치를 지웠습니다. 채운 칸 값은 그대로 둡니다.");
+  };
+
+  const sendSmartLeftoversToDraft = () => {
+    const text = (smartResult?.leftovers || []).map((item) => item.text).filter(Boolean).join("\n\n").trim();
+    if (!text) {
+      notify("보낼 글이 없습니다.");
+      return;
+    }
+    updateProject({ draftOutput: [project.draftOutput, text].filter(Boolean).join("\n\n") });
+    setSection("draft");
+    notify("배치하지 못한 글을 초안 조립에 붙였습니다.");
   };
 
   const runNoticeAnalysis = () => {
@@ -2206,6 +2422,24 @@ export default function App() {
               onOpenModelSettings={() => setSection("modelSettings")}
               onClear={clearTemplateSchema}
               notify={notify}
+              practiceLoading={practiceLoading}
+              onLoadPractice={() => { void loadPracticeTemplate(); }}
+              fields={templateFields}
+              fileBase64={templateFileData.base64}
+              smartText={templateSession.smartText}
+              onSmartTextChange={(smartText) => updateTemplateSession({ smartText })}
+              smartResult={smartResult}
+              smartSelected={smartSelected}
+              smartBusy={smartBusy}
+              smartNote={smartNote}
+              smartError={smartError}
+              onSmartMap={(mode) => { void runSmartMap(mode); }}
+              onSmartApply={applySmartSelection}
+              onSmartToggle={toggleSmartField}
+              onSmartToggleAll={toggleAllSmartFields}
+              onSmartClear={clearSmartText}
+              onSmartLeftoversToDraft={sendSmartLeftoversToDraft}
+              fillValues={templateSession.fieldValues}
               piiGuard={(
                 <PiiGuardNotice
                   text={templatePromptPreview}

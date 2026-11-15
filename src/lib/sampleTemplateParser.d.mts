@@ -2,7 +2,7 @@ export type SampleBlock =
   | { type: "heading"; level: number; title: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; marker: string; text: string }
-  | { type: "table"; headers: string[]; rows: string[][] }
+  | { type: "table"; headers: string[]; rows: string[][]; spans?: Array<Array<[number, number]>> }
   | { type: "meta"; text: string };
 
 export type TemplateSection = {
@@ -22,6 +22,8 @@ export type TemplateTable = {
   caption: string;
   headers: string[];
   rows: string[][];
+  /** 칸마다 [rowSpan, colSpan] — 병합이 있는 표만 담는다 */
+  spans?: Array<Array<[number, number]>>;
   columnCount: number;
   rowCount: number;
   emptyCells: number;
@@ -36,6 +38,8 @@ export type TemplateSlot = {
   sectionId: string | null;
   sectionTitle: string;
   preview?: string;
+  /** 사용자가 채운 값(본문 자리 표시 칸) */
+  value?: string;
   tableId?: string;
   rowIndex?: number;
   columnIndex?: number;
@@ -90,7 +94,11 @@ export function documentFormatOf(fileName?: string | null): string;
 export function describeSampleSupport(fileName?: string | null): TemplateSupport;
 export function classifyHeading(rawLine?: string | null): { level: number; title: string } | null;
 export function isHeadingLine(line?: string | null): boolean;
-export function buildTable(headers?: string[], rows?: string[][]): { headers: string[]; rows: string[][] };
+export function buildTable(
+  headers?: string[],
+  rows?: string[][],
+  spans?: Array<Array<[number, number]>>
+): { headers: string[]; rows: string[][]; spans?: Array<Array<[number, number]>> };
 export function parseTextBlocks(text?: string): SampleBlock[];
 export function blocksToText(blocks?: SampleBlock[]): string;
 export function extractHwpxBlocks(xml?: string): SampleBlock[];

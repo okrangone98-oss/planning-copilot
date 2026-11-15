@@ -1211,6 +1211,8 @@
   .coach-bar {
     flex-direction: column;
     align-items: stretch;
+    /* column + wrap 이면 높이가 모자랄 때 오른쪽에 새 단을 만들어 가로로 넘친다 */
+    flex-wrap: nowrap;
   }
 
   .coach-bar > button {

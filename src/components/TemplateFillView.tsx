@@ -9,6 +9,11 @@ import {
   type TemplateSchema
 } from "../lib/sampleTemplateParser.mjs";
 import { HwpxExportPanel } from "./HwpxExportPanel";
+import { SmartTextPanel } from "./SmartTextPanel";
+import { KordocFillPanel } from "./KordocFillPanel";
+import type { FormField } from "../lib/kordocFormSpec.mjs";
+import type { SmartMapResult } from "../lib/smartTextMapper.mjs";
+import { FIELD_TYPE_LABEL } from "../lib/smartTextMapper.mjs";
 
 const KIND_LABEL: Record<string, string> = {
   blank: "빈칸",
@@ -64,7 +69,25 @@ export function TemplateFillView({
   onOpenModelSettings,
   onClear,
   notify,
-  piiGuard
+  piiGuard,
+  practiceLoading,
+  onLoadPractice,
+  fields,
+  fileBase64,
+  smartText,
+  onSmartTextChange,
+  smartResult,
+  smartSelected,
+  smartBusy,
+  smartNote,
+  smartError,
+  onSmartMap,
+  onSmartApply,
+  onSmartToggle,
+  onSmartToggleAll,
+  onSmartClear,
+  onSmartLeftoversToDraft,
+  fillValues
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -89,6 +112,24 @@ export function TemplateFillView({
   onClear: () => void;
   notify: (message: string) => void;
   piiGuard?: React.ReactNode;
+  practiceLoading?: boolean;
+  onLoadPractice: () => void;
+  fields: FormField[];
+  fileBase64: string;
+  smartText: string;
+  onSmartTextChange: (value: string) => void;
+  smartResult: SmartMapResult | null;
+  smartSelected: Set<string>;
+  smartBusy: boolean;
+  smartNote: string;
+  smartError: string;
+  onSmartMap: (mode: "auto" | "rule") => void;
+  onSmartApply: () => void;
+  onSmartToggle: (fieldId: string, checked: boolean) => void;
+  onSmartToggleAll: (checked: boolean) => void;
+  onSmartClear: () => void;
+  onSmartLeftoversToDraft: () => void;
+  fillValues: Record<string, string>;
 }) {
   const [pasteText, setPasteText] = useState("");
   const [showTables, setShowTables] = useState(true);
@@ -132,6 +173,12 @@ export function TemplateFillView({
         <small title={HWP_BINARY_GUIDANCE}>
           HWPX · DOCX · PDF · MD · TXT · CSV를 읽습니다. 구형 .hwp는 한글에서 HWPX·DOCX·PDF로 저장해 올려 주세요.
         </small>
+        <div className="practice-template-row">
+          <button className="secondary-button" type="button" onClick={onLoadPractice} disabled={practiceLoading}>
+            {practiceLoading ? "연습 양식 불러오는 중" : "올릴 파일이 없으면 연습 양식 불러오기"}
+          </button>
+          <span>기관 표준 사업계획서 연습 양식(예시)을 그대로 읽어 칸 모양을 눈으로 익혀 봅니다.</span>
+        </div>
       </div>
 
       <details className="setup-details template-paste">
@@ -228,6 +275,29 @@ export function TemplateFillView({
             </div>
           </div>
 
+          {fields.length > 0 && (
+            <details className="setup-details template-field-details" open>
+              <summary>이 양식의 칸 {fields.length}개 — 무엇을 넣는 자리인지</summary>
+              <ul className="template-field-list">
+                {fields.slice(0, 60).map((field, index) => {
+                  // 같은 구역의 안내문은 구역마다 한 번만 보여 준다 — 칸마다 되풀이하면 읽기 어렵다.
+                  const previous = index > 0 ? fields[index - 1] : null;
+                  const firstOfSection = !previous || previous.sectionTitle !== field.sectionTitle || previous.hint !== field.hint;
+                  return (
+                    <li key={field.id}>
+                      <span className="template-field-label">{field.label}</span>
+                      <span className="template-slot-kind is-blank">{FIELD_TYPE_LABEL[field.type] || "글"}</span>
+                      <span className="template-field-where">{field.sectionTitle || field.context}</span>
+                      {field.hint && firstOfSection && <small>{field.hint}</small>}
+                      {!field.empty && field.value && <small className="template-field-filled">지금 적힌 값: {field.value.slice(0, 60)}</small>}
+                    </li>
+                  );
+                })}
+                {fields.length > 60 && <li className="template-more">… {fields.length - 60}개 더 있음</li>}
+              </ul>
+            </details>
+          )}
+
           {showTables && schema.tables.length > 0 && (
             <div className="template-tables">
               <h4>표 {summary.tables}개</h4>
@@ -294,10 +364,30 @@ export function TemplateFillView({
       )}
 
       {schema && (
+        <SmartTextPanel
+          fields={fields}
+          text={smartText}
+          onTextChange={onSmartTextChange}
+          result={smartResult}
+          selected={smartSelected}
+          busy={smartBusy}
+          note={smartNote}
+          error={smartError}
+          providerLabel={providerLabel}
+          onMap={onSmartMap}
+          onApply={onSmartApply}
+          onToggle={onSmartToggle}
+          onToggleAll={onSmartToggleAll}
+          clear={onSmartClear}
+          onSendLeftoversToDraft={onSmartLeftoversToDraft}
+        />
+      )}
+
+      {schema && (
         <section className="grant-block" aria-label="양식에 맞춰 채우기">
           <div className="grant-block-head">
             <div>
-              <strong>4 · 이 양식에 맞춰 채우기</strong>
+              <strong>6 · 이 양식에 맞춰 채우기</strong>
               <span>현재 실행 경로: {providerLabel}. AI가 실패하면 규칙 기반 초안과 프롬프트 복사로 이어집니다.</span>
             </div>
             <div className="draft-actions">
@@ -335,7 +425,7 @@ export function TemplateFillView({
         <section className="grant-block" aria-label="양식에 맞춘 결과">
           <div className="grant-block-head">
             <div>
-              <strong>5 · 결과 (원본 목차·표 구조 유지)</strong>
+              <strong>7 · 결과 (원본 목차·표 구조 유지)</strong>
               <span>검토 전 초안입니다. 기관명·예산·일정·수치는 원본 자료와 대조한 뒤 사용하세요.</span>
             </div>
             <div className="draft-actions">
@@ -359,6 +449,17 @@ export function TemplateFillView({
             notify={notify}
           />
         </section>
+      )}
+
+      {schema && (
+        <KordocFillPanel
+          fields={fields}
+          values={fillValues}
+          fileName={schema.fileName}
+          fileBase64={fileBase64}
+          markdown={result}
+          notify={notify}
+        />
       )}
 
       {!schema && (
