@@ -2679,3 +2679,145 @@
   }
 }
 
+
+/* ───────────── 전년도 양식 이양 · 재료 파일 (PR #20) ───────────── */
+
+.carryover-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  padding: var(--stack-m) var(--stack-l);
+  border: 1px dashed var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-fill);
+}
+
+.carryover-bar.is-on {
+  border-style: solid;
+  border-color: var(--c-warning-tint-text);
+  background: var(--c-warning-tint);
+}
+
+.carryover-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--stack-s);
+  cursor: pointer;
+}
+
+.carryover-toggle input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.carryover-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.carryover-toggle small {
+  color: var(--c-text-2);
+  line-height: var(--lh-caption);
+}
+
+.carryover-reason {
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+}
+
+.carryover-counts {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--stack-s);
+  font-size: var(--fs-caption);
+}
+
+.report-materials .material-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-m);
+}
+
+.material-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  padding: var(--stack-m);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-bg-1, transparent);
+}
+
+.material-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--stack-s);
+}
+
+.material-row > small {
+  color: var(--c-text-2);
+  line-height: var(--lh-caption);
+}
+
+.material-result {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--stack-s);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+}
+
+.material-result .material-note {
+  color: var(--c-warning-tint-text);
+}
+
+.photo-caption-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  width: 100%;
+}
+
+.photo-caption-list li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--stack-s);
+  padding: 6px 8px;
+  border: 1px dashed var(--c-line);
+  border-radius: var(--r-s);
+  font-size: var(--fs-caption);
+}
+
+.photo-caption-date {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.photo-caption-title {
+  font-weight: 600;
+}
+
+.carryover-badge {
+  margin-left: 6px;
+}
+
+@media (max-width: 720px) {
+  .carryover-bar,
+  .material-row {
+    padding: 10px;
+  }
+}

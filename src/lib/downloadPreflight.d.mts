@@ -1,5 +1,6 @@
 import type { FormField } from "./kordocFormSpec.mjs";
 import type { TemplateSchema } from "./sampleTemplateParser.mjs";
+import type { CarryoverLeftover, CarryoverPlan } from "./yearCarryover.mjs";
 
 export type PreflightLevel = "block" | "warn" | "manual";
 export type FieldStatus = "auto" | "manual" | "check" | "required" | "blank" | "original";
@@ -67,6 +68,8 @@ export type PreflightInput = {
   schema?: TemplateSchema | null;
   title?: string;
   hasFile?: boolean;
+  /** 양식 이양 모드 — 전년도 값 잔존 점검에 쓴다 */
+  carryover?: { plan?: CarryoverPlan | null; leftover?: CarryoverLeftover | null } | null;
 };
 
 export const PREFLIGHT_LEVEL_LABEL: Record<PreflightLevel, string>;

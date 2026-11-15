@@ -27,6 +27,32 @@ import {
   type TemplateSchema
 } from "./lib/sampleTemplateParser.mjs";
 import { createEmptyTemplateSession, loadTemplateSession, saveTemplateSession, type TemplateSession } from "./lib/templateStorage";
+import {
+  appendMaterialText,
+  extractPlanSource,
+  PLAN_SOURCE_HINT,
+  type PlanSourceResult
+} from "./lib/hwpxSourceExtractor.mjs";
+import {
+  buildCarryoverPlan,
+  carryoverOverwriteMap,
+  classifyCarryover,
+  CARRYOVER_MODE_HINT,
+  detectPreviousYearDocument,
+  findLeftoverYearValues,
+  type CarryoverDetection
+} from "./lib/yearCarryover.mjs";
+import {
+  MATERIALS_ACCEPT,
+  MATERIALS_HINT,
+  materialsToText,
+  parseSpreadsheetMaterial,
+  PHOTO_ACCEPT,
+  PHOTO_HINT,
+  photoCaptions,
+  type PhotoCaptions,
+  type SpreadsheetMaterial
+} from "./lib/reportMaterials.mjs";
 import { buildProjectDataText, digestLoadedNote, mergeDigestIntoText, projectDataSignature, textSignature } from "./lib/projectDataReuse.mjs";
 import { applyFieldValues, extractFormFields } from "./lib/kordocFormSpec.mjs";
 import {
@@ -419,6 +445,17 @@ export default function App() {
   // 올린 양식 파일 원본(base64) — kordoc fill/patch 브릿지에 넘긴다. 저장소에는 남기지 않는다.
   const [templateFileData, setTemplateFileData] = useState<{ name: string; base64: string }>({ name: "", base64: "" });
   const [practiceLoading, setPracticeLoading] = useState(false);
+  /** 2단계 재료 파일 — 올해 추진계획서(.hwpx)에서 뽑은 글 */
+  const [planSource, setPlanSource] = useState<PlanSourceResult | null>(null);
+  const [planSourceBusy, setPlanSourceBusy] = useState(false);
+  /** 출석·지출 자료(CSV/TSV·붙여넣기)에서 세어 낸 결과 */
+  const [materialResult, setMaterialResult] = useState<SpreadsheetMaterial | null>(null);
+  const [materialFileName, setMaterialFileName] = useState("");
+  /** 활동사진 파일 이름으로 만든 캡션 */
+  const [photoCaptionsState, setPhotoCaptionsState] = useState<PhotoCaptions | null>(null);
+  /** 전년도 결과보고서 양식 이양 모드 — 작년 값을 올해 값으로 갈아끼운다 */
+  const [carryoverEnabled, setCarryoverEnabled] = useState(false);
+  const [carryoverDetection, setCarryoverDetection] = useState<CarryoverDetection | null>(null);
   // 자유 텍스트 → 칸 배치 미리보기. 결과는 메모리에만 두고, 원문은 세션에 저장한다.
   const [smartResult, setSmartResult] = useState<SmartMapResult | null>(null);
   const [smartSelected, setSmartSelected] = useState<Set<string>>(() => new Set());
@@ -857,6 +894,10 @@ export default function App() {
     });
     const summary = summarizeSchema(schema);
     setTemplateError("");
+    // 작년 결과보고서처럼 값이 채워진 문서인지 미리 본다 — 맞으면 양식 이양을 자동으로 켠다.
+    const detection = detectPreviousYearDocument({ schema, fileName, currentYear: new Date().getFullYear() });
+    setCarryoverDetection(detection);
+    setCarryoverEnabled(detection.suggested);
     updateTemplateSession({
       schema,
       result: "",
@@ -989,6 +1030,89 @@ export default function App() {
   };
 
   /** 불러온 뒤 사업 데이터가 바뀌었는지 — 화면을 열어 둔 채 예산·회차를 고치면 알려 준다. */
+  /**
+   * 2단계 재료 파일 — 올해 추진계획서(.hwpx)에서 라벨·값·예산·일정을 뽑아
+   * 붙여넣기 글 뒤에 이어 붙인다. 이미 쓴 글은 지우지 않는다.
+   */
+  const pickPlanSourceFile = (file: File) => {
+    setPlanSourceBusy(true);
+    void (async () => {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const result = await extractPlanSource({ bytes, fileName: file.name });
+        if (result.warning) notify(result.warning);
+        setPlanSource(result.ok ? result : null);
+        if (!result.ok || !result.text) return;
+        const merged = appendMaterialText({ existing: templateSession.smartText, block: result.text });
+        if (merged.mode === "append"
+          && templateSession.smartText.trim()
+          && !window.confirm("2단계에 이미 붙여넣은 글이 있습니다. 그 글은 그대로 두고 계획서 재료를 뒤에 이어 붙일까요? (취소하면 아무것도 바뀌지 않습니다)")) {
+          return;
+        }
+        updateTemplateSession({ smartText: merged.text });
+        resetSmartState();
+        notify(`계획서에서 항목 ${result.counts.total}줄을 읽어 2단계에 이어 붙였습니다. ‘자동으로 칸 나누기’를 다시 눌러 주세요.`);
+      } catch {
+        notify("계획서 파일을 읽지 못했습니다. 파일을 다시 골라 주세요.");
+      } finally {
+        setPlanSourceBusy(false);
+      }
+    })();
+  };
+
+  /** 출석·지출 자료(CSV·TSV·붙여넣은 표)를 세어 재료로 넣는다. */
+  const applyMaterialText = (text: string, fileName = "") => {
+    const parsed = parseSpreadsheetMaterial(text);
+    setMaterialResult(parsed);
+    setMaterialFileName(fileName);
+    if (!parsed.line) {
+      notify(`자료를 세지 못했습니다. ${parsed.warnings[0] || "머리글에 ‘일자·인원’ 또는 ‘적요·금액’이 있는지 확인해 주세요."}`);
+      return;
+    }
+    const merged = appendMaterialText({
+      existing: templateSession.smartText,
+      block: materialsToText([parsed], { title: `출석·지출 자료${fileName ? ` (${fileName})` : ""}` })
+    });
+    if (merged.mode === "append"
+      && templateSession.smartText.trim()
+      && !window.confirm("2단계에 이미 붙여넣은 글이 있습니다. 그 글은 그대로 두고 출석·지출 재료를 뒤에 이어 붙일까요? (취소하면 아무것도 바뀌지 않습니다)")) {
+      return;
+    }
+    updateTemplateSession({ smartText: merged.text });
+    resetSmartState();
+    notify(`${parsed.kind === "attendance" ? "출석" : "지출"} 자료를 재료로 넣었습니다: ${parsed.line} — ‘자동으로 칸 나누기’를 다시 눌러 주세요.`);
+  };
+
+  const pickMaterialFile = (file: File) => {
+    void file
+      .text()
+      .then((text) => applyMaterialText(text, file.name))
+      .catch(() => notify("자료 파일을 읽지 못했습니다. 시트에서 표를 복사해 붙여넣어 주세요."));
+  };
+
+  /** 활동사진 — 파일 이름·날짜로 캡션 줄을 만들어 재료로 넣는다. */
+  const pickPhotoFiles = (files: FileList | null) => {
+    const list = Array.from(files || []).filter(
+      (file) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|heic|avif)$/i.test(file.name)
+    );
+    if (!list.length) {
+      notify("이미지 파일을 골라 주세요.");
+      return;
+    }
+    const result = photoCaptions(list.map((file) => ({ name: file.name, lastModified: file.lastModified })));
+    setPhotoCaptionsState(result);
+    if (!result.text) return;
+    const merged = appendMaterialText({ existing: templateSession.smartText, block: result.text });
+    if (merged.mode === "append"
+      && templateSession.smartText.trim()
+      && !window.confirm("2단계에 이미 붙여넣은 글이 있습니다. 그 글은 그대로 두고 사진 캡션을 뒤에 이어 붙일까요? (취소하면 아무것도 바뀌지 않습니다)")) {
+      return;
+    }
+    updateTemplateSession({ smartText: merged.text });
+    resetSmartState();
+    notify(`활동사진 캡션 ${result.lines.length}줄을 2단계에 넣었습니다. 사진 파일 자체는 내려받은 문서를 한글에서 열어 ‘입력 → 그림’으로 넣어 주세요${result.warnings.length ? ` — 캡션을 못 만든 파일 ${result.warnings.length}개는 이름을 고쳐 주세요` : ""}.`);
+  };
+
   const templateDigestStale = useMemo(() => {
     if (!templateSession.digest || section !== "templateFill") return false;
     return projectDataSignature({ meta: activeMeta, plan: grantPlan, work, project }) !== templateSession.digest.signature;
@@ -1125,6 +1249,8 @@ export default function App() {
     if (!window.confirm("읽은 양식 구조와 결과를 지울까요? 올린 파일 자체는 삭제되지 않습니다.")) return;
     setTemplateSession(createEmptyTemplateSession());
     setTemplateError("");
+    setCarryoverDetection(null);
+    setCarryoverEnabled(false);
     notify("읽은 양식을 지웠습니다.");
   };
 
@@ -1133,6 +1259,47 @@ export default function App() {
   const templateFields = useMemo(
     () => (templateSession.schema ? extractFormFields(templateSession.schema) : []),
     [templateSession.schema]
+  );
+
+  /* ── 전년도 결과보고서 양식 이양 ───────────────────────── */
+
+  const currentYear = new Date().getFullYear();
+  /** 이양 대상 칸 — 원본에 적힌 전년도 값(연도·날짜·금액·인원)이 있는 칸 */
+  const carryoverPlan = useMemo(
+    () =>
+      carryoverEnabled
+        ? buildCarryoverPlan({ fields: templateFields, currentYear, sourceYear: carryoverDetection?.sourceYear ?? undefined })
+        : { rows: [], counts: { total: 0, strong: 0, weak: 0 } },
+    [carryoverEnabled, templateFields, carryoverDetection, currentYear]
+  );
+  /** 갈아끼우지 못해 전년도 값이 남아 있는 칸 — 3단계 배지·사전 점검이 쓴다 */
+  const carryoverLeftover = useMemo(
+    () =>
+      carryoverEnabled
+        ? findLeftoverYearValues({
+            fields: templateFields,
+            values: templateSession.fieldValues,
+            planRows: carryoverPlan.rows,
+            currentYear,
+            sourceYear: carryoverDetection?.sourceYear ?? undefined
+          })
+        : { rows: [], counts: { total: 0, strong: 0, weak: 0 } },
+    [carryoverEnabled, templateFields, templateSession.fieldValues, carryoverPlan, carryoverDetection, currentYear]
+  );
+  const carryoverClassified = useMemo(
+    () =>
+      carryoverEnabled
+        ? classifyCarryover({ planRows: carryoverPlan.rows, leftover: carryoverLeftover, values: templateSession.fieldValues })
+        : null,
+    [carryoverEnabled, carryoverPlan, carryoverLeftover, templateSession.fieldValues]
+  );
+  /** 4단계 다운로드에서 ‘이 칸의 작년 값은 같은 글자면 갈아끼워도 된다’ 목록 */
+  const carryoverOverwrites = useMemo(
+    () =>
+      carryoverEnabled
+        ? carryoverOverwriteMap({ planRows: carryoverPlan.rows, values: templateSession.fieldValues })
+        : {},
+    [carryoverEnabled, carryoverPlan, templateSession.fieldValues]
   );
 
   const readFileBase64 = (file: File) =>
@@ -2625,9 +2792,25 @@ export default function App() {
               onSmartLeftoversToDraft={sendSmartLeftoversToDraft}
               fillValues={templateSession.fieldValues}
               onFillValueChange={setTemplateFieldValue}
+              carryoverById={carryoverClassified?.byId}
+              carryoverOverwrites={carryoverOverwrites}
               onLoadProjectData={useProjectDataForTemplate}
               projectDataNote={templateDigestNote}
               projectDataStale={templateDigestStale}
+              planSource={planSource}
+              planSourceBusy={planSourceBusy}
+              onPickPlanSource={pickPlanSourceFile}
+              materialResult={materialResult}
+              materialFileName={materialFileName}
+              onPickMaterialFile={pickMaterialFile}
+              onApplyMaterialText={applyMaterialText}
+              photoCaptions={photoCaptionsState}
+              onPickPhotoFiles={pickPhotoFiles}
+              carryoverDetection={carryoverDetection}
+              carryoverEnabled={carryoverEnabled}
+              onCarryoverToggle={setCarryoverEnabled}
+              carryoverPlanCounts={carryoverPlan.counts}
+              carryoverLeftover={carryoverLeftover}
               piiGuard={(
                 <PiiGuardNotice
                   text={templatePromptPreview}

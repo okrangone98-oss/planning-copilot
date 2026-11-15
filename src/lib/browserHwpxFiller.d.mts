@@ -65,6 +65,8 @@ export function patchHwpxBytes(options: {
   bytes: Uint8Array | ArrayBuffer;
   values: Record<string, FillValue>;
   jszip?: unknown;
+  /** 양식 이양 — 라벨 정규화 키 → 이 글자와 정확히 같은 칸만 갈아끼운다 */
+  overwrites?: Record<string, string[]>;
 }): Promise<HwpxPatchResult>;
 export function filledFileName(fileName: string, fallback?: string): string;
 export function summarizeFill(result: { filled?: unknown[]; skipped?: unknown[]; unmatched?: string[] }): string;
