@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   MAX_PROJECTS,
+  PROJECT_STATUSES,
   WORKSPACE_SCHEMA_VERSION,
   activeProject,
   addProject,
@@ -279,4 +280,114 @@ test("사업별 저장 키와 비밀값 제거", () => {
   assert.equal(projectStorageKey("prj_1"), "planningCopilotProject:prj_1");
   assert.equal(grantStorageKey("prj_1"), "planningCopilotGrantPlan:prj_1");
   assert.deepEqual(stripSecrets({ a: 1, apiKey: "x", list: [{ secret: "y", b: 2 }] }), { a: 1, list: [{ b: 2 }] });
+});
+
+/* ── PRD v1.1 1단계: 스키마 3 확장 ─────────────────────────── */
+
+test("저장 형식은 3이고 기존 상태 id는 그대로 남는다", () => {
+  const workspace = createEmptyWorkspace({ now: NOW });
+  assert.equal(workspace.schemaVersion, 3);
+  // 예전에 저장된 사업이 v2 값 그대로 열려야 한다(상태·라벨 손실 없음).
+  const migrated = normalizeWorkspace({
+    schemaVersion: 2,
+    activeProjectId: "prj_a",
+    legacyMigrated: true,
+    projects: [
+      { id: "prj_a", name: "기존 사업", type: "national", status: "running", deadline: "2026-12-01", progress: 38 },
+      { id: "prj_b", name: "신청 사업", type: "contest", status: "submitted" }
+    ]
+  }, { now: NOW });
+  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.projects[0].status, "running");
+  assert.equal(projectStatusLabel("running"), "운영 중");
+  assert.equal(migrated.projects[1].status, "submitted");
+  assert.equal(projectStatusLabel("submitted"), "신청 완료");
+  assert.equal(migrated.projects[0].progress, 38);
+});
+
+test("상태는 11종을 받아들이고 모르는 값은 기획 중으로 되돌린다", () => {
+  assert.equal(PROJECT_STATUSES.length, 11);
+  const ids = PROJECT_STATUSES.map((status) => status.id);
+  for (const id of ["idea", "planning", "submitted", "review", "confirmed", "preparing", "running", "settling", "done", "hold", "cancelled"]) {
+    assert.equal(ids.includes(id), true, id);
+  }
+  assert.equal(projectStatusLabel("idea"), "아이디어");
+  assert.equal(projectStatusLabel("confirmed"), "확정");
+  assert.equal(projectStatusLabel("settling"), "정산·평가");
+  const meta = createProjectMeta({ name: "사업", status: "이상한 상태" });
+  assert.equal(meta.status, "planning");
+  assert.equal(createProjectMeta({ name: "사업", status: "cancelled" }).status, "cancelled");
+});
+
+test("사업 마스터는 연도·담당자·기간·목표·출처를 함께 보관한다", () => {
+  const meta = createProjectMeta({
+    name: "청년 관광두레",
+    year: "2027",
+    ownerName: "오대훈",
+    startDate: "2027-03-01",
+    endDate: "2027-12-20",
+    goals: ["청년 10명 양성", "  ", "지역 콘텐츠 3개", "청년 10명 양성"],
+    sourceRefs: ["2026 공고문.pdf"]
+  });
+  assert.equal(meta.year, "2027");
+  assert.equal(meta.ownerName, "오대훈");
+  assert.equal(meta.startDate, "2027-03-01");
+  assert.equal(meta.endDate, "2027-12-20");
+  assert.deepEqual(meta.goals, ["청년 10명 양성", "지역 콘텐츠 3개"]);
+  assert.deepEqual(meta.sourceRefs, ["2026 공고문.pdf"]);
+
+  // 만들 때 값을 주지 않으면 만든 해를 쓴다.
+  assert.equal(createProjectMeta({ name: "사업", createdAt: "2026-01-10T00:00:00Z" }).year, "2026");
+  assert.deepEqual(createProjectMeta({ name: "사업" }).goals, []);
+  assert.equal(createProjectMeta({ name: "사업", ownerName: "가".repeat(60) }).ownerName.length, 40);
+});
+
+test("연도와 기간이 이상하면 저장하지 않고 기본값으로 맞춘다", () => {
+  const broken = normalizeWorkspace({
+    projects: [
+      { id: "a", name: "사업", year: "20", startDate: "2027-13-01", endDate: "2026-01-01", createdAt: "2026-05-05T00:00:00Z" },
+      { id: "b", name: "사업", year: "3200", startDate: "2027-03-01", endDate: "2027-02-01" }
+    ]
+  }, { now: NOW });
+  assert.equal(broken.projects[0].year, "2026");
+  assert.equal(broken.projects[0].startDate, "");
+  // 시작일을 모르더라도 종료일 하나만 아는 사업이 있으므로 종료일은 남긴다.
+  assert.equal(broken.projects[0].endDate, "2026-01-01");
+  // 연도가 범위를 벗어나면 만든 해(now)를 쓴다.
+  assert.equal(broken.projects[1].year, "2026");
+  assert.equal(broken.projects[1].endDate, "");
+});
+
+test("보드 순서는 완료·보류·취소 사업을 모두 아래로 내린다", () => {
+  const projects = [
+    createProjectMeta({ id: "hold", name: "보류", status: "hold", deadline: "2026-11-16" }),
+    createProjectMeta({ id: "run", name: "운영", status: "running", deadline: "2026-12-01" }),
+    createProjectMeta({ id: "cancel", name: "취소", status: "cancelled", deadline: "2026-11-17" }),
+    createProjectMeta({ id: "done", name: "완료", status: "done", deadline: "2026-11-18" }),
+    createProjectMeta({ id: "confirmed", name: "확정", status: "confirmed", deadline: "2026-11-30" })
+  ];
+  const order = sortProjects(projects).map((project) => project.id);
+  assert.equal(order[0], "confirmed");
+  assert.equal(order[1], "run");
+  assert.deepEqual(order.slice(2).sort(), ["cancel", "done", "hold"]);
+});
+
+test("백업 7은 사업별 업무를 담고 6 이하 백업도 읽는다", () => {
+  const workspace = workspaceWithTwo();
+  const [first, second] = workspace.projects;
+  const work = { schemaVersion: 1, projectId: first.id, tasks: [{ id: "t1", title: "업무" }], sessions: [], revisions: [], changes: [], generations: [] };
+  const archive = buildWorkspaceArchive({
+    workspace,
+    entries: { [first.id]: { project: { projectName: "청년 관광두레" }, grantPlan: createEmptyGrantPlan(), work } },
+    exportedAt: NOW
+  });
+  assert.equal(archive.version, 7);
+  assert.equal(archive.projects[0].work.tasks.length, 1);
+  assert.equal(archive.projects[1].work, null);
+
+  const parsed = parseWorkspaceArchive(archive, { now: NOW });
+  assert.equal(parsed.entries[0].work.tasks[0].title, "업무");
+  assert.equal(parsed.entries[1].work, null);
+  assert.equal(parsed.workspace.projects.length, 2);
+  assert.equal(parsed.workspace.schemaVersion, 3);
 });

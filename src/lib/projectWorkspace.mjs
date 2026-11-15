@@ -10,11 +10,13 @@ import {
   reportSummary
 } from "./grantWorkflow.mjs";
 
-export const WORKSPACE_SCHEMA_VERSION = 2;
+export const WORKSPACE_SCHEMA_VERSION = 3;
+export const WORKSPACE_ARCHIVE_VERSION = 7;
 export const WORKSPACE_STORAGE_KEY = "planningCopilotWorkspace";
 export const LEGACY_PROJECT_KEY = "planningCopilotProject";
 export const LEGACY_GRANT_KEY = "planningCopilotGrantPlan";
 export const MAX_PROJECTS = 20;
+export const PROJECT_WORK_KEY_PREFIX = "planningCopilotProjectWork";
 
 export const PROJECT_TYPES = [
   { id: "national", label: "국고보조" },
@@ -24,18 +26,33 @@ export const PROJECT_TYPES = [
   { id: "other", label: "기타" }
 ];
 
+// 사업 상태 11종 — 기존 4개 id(planning/submitted/running/done)를 그대로 두고 뒤에 단계를 덧붙였다.
+// 저장된 사업의 상태 값이 바뀌지 않아야 해서 새 id를 만들지 않고 상위집합으로 늘렸다.
 export const PROJECT_STATUSES = [
+  { id: "idea", label: "아이디어" },
   { id: "planning", label: "기획 중" },
   { id: "submitted", label: "신청 완료" },
-  { id: "running", label: "집행·정산" },
-  { id: "done", label: "완료" }
+  { id: "review", label: "검토 중" },
+  { id: "confirmed", label: "확정" },
+  { id: "preparing", label: "운영 준비" },
+  { id: "running", label: "운영 중" },
+  { id: "settling", label: "정산·평가" },
+  { id: "done", label: "완료" },
+  { id: "hold", label: "보류" },
+  { id: "cancelled", label: "취소" }
 ];
+
+/** 보드 아래쪽으로 내리는 상태(끝났거나 멈춘 사업). */
+export const INACTIVE_STATUSES = ["done", "hold", "cancelled"];
 
 /** 계획서 진행률을 잴 때 보는 입력 항목. */
 const PLAN_FIELDS = ["noticeText", "coreIdea", "problemSituation", "activities", "budgetPlan", "riskPlan"];
 
 const TYPE_IDS = new Set(PROJECT_TYPES.map((type) => type.id));
 const STATUS_IDS = new Set(PROJECT_STATUSES.map((status) => status.id));
+const INACTIVE_STATUS_SET = new Set(INACTIVE_STATUSES);
+const MAX_GOALS = 5;
+const MAX_SOURCE_REFS = 8;
 const STATUS_ORDER = new Map(PROJECT_STATUSES.map((status, index) => [status.id, index]));
 
 function text(value, max = 120) {
@@ -79,17 +96,50 @@ export function createProjectId(seed) {
   return `prj_${stamp}${idCounter.toString(36)}${random}${extra}`;
 }
 
+function textList(value, maxItems, maxLength) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of value) {
+    const entry = text(item, maxLength);
+    if (!entry || seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+/** 연도는 4자리 숫자만 받는다. 없으면 만든 해를 쓴다. */
+function normalizeYear(value, fallbackIso) {
+  const digits = String(value ?? "").replace(/[^\d]/g, "").slice(0, 4);
+  if (digits.length === 4) {
+    const year = Number(digits);
+    if (year >= 1990 && year <= 2100) return String(year);
+  }
+  const date = new Date(fallbackIso);
+  return Number.isNaN(date.getTime()) ? "" : String(date.getFullYear());
+}
+
 export function createProjectMeta({
   name,
   type = "own",
   status = "planning",
   deadline = "",
   progress = 0,
+  year,
+  ownerName = "",
+  startDate = "",
+  endDate = "",
+  goals = [],
+  sourceRefs = [],
   createdAt,
   updatedAt,
   id
 } = {}) {
   const nowIso = isoNow(createdAt || updatedAt);
+  const start = normalizeDeadline(startDate);
+  const end = normalizeDeadline(endDate);
   return {
     id: text(id, 60) || createProjectId(),
     name: text(name, 80) || "새 사업",
@@ -97,6 +147,13 @@ export function createProjectMeta({
     status: STATUS_IDS.has(status) ? status : "planning",
     deadline: normalizeDeadline(deadline),
     progress: Math.min(100, Math.max(0, Math.round(Number(progress) || 0))),
+    year: normalizeYear(year, nowIso),
+    ownerName: text(ownerName, 40),
+    startDate: start,
+    // 종료일이 시작일보다 앞서면 저장하지 않는다(기간이 뒤집힌 사업은 기한 계산이 모두 틀어진다).
+    endDate: start && end && end < start ? "" : end,
+    goals: textList(goals, MAX_GOALS, 80),
+    sourceRefs: textList(sourceRefs, MAX_SOURCE_REFS, 200),
     createdAt: nowIso,
     updatedAt: isoNow(updatedAt || createdAt)
   };
@@ -122,6 +179,12 @@ function normalizeProjectMeta(raw, index, now) {
     status: source.status,
     deadline: source.deadline,
     progress: source.progress,
+    year: source.year,
+    ownerName: source.ownerName,
+    startDate: source.startDate,
+    endDate: source.endDate,
+    goals: source.goals,
+    sourceRefs: source.sourceRefs,
     createdAt: source.createdAt || now,
     updatedAt: source.updatedAt || source.createdAt || now
   });
@@ -230,11 +293,11 @@ export function removeProject(workspace, id, now) {
   return { workspace: touch({ ...workspace, projects, activeProjectId }, now), removed, error: "" };
 }
 
-/** 보드 순서: 진행 중인 사업이 위로, 마감이 가까운 순. 완료한 사업은 아래로 내린다. */
+/** 보드 순서: 진행 중인 사업이 위로, 마감이 가까운 순. 끝났거나 멈춘 사업은 아래로 내린다. */
 export function sortProjects(projects) {
   return [...(projects || [])].sort((left, right) => {
-    const leftDone = left.status === "done" ? 1 : 0;
-    const rightDone = right.status === "done" ? 1 : 0;
+    const leftDone = INACTIVE_STATUS_SET.has(left.status) ? 1 : 0;
+    const rightDone = INACTIVE_STATUS_SET.has(right.status) ? 1 : 0;
     if (leftDone !== rightDone) return leftDone - rightDone;
     const leftDeadline = left.deadline || "9999-12-31";
     const rightDeadline = right.deadline || "9999-12-31";
@@ -377,7 +440,7 @@ export function stripSecrets(value) {
 export function buildWorkspaceArchive({ workspace, entries = {}, knowledgeDocs, approvalItems, memoryEntries, exportedAt } = {}) {
   const normalized = normalizeWorkspace(workspace);
   return {
-    version: 6,
+    version: WORKSPACE_ARCHIVE_VERSION,
     exportedAt: exportedAt || new Date().toISOString(),
     app: "planning-copilot",
     kind: "workspace",
@@ -391,7 +454,9 @@ export function buildWorkspaceArchive({ workspace, entries = {}, knowledgeDocs, 
       return stripSecrets({
         meta,
         project: entry.project || null,
-        grantPlan: entry.grantPlan || null
+        grantPlan: entry.grantPlan || null,
+        // 업무·회차·리비전·변경 이력. 예전(v6) 백업에는 없으므로 null로 둔다.
+        work: entry.work || null
       });
     }),
     knowledgeDocs: Array.isArray(knowledgeDocs) ? stripSecrets(knowledgeDocs) : [],
@@ -414,12 +479,13 @@ export function parseWorkspaceArchive(raw, { now } = {}) {
       byId.set(id, {
         id,
         project: item.project && typeof item.project === "object" ? item.project : null,
-        grantPlan: item.grantPlan && typeof item.grantPlan === "object" ? item.grantPlan : null
+        grantPlan: item.grantPlan && typeof item.grantPlan === "object" ? item.grantPlan : null,
+        work: item.work && typeof item.work === "object" ? item.work : null
       });
     }
     return {
       workspace: { ...workspace, legacyMigrated: true },
-      entries: workspace.projects.map((meta) => byId.get(meta.id) || { id: meta.id, project: null, grantPlan: null }),
+      entries: workspace.projects.map((meta) => byId.get(meta.id) || { id: meta.id, project: null, grantPlan: null, work: null }),
       legacy: false
     };
   }
@@ -430,7 +496,7 @@ export function parseWorkspaceArchive(raw, { now } = {}) {
   const base = createEmptyWorkspace({ now, name: text(project?.projectName, 80) || "복원한 사업" });
   return {
     workspace: { ...base, legacyMigrated: true },
-    entries: [{ id: base.activeProjectId, project, grantPlan }],
+    entries: [{ id: base.activeProjectId, project, grantPlan, work: null }],
     legacy: true
   };
 }
@@ -442,4 +508,9 @@ export function projectStorageKey(id) {
 
 export function grantStorageKey(id) {
   return id ? `${LEGACY_GRANT_KEY}:${id}` : LEGACY_GRANT_KEY;
+}
+
+/** 사업별 운영 데이터 저장 키(업무·회차·리비전·변경 이력). */
+export function projectWorkStorageKey(id) {
+  return `${PROJECT_WORK_KEY_PREFIX}:${id || ""}`;
 }
