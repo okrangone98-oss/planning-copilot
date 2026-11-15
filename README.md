@@ -47,8 +47,9 @@ https://okrangone98-oss.github.io/planning-copilot/
 ### 시트 복붙 · 한글(.hwpx) 변환
 
 - `예산 편성`의 **구글 시트·CSV 붙여넣기로 채우기**에 시트에서 복사한 줄(탭·쉼표·Markdown 표)이나 CSV 파일을 넣으면 비목·세목·단가·수량·산출근거·비고로 읽어 표에 넣습니다. 머리글 순서가 달라도 열 이름으로 찾고, 합계 행은 건너뜁니다.
-- `샘플 양식 채우기`에서는 **연습 양식**을 버튼 한 번으로 읽어 칸 모양을 익힐 수 있고, 카톡·메모·회의록 글을 통째로 붙여넣으면 알맞은 칸으로 나눠 보여 준 뒤 체크한 칸만 채웁니다. 채운 값은 kordoc `fill`/`patch`용 JSON과 명령, 로컬 브릿지(`node scripts/kordoc-bridge.mjs`)로 실제 .hwpx에 들어갑니다. 자세한 규칙은 [kordoc 양식 규격 채우기](docs/kordoc-smart-fill.md)에 정리했습니다.
-- `샘플 양식 채우기`·`워크브레인 내보내기` 결과에는 **한글(.hwpx)로 변환하기**가 붙습니다. 브라우저만으로는 .hwpx를 만들지 않는다는 점을 화면에 적고, ① .md 내려받기 ② `npx kordoc generate <파일>.md -o <파일>.hwpx --preset 보고서` 명령 복사 ③ 로컬 브릿지가 있으면 그 주소로 변환을 맡기는 세 갈래를 제공합니다.
+- `샘플 양식 채우기`에서는 **연습 양식**을 버튼 한 번으로 읽어 칸 모양을 익힐 수 있고, 카톡·메모·회의록 글을 통째로 붙여넣으면 알맞은 칸으로 나눠 보여 준 뒤 체크한 칸만 채웁니다. 채운 값은 **브라우저 안에서 원본 .hwpx 서식 그대로 들어가 `.hwpx` 파일로 바로 내려받습니다**(터미널·로컬 서버 필요 없음). kordoc `fill`/`patch`용 JSON·명령과 로컬 브릿지(`node scripts/kordoc-bridge.mjs`)는 보조 옵션으로 접어 두었습니다. 자세한 규칙은 [kordoc 양식 규격 채우기](docs/kordoc-smart-fill.md)에 정리했습니다.
+- `결과보고` 화면에는 작성한 섹션과 회차·예산 자동 집계를 한글 결과보고서 한 장으로 묶는 **`.hwpx 내려받기`** 가 있습니다. 내장 최소 템플릿(`public/hwpx/report-base.hwpx`)에 제목·요약 표·섹션·예산 표를 붙여 브라우저에서 바로 만듭니다.
+- `워크브레인 내보내기`의 Markdown → 새 .hwpx 문서 변환은 kordoc `generate`가 맡습니다(① .md 내려받기 ② `npx kordoc generate <파일>.md -o <파일>.hwpx --preset 보고서` 명령 복사 ③ 로컬 브릿지).
 
 ## 실행 방법
 
@@ -83,6 +84,7 @@ npm run build
 - Jira, Notion, Google Sheet, Google Drive 링크를 프로젝트별로 연결할 수 있습니다(실험실).
 - 구글 시트·엑셀에서 복사한 예산표를 그대로 붙여넣어 비목을 채웁니다.
 - 결과 Markdown을 kordoc 명령이나 로컬 브릿지로 한글(.hwpx)로 바꿀 수 있게 안내합니다.
+- 올린 양식에 값을 채우는 일과 결과보고 문서 만들기는 브라우저 안에서 끝납니다(`src/lib/browserHwpxFiller.mjs`·`src/lib/reportHwpx.mjs`).
 
 ## 권장 사용 순서
 
