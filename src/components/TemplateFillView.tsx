@@ -12,6 +12,7 @@ import { HwpxExportPanel } from "./HwpxExportPanel";
 import { SmartTextPanel } from "./SmartTextPanel";
 import { KordocFillPanel } from "./KordocFillPanel";
 import type { FormField } from "../lib/kordocFormSpec.mjs";
+import { isLegalDocumentSchema } from "../lib/kordocFormSpec.mjs";
 import type { SmartMapResult } from "../lib/smartTextMapper.mjs";
 import { FIELD_TYPE_LABEL } from "../lib/smartTextMapper.mjs";
 
@@ -365,6 +366,21 @@ export function TemplateFillView({
             </div>
           )}
         </details>
+      )}
+
+      {schema && fields.length === 0 && (
+        <section className={`doc-empty-form ${isLegalDocumentSchema(schema) ? "is-legal" : ""}`} aria-label="채울 칸이 없는 문서 안내">
+          <strong>
+            {isLegalDocumentSchema(schema)
+              ? "법령·조례 본문으로 보입니다 — 채울 칸이 없는 것이 정상입니다"
+              : "이 양식에서 값을 넣을 칸을 찾지 못했습니다"}
+          </strong>
+          <p>
+            {isLegalDocumentSchema(schema)
+              ? `‘${schema.title || schema.fileName || "이 문서"}’는 조문만 있는 법령·조례라 신청서처럼 채울 칸이 없습니다. 이 문서는 공고 해석·근거 확인에 쓰고, 실제로 채울 때는 사업계획서·신청서 양식을 올려 주세요.`
+              : "읽은 구조에 ‘라벨 | 빈칸’ 표나 ‘라벨: ___’ 자리가 없습니다. 글자만 있는 문서이거나, 칸 이름과 값이 붙어 있는 양식일 수 있습니다. 한글에서 양식의 칸 구조를 확인하거나 다른 양식을 올려 주세요."}
+          </p>
+        </section>
       )}
 
       {schema && (

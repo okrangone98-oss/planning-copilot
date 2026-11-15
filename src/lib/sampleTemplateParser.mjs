@@ -3,6 +3,9 @@
 // 문서 → 블록(IR: heading/paragraph/list/table) → 양식 스키마(섹션·표·작성 슬롯) → 미리보기·프롬프트·규칙 기반 채우기.
 // kordoc 본체(HWP5 OLE2·OCR·병합 셀 복원)는 Node/로컬 런타임이 필요하므로 1단계(웹 단독)에서는 쓰지 않는다.
 
+// 인라인 서명 블록(‘성명: … 생년월일: …’) 판정은 양식 규격 모듈과 같은 기준을 쓴다.
+import { isInlineSignatureBlock } from "./kordocFormSpec.mjs";
+
 export const HWP_BINARY_GUIDANCE =
   "구형 .hwp(바이너리) 파일은 브라우저에서 구조를 직접 읽을 수 없습니다. 한글에서 ‘파일 → 다른 이름으로 저장’으로 HWPX로 저장하거나 DOCX·PDF로 변환해 올려 주세요. 로컬 kordoc 연동은 다음 단계에서 붙일 수 있습니다.";
 
@@ -702,6 +705,8 @@ export function detectSlotKind(text, blockType) {
   if (GUIDE_PATTERN.test(line)) return "guide";
   if (hasBlank(line)) return "blank";
   if (PLACEHOLDER_MARK.test(line)) return "blank";
+  // ‘… 강사 성명 : 오대훈 (인)’처럼 서명란이 한 줄 안에 인라인으로 들어온 줄
+  if (isInlineSignatureBlock(line)) return "label";
   // '다음과 같습니다:' 같은 안내 문장은 라벨이 아니라 문단으로 둔다.
   if (LABEL_PATTERN.test(line) && !/(습니다|입니다|합니다)\s*[:：]?$/.test(line)) return "label";
   if (blockType === "list" && line.length <= 120) return "item";
@@ -795,6 +800,13 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
         rowCount: block.rows.length,
         emptyCells: 0
       };
+      // 병합(cellAddr·cellSpan) 정보를 스키마까지 가져온다 — 표 제목 띠·행 머리 병합을
+      // ‘라벨 | 빈칸’으로 오인하지 않으려면 칸이 몇 열·몇 행을 덮는지 알아야 한다.
+      if (Array.isArray(block.spans) && block.spans.length) {
+        table.spans = block.spans.slice(0, MAX_TABLE_ROWS).map((row) =>
+          (Array.isArray(row) ? row : []).slice(0, MAX_TABLE_COLUMNS).map((cell) => [Number(cell?.[0]) || 1, Number(cell?.[1]) || 1])
+        );
+      }
       for (const row of tableRows) {
         for (let column = 0; column < table.headers.length; column += 1) {
           if (!String(row[column] ?? "").trim()) table.emptyCells += 1;

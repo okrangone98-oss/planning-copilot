@@ -4,7 +4,7 @@
 // 원칙: 여기서 값을 고치거나 덮어쓰지 않는다. 판단이 서지 않는 항목은
 // '직접 확인'으로 돌려 사용자에게 넘긴다(자동 판단 불가를 자동 통과로 만들지 않는다).
 
-import { fieldTypeOf, isRequiredLabel, normalizeFormLabel } from "./kordocFormSpec.mjs";
+import { fieldTypeOf, isLegalDocumentSchema, isRequiredLabel, normalizeFormLabel } from "./kordocFormSpec.mjs";
 
 /** 점검 항목의 무게 — block 은 내려받기 전에 한 번 더 확인을 받는다. */
 export const PREFLIGHT_LEVEL_LABEL = {
@@ -255,13 +255,24 @@ export function buildDownloadPreflight({
   const originalRows = rows.filter((row) => row.status === "original" && row.originalValue);
 
   if (!rows.length) {
-    add({
-      id: "no-fields",
-      level: "block",
-      title: "이 양식에서 값을 넣을 칸을 찾지 못했습니다",
-      detail: "읽은 구조에 ‘라벨 | 빈칸’ 표나 ‘라벨: ___’ 자리가 없습니다. 글자만 있는 문서이거나, 칸 이름과 값이 붙어 있는 양식일 수 있습니다.",
-      fix: "①단계에서 양식 내용을 붙여넣기로 넣어 보거나, 양식을 한글에서 열어 ‘라벨 | 값’ 표인지 확인해 주세요. 읽은 양식 구조 보기에서 칸 0개를 볼 수 있습니다."
-    });
+    // 법령·조례 본문은 채울 칸이 없는 것이 정상이다 — 고장처럼 보이지 않게 먼저 구분해 안내한다.
+    if (isLegalDocumentSchema(schema)) {
+      add({
+        id: "no-fields-legal",
+        level: "block",
+        title: "법령·조례 본문으로 보입니다 — 채울 칸이 없는 것이 정상입니다",
+        detail: `‘${schema?.title || title || "이 문서"}’는 조문만 있는 법령·조례라 신청서처럼 채울 칸이 없습니다. 양식이 아니라 근거 문서입니다.`,
+        fix: "이 문서는 공고 해석·근거 확인에 쓰고, 실제로 채울 때는 사업계획서·신청서 양식을 ①단계에 올려 주세요."
+      });
+    } else {
+      add({
+        id: "no-fields",
+        level: "block",
+        title: "이 양식에서 값을 넣을 칸을 찾지 못했습니다",
+        detail: "읽은 구조에 ‘라벨 | 빈칸’ 표나 ‘라벨: ___’ 자리가 없습니다. 글자만 있는 문서이거나, 칸 이름과 값이 붙어 있는 양식일 수 있습니다.",
+        fix: "①단계에서 양식 내용을 붙여넣기로 넣어 보거나, 양식을 한글에서 열어 ‘라벨 | 값’ 표인지 확인해 주세요. 읽은 양식 구조 보기에서 칸 0개를 볼 수 있습니다."
+      });
+    }
   } else if (!filledRows.length) {
     add({
       id: "no-values",
