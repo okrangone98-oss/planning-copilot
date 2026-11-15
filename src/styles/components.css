@@ -403,9 +403,10 @@
 .remote-key-head,
 .model-section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--stack-m);
+  gap: var(--stack-s) var(--stack-m);
 }
 
 .grant-block-head > div:first-child,
@@ -415,6 +416,7 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  flex: 1 1 min(100%, 420px);
 }
 
 .grant-block-head strong,

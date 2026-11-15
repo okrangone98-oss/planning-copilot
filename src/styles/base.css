@@ -21,7 +21,7 @@ body {
   line-height: var(--lh-body);
   letter-spacing: var(--tracking);
   word-break: keep-all;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word; /* 한 단어가 칸보다 길 때만 끊는다 */
   -webkit-font-smoothing: antialiased;
 }
 

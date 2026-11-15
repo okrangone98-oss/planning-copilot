@@ -225,6 +225,19 @@
 }
 
 /* ── 사업 관리 ───────────────────────────── */
+/* 패널 안의 하위 블록은 회색 바탕으로 한 단계 내려 둔다(흰 카드 위 흰 카드 방지) */
+.board-summary,
+.board-editor,
+.board-create {
+  background: var(--c-bg);
+  border-radius: var(--r-m);
+  padding: 18px;
+}
+
+.board-summary {
+  padding: 16px;
+}
+
 .board-summary {
   display: flex;
   flex-direction: column;
