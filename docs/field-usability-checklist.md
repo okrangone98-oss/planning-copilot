@@ -60,10 +60,10 @@
 그대로 돌린 결과입니다. **사람의 작업시간·느낌·재사용 의향이 아닙니다.**
 
 ```bash
-npm test                                        # 전체 320개
+npm test                                        # 전체 321개
 node --test scripts/agent-office/test/field-scenarios.test.mjs   # 시나리오 A·B·C (8개)
 node --test scripts/agent-office/test/download-preflight.test.mjs # 사전 점검 규칙 (18개)
-node --test scripts/agent-office/test/real-form-compatibility.test.mjs # 실제 양식 호환성 (14개)
+node --test scripts/agent-office/test/real-form-compatibility.test.mjs # 실제 양식 호환성 (15개)
 ```
 
 실제 기관 양식 10종+2종 전수 결과는 [실제 기관 양식 검증](real-forms-verification.md)에 따로 정리했습니다.

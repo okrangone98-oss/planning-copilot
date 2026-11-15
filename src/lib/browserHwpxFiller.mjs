@@ -630,7 +630,8 @@ export function patchSectionXml(xml, values, options = {}) {
       for (let position = 0; position < cells.length; position += 1) {
         const labelCell = cells[position];
         const labelText = labelCell.text.trim();
-        if (!labelText || !isFormLabelCell(labelText)) continue;
+        // 인라인 서명 블록 칸은 라벨 칸이 아니다 — 라벨 여러 개의 자리라 인라인 전략이 맡는다.
+        if (!labelText || isInlineSignatureBlock(labelText) || !isFormLabelCell(labelText)) continue;
         labelCellNodes.add(labelCell.node);
         const key = matchKey(labelText, cursors);
         if (!key) continue;
@@ -638,6 +639,7 @@ export function patchSectionXml(xml, values, options = {}) {
         const nextCell = cells.find((cell) => cell !== labelCell && cell.colAddr === labelCell.colAddr + labelCell.colSpan + (valueCell ? valueCell.colSpan : 1));
         const valueText = valueCell ? valueCell.text : "";
         // 하위 라벨("성명" → "한자") 옆 칸이나 병합 행 머리 오른쪽 열 머리는 값 자리가 아니다.
+        if (valueCell && isInlineSignatureBlock(valueCell.text)) continue;
         if (valueCell && isSubLabelBeside(labelCell.rowSpan, valueText, nextCell ? nextCell.text : undefined)) continue;
         if (!valueCell) continue;
         if (isBandLabelPair(table, cells, labelCell, valueCell)) continue;

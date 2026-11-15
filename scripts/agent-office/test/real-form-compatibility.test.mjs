@@ -218,6 +218,24 @@ test("인라인 서명 블록의 빈칸은 같은 자리에 채우고 옆 라벨
   assert.ok(texts.includes("주 소 : 강원 양양군 현남면"));
 });
 
+test("라벨 옆 칸이 인라인 서명 블록이면 라벨|값과 인라인 양쪽에서 채운다", () => {
+  // 실제 계약서처럼 왼쪽 칸 ‘(강사)’ 옆 칸에 ‘성명: … 생년월일: … 주소: …’가 통째로 들어온 경우.
+  const xml = sectionXml(tableXml([
+    [{ text: "강사" }, { col: 1, paragraphs: ["성 명 : ", "생년월일 : ", "주 소 : "] }]
+  ]));
+  const fields = extractFormFields(schemaOf(xml));
+  const inlineLabels = fields.filter((field) => field.origin === "inline").map((field) => field.label.replace(/\s/g, ""));
+  assert.deepEqual(inlineLabels, ["성명", "생년월일", "주소"]);
+
+  const result = patchSectionXml(xml, { 성명: "김하나", 생년월일: "1990-01-01", 주소: "강원 양양군" });
+  assert.deepEqual(result.filled.map((entry) => entry.key).sort(), ["생년월일", "성명", "주소"].sort());
+  assert.ok(result.skipped.every((entry) => entry.label !== "성명" && entry.label !== "생년월일" && entry.label !== "주소"));
+  const texts = textsOf(result.xml);
+  assert.ok(texts.includes("성 명 : 김하나"));
+  assert.ok(texts.includes("생년월일 : 1990-01-01"));
+  assert.ok(texts.includes("주 소 : 강원 양양군"));
+});
+
 test("서약서 본문 한 줄의 서명란(‘강사 성명 : (인)’)도 칸으로 읽고 채운다", () => {
   const line = "(프로그램명: 내가Green양양) 강사 성명 : (인)";
   assert.equal(isInlineSignatureBlock(line), true);
