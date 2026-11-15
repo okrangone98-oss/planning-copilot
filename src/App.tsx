@@ -5,15 +5,29 @@ import { GrantBudgetView, GrantChecklistView, GrantReportView } from "./componen
 import { GrantStepFlow } from "./components/GrantStepFlow";
 import { WorkHomeView } from "./components/WorkHomeView";
 import { WorkbrainExportView } from "./components/WorkbrainExportView";
+import { TemplateFillView } from "./components/TemplateFillView";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
 import { generateDraftText } from "./lib/draft";
-import { extractTextFromFile } from "./lib/fileText";
+import { extractDocument } from "./lib/fileText";
+import {
+  buildRuleBasedFill,
+  buildTemplateFillPrompt,
+  checkStructureCoverage,
+  describeSampleSupport,
+  normalizeProfile,
+  parseSampleTemplate,
+  summarizeSchema,
+  type TemplateProfile,
+  type SampleBlock,
+  type TemplateSchema
+} from "./lib/sampleTemplateParser.mjs";
+import { createEmptyTemplateSession, loadTemplateSession, saveTemplateSession, type TemplateSession } from "./lib/templateStorage";
 import { absorbModelResponse, buildDraftPolishPrompt, buildModelPrompt } from "./lib/prompts";
 import { currentModelName, listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
 import { providerConfig, remoteModelField, validateApiKey, ADVANCED_MODEL_PROVIDERS, PRIMARY_MODEL_PROVIDERS, isAdvancedModelProvider, providerAvailabilityNote } from "./lib/modelSafety.mjs";
 import { WORKSPACE_LINKS } from "./lib/davidWorkbrainExport.mjs";
-import { applyPreset as applyGrantPreset, createEmptyGrantPlan, hasGrantWork, sanitizeGrantPlan } from "./lib/grantWorkflow.mjs";
+import { applyPreset as applyGrantPreset, budgetSummary, createEmptyGrantPlan, formatWon, hasGrantWork, sanitizeGrantPlan } from "./lib/grantWorkflow.mjs";
 import { findGrantPreset } from "./data/grantPresets";
 import { buildOfficeContext, buildOfficeModelPrompt } from "./lib/agentOfficePrompt.mjs";
 import { roleSummary, runOffice } from "./lib/agentOffice";
@@ -85,6 +99,7 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
     title: "산출물·검토",
     items: [
       { id: "draft", label: "초안 조립" },
+      { id: "templateFill", label: "샘플 양식 채우기" },
       { id: "visuals", label: "시각자료" },
       { id: "approvalInbox", label: "승인함" },
       { id: "aiBridge", label: "외부 AI 질문" }
@@ -279,6 +294,9 @@ export default function App() {
   const [memoryNote, setMemoryNote] = useState("");
   const [controlTowerState, setControlTowerState] = useState<ControlTowerState>(() => loadControlTowerState());
   const [grantPlan, setGrantPlan] = useState<GrantPlan>(() => loadGrantPlan());
+  const [templateSession, setTemplateSession] = useState<TemplateSession>(() => loadTemplateSession());
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateError, setTemplateError] = useState("");
   // API 키는 이 탭의 메모리에만 둔다. localStorage·백업·아카이브 어디에도 저장하지 않는다.
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [remoteAck, setRemoteAck] = useState(false);
@@ -347,11 +365,15 @@ export default function App() {
     saveGrantPlan(grantPlan);
   }, [grantPlan]);
 
+  useEffect(() => {
+    saveTemplateSession(templateSession);
+  }, [templateSession]);
+
   const updateProject = (patch: Partial<ProjectData>) => setProject((current) => ({ ...current, ...patch }));
   const notify = (message: string) => setToast(message);
 
   const readFile = (file: File, onText: (text: string) => void) => {
-    extractTextFromFile(file)
+    extractDocument(file)
       .then(({ text, warning }) => {
         if (warning) notify(warning);
         if (!text) return;
@@ -367,6 +389,212 @@ export default function App() {
       setSection("notice");
       notify(`${file.name} 내용을 공고 해석 화면에 불러왔습니다. 내용을 확인하고 분석을 눌러 주세요.`);
     });
+  };
+
+  /* ── 샘플 양식 구조 파싱 · 맞춤 채우기 ───────────────────────── */
+
+  const updateTemplateSession = (patch: Partial<TemplateSession>) =>
+    setTemplateSession((current) => ({ ...current, ...patch, updatedAt: new Date().toISOString() }));
+
+  const applyTemplateDocument = (
+    document: { text: string; blocks: SampleBlock[]; format: string },
+    fileName: string
+  ) => {
+    const schema: TemplateSchema = parseSampleTemplate({
+      text: document.text,
+      blocks: document.blocks,
+      fileName,
+      format: document.format
+    });
+    const summary = summarizeSchema(schema);
+    setTemplateError("");
+    updateTemplateSession({
+      schema,
+      result: "",
+      profile: normalizeProfile({ ...templateSession.profile, projectName: templateSession.profile.projectName || project.projectName })
+    });
+    if (!summary.sections && !summary.tables && !summary.slots) {
+      notify("양식 구조를 찾지 못했습니다. 목차 번호와 표를 확인하거나 내용을 붙여넣어 보세요.");
+      return;
+    }
+    notify(`${fileName} 구조를 읽었습니다. 섹션 ${summary.sections}개 · 표 ${summary.tables}개 · 작성 항목 ${summary.slots}개`);
+  };
+
+  const parseTemplateFile = (file: File) => {
+    const support = describeSampleSupport(file.name);
+    if (!support.supported) {
+      notify(support.message);
+      return;
+    }
+    setTemplateBusy(true);
+    extractDocument(file)
+      .then((document) => {
+        if (document.warning) notify(document.warning);
+        if (!document.text) return;
+        applyTemplateDocument(document, file.name);
+      })
+      .catch(() => notify("양식 파일을 읽지 못했습니다. 양식 내용을 복사해 붙여넣어 주세요."))
+      .finally(() => setTemplateBusy(false));
+  };
+
+  const parseTemplateText = (text: string) => {
+    if (!text.trim()) {
+      notify("양식 내용을 붙여넣어 주세요.");
+      return;
+    }
+    applyTemplateDocument({ text, blocks: [], format: "markdown" }, "붙여넣은 양식");
+  };
+
+  /** 프로젝트·예산 화면에 이미 있는 값을 양식 프로필로 가져온다. 직접 쓴 값은 덮어쓰지 않는다. */
+  const collectProjectProfile = (): TemplateProfile => {
+    const budget = budgetSummary(grantPlan);
+    const schedule = [
+      grantPlan.schedule?.projectStart ? `시작 ${grantPlan.schedule.projectStart}` : "",
+      grantPlan.schedule?.projectEnd ? `종료 ${grantPlan.schedule.projectEnd}` : "",
+      grantPlan.schedule?.reportDeadline ? `결과보고 ${grantPlan.schedule.reportDeadline}` : ""
+    ].filter(Boolean).join(" · ");
+    const current = templateSession.profile;
+    return normalizeProfile({
+      ...current,
+      projectName: current.projectName || project.projectName,
+      organization: current.organization || grantPlan.agency,
+      audience: current.audience || project.targetUsers,
+      summary: current.summary || [project.coreIdea, project.problemSituation, project.fieldEvidence].filter(Boolean).join("\n").slice(0, 700),
+      budget: current.budget || (budget.total > 0 ? `총 ${formatWon(budget.total)}` : ""),
+      schedule: current.schedule || schedule,
+      evidence: current.evidence || project.requirements,
+      notes: current.notes || project.evaluationFocus
+    });
+  };
+
+  const useProjectValuesForTemplate = () => {
+    updateTemplateSession({ profile: collectProjectProfile() });
+    notify("프로젝트 입력값을 가져왔습니다. 빈 항목은 직접 채워 주세요.");
+  };
+
+  const runTemplateFill = async (mode: "ai" | "rule") => {
+    const schema = templateSession.schema;
+    if (!schema) {
+      notify("먼저 샘플 양식을 올리거나 붙여넣어 구조를 읽어 주세요.");
+      return;
+    }
+    if (templateBusy) return;
+    setTemplateError("");
+
+    if (mode === "rule") {
+      updateTemplateSession({ result: buildRuleBasedFill({ schema, profile: templateSession.profile }) });
+      notify("규칙 기반으로 양식을 채웠습니다. 빈칸은 ‘확인 필요’로 표시했습니다.");
+      return;
+    }
+
+    if (modelSettings.provider === "simulation") {
+      updateTemplateSession({ result: buildRuleBasedFill({ schema, profile: templateSession.profile }) });
+      notify("템플릿 모드입니다. AI 호출 없이 규칙 기반으로 채웠습니다. 실제 AI로 채우려면 모델 설정에서 경로를 고르세요.");
+      return;
+    }
+
+    const remoteConfig = providerConfig(modelSettings.provider);
+    if (remoteConfig) {
+      const keyCheck = validateApiKey(modelSettings.provider, apiKeys[modelSettings.provider] || "");
+      if (!keyCheck.ok) {
+        setTemplateError(keyCheck.message);
+        notify(keyCheck.message);
+        return;
+      }
+      if (!remoteAck) {
+        setTemplateError("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
+        notify("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
+        return;
+      }
+    }
+
+    setTemplateBusy(true);
+    try {
+      const prompt = buildTemplateFillPrompt({ schema, profile: templateSession.profile });
+      const modelResult = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
+      if (!modelResult.ok) {
+        // AI가 실패해도 작업이 멈추지 않게, 같은 양식 구조로 규칙 기반 초안을 먼저 채워 둔다.
+        updateTemplateSession({ result: buildRuleBasedFill({ schema, profile: templateSession.profile }) });
+        setTemplateError(modelResult.error || "모델 실행에 실패했습니다.");
+        notify("AI 호출에 실패해 규칙 기반 초안으로 대신 채웠습니다. 프롬프트를 복사해 외부 AI로 이어갈 수 있습니다.");
+        return;
+      }
+      updateTemplateSession({ result: modelResult.output });
+      const coverage = checkStructureCoverage(schema, modelResult.output);
+      if (coverage.total && coverage.ratio < 0.6) {
+        notify(`AI 초안을 받았습니다. 양식 제목 ${coverage.total}개 중 ${coverage.matched}개만 확인되어 목차를 검토해 주세요.`);
+      } else {
+        notify(`${modelLabel(modelSettings.provider)}가 양식 구조에 맞춰 초안을 만들었습니다.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "모델 실행에 실패했습니다.";
+      updateTemplateSession({ result: buildRuleBasedFill({ schema, profile: templateSession.profile }) });
+      setTemplateError(message);
+      notify(`AI 호출 실패: ${message}`);
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
+
+  const copyTemplatePrompt = () => {
+    if (!templateSession.schema) {
+      notify("먼저 샘플 양식을 읽어 주세요.");
+      return;
+    }
+    copyText(buildTemplateFillPrompt({ schema: templateSession.schema, profile: templateSession.profile }), "양식 채우기 프롬프트를 복사했습니다. 외부 AI에 붙여넣어 주세요.");
+  };
+
+  const downloadTemplateResult = () => {
+    if (!templateSession.result.trim()) {
+      notify("먼저 양식을 채워 주세요.");
+      return;
+    }
+    const name = safeFileName(templateSession.profile.projectName || templateSession.schema?.title || "template-filled", "template-filled");
+    downloadTextFile(templateSession.result, `${name}.md`, "text/markdown;charset=utf-8");
+    notify("양식에 맞춘 초안을 Markdown으로 내려받았습니다.");
+  };
+
+  const sendTemplateResultToDraft = () => {
+    if (!templateSession.result.trim()) {
+      notify("먼저 양식을 채워 주세요.");
+      return;
+    }
+    updateProject({ draftOutput: templateSession.result });
+    setSection("draft");
+    notify("양식 초안을 초안 조립 화면으로 보냈습니다.");
+  };
+
+  const sendTemplateResultToWorkbrain = () => {
+    if (!templateSession.result.trim()) {
+      notify("먼저 양식을 채워 주세요.");
+      return;
+    }
+    updateProject({ draftOutput: templateSession.result });
+    setSection("workbrainExport");
+    notify("워크브레인 내보내기로 보냈습니다. ‘사업계획서 초안’을 켜면 함께 들어갑니다.");
+  };
+
+  const addTemplateResultToApproval = () => {
+    if (!templateSession.result.trim()) {
+      notify("먼저 양식을 채워 주세요.");
+      return;
+    }
+    addApprovalItem(
+      {
+        title: `${templateSession.profile.projectName || templateSession.schema?.title || "샘플 양식"} 양식 채운 초안`,
+        type: "plan",
+        content: templateSession.result,
+        source: "샘플 양식 채우기"
+      },
+      "reviewing"
+    );
+  };
+
+  const clearTemplateSchema = () => {
+    if (!window.confirm("읽은 양식 구조와 결과를 지울까요? 올린 파일 자체는 삭제되지 않습니다.")) return;
+    setTemplateSession(createEmptyTemplateSession());
+    setTemplateError("");
+    notify("읽은 양식을 지웠습니다.");
   };
 
   const runNoticeAnalysis = () => {
@@ -893,7 +1121,9 @@ export default function App() {
             started={hasAnyWork}
             onNavigate={setSection}
             onImportFile={importDocument}
+            onImportTemplate={parseTemplateFile}
             onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
+            templateSummary={templateSession.schema ? summarizeSchema(templateSession.schema) : null}
           />
         )}
 
@@ -1274,9 +1504,26 @@ export default function App() {
           </Panel>
         )}
 
-        {section === "sample" && <SimpleGrid title="좋은 문서의 구조를 우리 사업 기준으로 바꿉니다" description="문장을 베끼지 않고 구조, 논리, 평가자 신호를 가져옵니다." fields={[
-          ["참고 문서/출처", "sampleSource"], ["좋았던 구조", "sampleStructure"], ["평가자에게 주는 신호", "sampleSignals"], ["우리 사업에 적용할 방식", "sampleAdaptation"]
-        ]} project={project} update={updateProject} />}
+        {section === "sample" && (
+          <SimpleGrid
+            title="좋은 문서의 구조를 우리 사업 기준으로 바꿉니다"
+            description="문장을 베끼지 않고 구조, 논리, 평가자 신호를 가져옵니다."
+            fields={[
+              ["참고 문서/출처", "sampleSource"], ["좋았던 구조", "sampleStructure"], ["평가자에게 주는 신호", "sampleSignals"], ["우리 사업에 적용할 방식", "sampleAdaptation"]
+            ]}
+            project={project}
+            update={updateProject}
+            footer={(
+              <div className="coach-bar sample-template-bridge">
+                <div>
+                  <strong>양식 자체에 맞춰 채우기</strong>
+                  <span>공고·기관 사업계획서 양식(HWPX·DOCX·PDF)을 올리면 목차·표·빈칸을 읽어 그 구조대로 내용을 채웁니다.</span>
+                </div>
+                <button className="primary-button" type="button" onClick={() => setSection("templateFill")}>샘플 양식 채우기</button>
+              </div>
+            )}
+          />
+        )}
         {section === "idea" && <SimpleGrid title="작성자의 아이디어를 선명하게 만듭니다" description="현장 경험과 고유 관점을 정책 언어로 번역합니다." fields={[
           ["핵심 아이디어", "coreIdea"], ["대상자", "targetUsers"], ["현장 근거", "fieldEvidence"], ["작성자의 고유 관점", "founderInsight"]
         ]} project={project} update={updateProject} />}
@@ -1335,11 +1582,43 @@ export default function App() {
           </Panel>
         )}
 
+        {section === "templateFill" && (
+          <Panel
+            title="샘플 양식 구조를 읽고 내 내용으로 채웁니다"
+            description="공고·기관 양식 파일을 올리면 섹션 목차, 표의 열과 행, 빈칸·작성 항목을 먼저 보여 줍니다. 그 구조를 유지한 Markdown 초안을 만들고 복사·내려받기·워크브레인 내보내기로 이어집니다."
+          >
+            <TemplateFillView
+              schema={templateSession.schema}
+              profile={templateSession.profile}
+              result={templateSession.result}
+              busy={templateBusy}
+              error={templateError}
+              providerLabel={modelLabel(modelSettings.provider)}
+              modelNote={modelSafetyNote(modelSettings)}
+              onProfileChange={(patch) => updateTemplateSession({ profile: normalizeProfile({ ...templateSession.profile, ...patch }) })}
+              onPickFile={parseTemplateFile}
+              onParsePaste={parseTemplateText}
+              onUseProjectValues={useProjectValuesForTemplate}
+              onFill={runTemplateFill}
+              onResultChange={(result) => updateTemplateSession({ result })}
+              onCopyResult={() => copyText(templateSession.result, "양식 초안을 복사했습니다.")}
+              onCopyPrompt={copyTemplatePrompt}
+              onDownload={downloadTemplateResult}
+              onSendToDraft={sendTemplateResultToDraft}
+              onExportWorkbrain={sendTemplateResultToWorkbrain}
+              onAddToApproval={addTemplateResultToApproval}
+              onOpenModelSettings={() => setSection("modelSettings")}
+              onClear={clearTemplateSchema}
+            />
+          </Panel>
+        )}
+
         {section === "draft" && (
           <Panel title="공고 양식에 맞는 초안으로 조립합니다" description="입력한 내용을 사업계획서의 기본 골격으로 정리합니다.">
             <div className="draft-actions">
               <button className="primary-button" type="button" onClick={() => { updateProject({ draftOutput: generateDraftText(project) }); notify("초안을 생성했습니다."); }}>초안 생성</button>
               <button className="secondary-button" type="button" onClick={() => copyText(project.draftOutput || generateDraftText(project), "초안을 복사했습니다.")}>초안 복사</button>
+              <button className="secondary-button" type="button" onClick={() => setSection("templateFill")}>샘플 양식으로 채우기</button>
             </div>
             <textarea className="draft-output" rows={24} value={project.draftOutput} onChange={(event) => updateProject({ draftOutput: event.target.value })} />
           </Panel>
@@ -1529,7 +1808,8 @@ function SimpleGrid({
   fields,
   project,
   update,
-  logic = false
+  logic = false,
+  footer
 }: {
   title: string;
   description: string;
@@ -1537,6 +1817,7 @@ function SimpleGrid({
   project: ProjectData;
   update: (patch: Partial<ProjectData>) => void;
   logic?: boolean;
+  footer?: React.ReactNode;
 }) {
   return (
     <Panel title={title} description={description}>
@@ -1545,6 +1826,7 @@ function SimpleGrid({
           <Field key={String(key)} label={label} value={String(project[key] || "")} onChange={(value) => update({ [key]: value } as Partial<ProjectData>)} rows={logic ? 6 : 5} />
         ))}
       </div>
+      {footer}
     </Panel>
   );
 }

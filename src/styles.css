@@ -1995,3 +1995,375 @@
 .grant-filter-buttons .is-on {
   border-color: var(--accent);
 }
+
+/* ── 샘플 양식 구조 파싱 · 맞춤 채우기 ─────────────────────────── */
+
+.home-template-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  border: 1px solid #c8e0d9;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #f4fbf9;
+}
+
+.home-template-bar > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.home-template-bar strong {
+  font-size: 15px;
+}
+
+.home-template-bar span {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.home-template-bar .draft-actions {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.template-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.template-layout .coach-bar {
+  margin-bottom: 0;
+}
+
+.template-paste {
+  margin-top: 4px;
+}
+
+.template-paste-body {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  justify-items: start;
+}
+
+.template-paste-body .field {
+  width: 100%;
+}
+
+.template-summary {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fbfcfe;
+}
+
+.template-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.template-summary-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.template-summary-head strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.template-summary-head span,
+.template-warnings {
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.template-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.template-badge.is-ready {
+  background: #e6f5ef;
+  color: #1f6b55;
+}
+
+.template-badge.is-warn {
+  background: #fff3e8;
+  color: #9a4d1c;
+}
+
+.template-warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.template-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.template-preview-block {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+
+.template-preview-block h4,
+.template-tables h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #334255;
+}
+
+.template-outline,
+.template-slot-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.template-outline li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.template-outline li[data-level="1"] {
+  font-weight: 800;
+}
+
+.template-level-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.template-slot-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.template-slot-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.template-slot-kind {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: #fff;
+  color: #4a5866;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.template-slot-kind.is-blank,
+.template-slot-kind.is-table-cell {
+  border-color: #f0cdb6;
+  background: #fff7f2;
+  color: #9a4d1c;
+}
+
+.template-slot-kind.is-guide {
+  border-color: #cfe0ee;
+  background: #f2f8fd;
+  color: #2f6183;
+}
+
+.template-slot-label {
+  min-width: 0;
+}
+
+.template-more,
+.template-empty-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.template-tables {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.template-table-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.template-table-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.template-table-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.template-table-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+table.template-table {
+  min-width: 420px;
+}
+
+.template-table td,
+.template-table th {
+  font-size: 13px;
+}
+
+.template-blank {
+  display: inline-block;
+  border: 1px dashed #d9b39a;
+  border-radius: 4px;
+  padding: 1px 7px;
+  background: #fffaf6;
+  color: #a2622f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.template-outline-details {
+  margin-top: 12px;
+}
+
+.template-result {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.sample-template-bridge {
+  margin-top: 18px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 980px) {
+  .template-preview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .home-template-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .home-template-bar .draft-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .home-template-bar .draft-actions button {
+    width: 100%;
+    min-height: 44px;
+    white-space: normal;
+  }
+
+  .template-summary-head {
+    flex-wrap: wrap;
+  }
+
+  .template-layout .coach-bar,
+  .sample-template-bridge {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .template-layout .coach-bar .draft-actions,
+  .sample-template-bridge .primary-button {
+    width: 100%;
+  }
+
+  .grant-block-head .draft-actions .primary-button,
+  .grant-block-head .draft-actions .secondary-button,
+  .grant-block-head .draft-actions .ghost-light-button {
+    white-space: normal;
+  }
+}
+
+/* 좁은 화면: 미리보기 표는 예산표와 같은 카드형으로 펼쳐 가로 스크롤을 없앤다. */
+@media (max-width: 640px) {
+  table.template-table {
+    min-width: 0;
+  }
+
+  .template-table-card .table-wrap {
+    overflow-x: visible;
+  }
+
+  .template-table td {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .template-table td > * {
+    min-width: 0;
+  }
+}
+
+/* 상태 바의 긴 안내문이 상자 밖으로 나가지 않게 한다. */
+.template-layout .model-status-bar {
+  align-items: flex-start;
+}
+
+.template-layout .model-status-bar strong {
+  flex: 0 0 auto;
+}
+
+.template-layout .model-status-bar span {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}

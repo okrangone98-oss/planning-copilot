@@ -29,6 +29,11 @@ const initialState: ExportState = {
   includeFollowUps: true
 };
 
+/** 초안 조립·양식 채우기에서 넘어온 초안이 있으면 ‘사업계획서 초안’을 미리 켜 둔다. */
+function createInitialState(hasDraft: boolean): ExportState {
+  return { ...initialState, includeDraft: hasDraft };
+}
+
 export function WorkbrainExportView({
   plan,
   project,
@@ -38,7 +43,7 @@ export function WorkbrainExportView({
   project: ProjectData;
   notify: (message: string) => void;
 }) {
-  const [state, setState] = useState<ExportState>(initialState);
+  const [state, setState] = useState<ExportState>(() => createInitialState(Boolean(project.draftOutput.trim())));
 
   const options = useMemo<WorkbrainExportOptions>(() => ({
     domain: state.domain,

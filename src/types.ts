@@ -19,6 +19,7 @@ export type SectionId =
   | "execution"
   | "blueprint"
   | "draft"
+  | "templateFill"
   | "grantBudget"
   | "grantChecklist"
   | "grantReport"
