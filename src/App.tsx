@@ -7,6 +7,8 @@ import { WorkHomeView } from "./components/WorkHomeView";
 import { WorkbrainExportView } from "./components/WorkbrainExportView";
 import { TemplateFillView } from "./components/TemplateFillView";
 import { ProjectBoardView } from "./components/ProjectBoardView";
+import { ProjectDetailView, type DetailTab } from "./components/ProjectDetailView";
+import type { ConfirmPlanRequest, ConfirmPlanResult } from "./components/ProjectPlanTransition";
 import { PiiGuardNotice } from "./components/PiiGuardNotice";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
@@ -61,11 +63,25 @@ import {
   selectProject,
   updateProjectMeta,
   PROJECT_STATUSES,
+  PROJECT_TYPES,
   type ProjectMeta,
   type ProjectStatusId,
   type ProjectTypeId,
   type Workspace
 } from "./lib/projectWorkspace.mjs";
+import {
+  appendChanges,
+  buildChangeEntries,
+  buildGenerationPreview,
+  createEmptyProjectWork,
+  createRevision,
+  isProjectWorkEmpty,
+  projectDigest,
+  type ChangeLogEntry,
+  type ProjectWork
+} from "./lib/projectOperations.mjs";
+import { loadAllProjectWorks, loadProjectWork, saveProjectWork } from "./lib/projectWorkStorage";
+import { applyGeneration } from "./lib/projectOperations.mjs";
 import {
   copySlotData,
   exportWorkspaceArchive,
@@ -158,6 +174,32 @@ function pickModelOptions(ids: readonly string[]) {
 const primaryModelOptions = pickModelOptions(PRIMARY_MODEL_PROVIDERS);
 const advancedModelOptions = pickModelOptions(ADVANCED_MODEL_PROVIDERS);
 const GRANT_SECTIONS: SectionId[] = ["grantBudget", "grantChecklist", "grantReport", "workbrainExport"];
+// 사업 정보 변경 이력에 남길 필드 이름.
+const META_FIELD_LABELS: Record<string, string> = {
+  name: "사업명",
+  type: "유형",
+  status: "상태",
+  year: "연도",
+  ownerName: "담당자",
+  startDate: "사업 시작",
+  endDate: "사업 종료",
+  deadline: "신청 마감",
+  goals: "목표",
+  sourceRefs: "출처"
+};
+const META_FIELD_FORMATTERS = {
+  type: (value: unknown) => PROJECT_TYPES.find((type) => type.id === value)?.label || String(value ?? ""),
+  status: (value: unknown) => PROJECT_STATUSES.find((status) => status.id === value)?.label || String(value ?? "")
+};
+/** 같은 편집이 한 줄로 남도록 5분 안의 같은 필드 예산 변경은 마지막 값만 고친다. */
+function mergeBudgetChange(current: ProjectWork, entry: ChangeLogEntry): ProjectWork {
+  const [latest, ...rest] = current.changes;
+  const withinBurst = latest && Date.now() - new Date(latest.changedAt).getTime() < 5 * 60 * 1000;
+  if (latest && withinBurst && latest.entityType === "budget" && latest.field === entry.field) {
+    return { ...current, changes: [{ ...latest, after: entry.after, changedAt: entry.changedAt }, ...rest] };
+  }
+  return appendChanges(current, [entry]);
+}
 const quickOfficeCommands = [
   "2026 청년 관광두레 플러스사업 지원 전략 짜줘",
   "다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘",
@@ -344,6 +386,12 @@ export default function App() {
   const [memoryNote, setMemoryNote] = useState("");
   const [controlTowerState, setControlTowerState] = useState<ControlTowerState>(() => loadControlTowerState());
   const [grantPlan, setGrantPlan] = useState<GrantPlan>(initial.grantPlan);
+  // 사업 하나의 운영 데이터(업무·회차·리비전·변경 이력). 사업별 저장 키에 따로 둔다.
+  const [work, setWork] = useState<ProjectWork>(initial.work);
+  const [boardView, setBoardView] = useState<"list" | "detail">("list");
+  const [detailTab, setDetailTab] = useState<DetailTab>("overview");
+  const [focusTaskId, setFocusTaskId] = useState("");
+  const [schemaNotice, setSchemaNotice] = useState(initial.schemaUpgraded);
   const [templateSession, setTemplateSession] = useState<TemplateSession>(() => loadTemplateSession(initial.workspace.activeProjectId));
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateError, setTemplateError] = useState("");
@@ -448,6 +496,16 @@ export default function App() {
     saveWorkspace(workspace);
   }, [workspace]);
 
+  useEffect(() => {
+    // 비어 있는 사업에는 저장 키를 만들지 않는다(projectWorkStorage가 판단한다).
+    saveProjectWork(workspace.activeProjectId, work);
+  }, [work, workspace.activeProjectId]);
+
+  useEffect(() => {
+    if (!initial.schemaUpgraded) return;
+    setToast("저장 형식이 v3로 올라갔습니다. 업무·회차·변경 이력이 백업에 담기니 백업·가져오기에서 한 번 받아 두세요.");
+  }, [initial.schemaUpgraded]);
+
   // 사업 카드의 이름·진행률은 현재 사업 입력값에서 다시 계산해 보드에 반영한다.
   useEffect(() => {
     const percent = projectProgress({ project, plan: grantPlan }).percent;
@@ -479,6 +537,7 @@ export default function App() {
     saveProjectData(workspace.activeProjectId, project);
     saveSlotGrantPlan(workspace.activeProjectId, grantPlan);
     saveTemplateSession(templateSession, workspace.activeProjectId);
+    saveProjectWork(workspace.activeProjectId, work);
   };
 
   const switchProject = (id: string) => {
@@ -490,6 +549,7 @@ export default function App() {
     setWorkspace((current) => selectProject(current, id));
     setProject(next.project);
     setGrantPlan(next.grantPlan);
+    setWork(next.work);
     setTemplateSession(loadTemplateSession(id));
     setMobileNavOpen(false);
     notify(`‘${target.name}’ 사업으로 전환했습니다.`);
@@ -507,6 +567,7 @@ export default function App() {
     setWorkspace(result.workspace);
     setProject({ ...emptyProject, projectName: result.project.name });
     setGrantPlan(createEmptyGrantPlan());
+    setWork(createEmptyProjectWork(result.project.id));
     setTemplateSession(createEmptyTemplateSession());
     notify(`‘${result.project.name}’ 사업을 만들었습니다. 이제 이 사업으로 작업합니다.`);
   };
@@ -524,6 +585,7 @@ export default function App() {
     setWorkspace(result.workspace);
     setProject(loadProjectData(result.project.id));
     setGrantPlan(loadSlotGrantPlan(result.project.id));
+    setWork(loadProjectWork(result.project.id));
     setTemplateSession(loadTemplateSession(id));
     notify(`‘${source.name}’ 사업을 ‘${result.project.name}’(으)로 복제했습니다.`);
   };
@@ -531,7 +593,7 @@ export default function App() {
   const removeProjectById = (id: string) => {
     const target = findProject(workspace, id);
     if (!target) return;
-    if (!window.confirm(`‘${target.name}’ 사업을 삭제할까요? 이 브라우저에 저장된 이 사업의 입력값·예산·정산·양식 작업이 함께 사라집니다.`)) return;
+    if (!window.confirm(`‘${target.name}’ 사업을 삭제할까요? 이 브라우저에 저장된 이 사업의 입력값·예산·정산·양식·업무·회차가 함께 사라집니다.`)) return;
     const result = removeWorkspaceProject(workspace, id);
     if (!result.removed) {
       notify(result.error || "사업을 삭제하지 못했습니다.");
@@ -548,14 +610,118 @@ export default function App() {
       const next = loadWorkspaceForProject(result.workspace.activeProjectId);
       setProject(next.project);
       setGrantPlan(next.grantPlan);
+      setWork(next.work);
       setTemplateSession(loadTemplateSession(result.workspace.activeProjectId));
     }
     notify(`‘${target.name}’ 사업을 삭제했습니다.`);
   };
 
+  /** 사업 정보 변경은 무엇이 어떻게 바뀌었는지 남긴다(현재 사업만). */
   const changeProjectMeta = (id: string, patch: Partial<ProjectMeta>) => {
+    const before = findProject(workspace, id);
+    if (before && id === workspace.activeProjectId) {
+      const entries = buildChangeEntries({
+        entityType: "meta",
+        entityId: id,
+        before: before as unknown as Record<string, unknown>,
+        after: { ...before, ...patch } as unknown as Record<string, unknown>,
+        fields: Object.keys(patch),
+        labels: META_FIELD_LABELS,
+        formatters: META_FIELD_FORMATTERS,
+        now: new Date()
+      });
+      if (entries.length) setWork((current) => appendChanges(current, entries));
+    }
     setWorkspace((current) => updateProjectMeta(current, id, patch));
   };
+
+  /* ── 사업 상세·운영 데이터(업무·회차·리비전) ────────────────── */
+
+  const updateWork = (next: ProjectWork) => setWork(next);
+
+  /** 사업 상세로 들어간다. 다른 사업이면 먼저 전환한다. */
+  const openProjectDetail = (id: string, tab: DetailTab = "overview", taskId = "") => {
+    if (id && id !== workspace.activeProjectId) switchProject(id);
+    setBoardView("detail");
+    setDetailTab(tab);
+    setFocusTaskId(taskId);
+    setSection("projectBoard");
+  };
+
+  /**
+   * 계획 확정 → 운영 업무 생성.
+   * 1) 확정 전이면 상태를 확정으로 옮기고 2) 계획 스냅샷(리비전)을 남기고 3) 미리보기대로 업무를 만든다.
+   * 같은 업무는 sourceKey로 걸러 다시 만들지 않는다. 공고문은 필요하지 않다.
+   */
+  const confirmPlan = (request: ConfirmPlanRequest): ConfirmPlanResult => {
+    const target = activeMeta;
+    if (!target) return { ok: false, message: "사업을 찾지 못했습니다." };
+    const options = { sessionCount: request.sessionCount, skipStages: request.skipStages };
+    const base = buildGenerationPreview({ meta: target, plan: grantPlan, work, options });
+    if (base.blocked) return { ok: false, message: base.blockedReason };
+
+    const nextStatus: ProjectStatusId = base.confirmRequired ? "confirmed" : target.status;
+    const nextMeta: ProjectMeta = { ...target, status: nextStatus };
+    const reason = request.reason.trim() || (base.confirmRequired ? "계획 확정" : "운영 업무 다시 만들기");
+    const revision = createRevision({ work, meta: nextMeta, project, grantPlan, reason, now: new Date() });
+    const preview = buildGenerationPreview({ meta: nextMeta, plan: grantPlan, work: revision.work, options });
+    const applied = applyGeneration({
+      work: revision.work,
+      preview,
+      now: new Date(),
+      revision: revision.revision.revision
+    });
+    if (applied.error) return { ok: false, message: applied.error };
+
+    const statusEntries = base.confirmRequired
+      ? buildChangeEntries({
+        entityType: "meta",
+        entityId: target.id,
+        before: target as unknown as Record<string, unknown>,
+        after: nextMeta as unknown as Record<string, unknown>,
+        fields: ["status"],
+        labels: META_FIELD_LABELS,
+        formatters: META_FIELD_FORMATTERS,
+        reason,
+        now: new Date()
+      })
+      : [];
+    setWork(appendChanges(applied.work, statusEntries));
+    if (base.confirmRequired) {
+      setWorkspace((current) => updateProjectMeta(current, target.id, { status: nextStatus }));
+    }
+    const message = base.confirmRequired
+      ? `계획을 확정하고 업무 ${applied.added}개·회차 ${applied.newSessions}개를 만들었습니다.`
+      : applied.added > 0
+        ? `업무 ${applied.added}개를 더 만들었습니다. 이미 있던 ${applied.skipped}개는 그대로 두었습니다.`
+        : `새로 만들 업무가 없습니다. 이미 있던 ${applied.skipped}개를 그대로 두었습니다.`;
+    return { ok: true, message, added: applied.added, skipped: applied.skipped, revision: revision.revision.revision };
+  };
+
+  /** 시작 화면용: 모든 사업의 지연·오늘 마감과 다음 권장 행동 하나. */
+  const homeDigest = useMemo(() => {
+    const works = loadAllProjectWorks(workspace.projects);
+    works[workspace.activeProjectId] = work;
+    const entries = workspace.projects.map((meta) => {
+      const plan = meta.id === workspace.activeProjectId ? grantPlan : loadSlotGrantPlan(meta.id);
+      const projectWork = works[meta.id] || createEmptyProjectWork(meta.id);
+      // 처음 만들어진 빈 사업(‘내 사업 1’)에 ‘계획 확정’을 권하지 않는다.
+      const empty = !projectWork.tasks.length &&
+        !plan.budgetLines.length &&
+        !meta.deadline &&
+        !meta.goals.length &&
+        /^내 사업 \d+$/.test(meta.name);
+      return {
+        projectId: meta.id,
+        projectName: meta.name,
+        meta,
+        work: projectWork,
+        plan,
+        empty
+      };
+    });
+    return projectDigest(entries);
+  }, [workspace.projects, workspace.activeProjectId, work, grantPlan]);
 
   /* ── 개인정보 가드 ────────────────────────────────────────── */
 
@@ -1075,7 +1241,52 @@ export default function App() {
 
   const updateModelSettings = (patch: Partial<ModelSettings>) => setModelSettings((current) => ({ ...current, ...patch }));
 
-  const updateGrantPlan = (patch: Partial<GrantPlan>) => setGrantPlan((current) => ({ ...current, ...patch }));
+  /**
+   * 예산 변경은 요약값(프로그램명·재원 기관·일정·비목 수·합계)만 이력에 남긴다.
+   * 금액의 원천은 grantPlan.budgetLines 하나이고, 여기서 금액을 더하지 않는다.
+   */
+  const updateGrantPlan = (patch: Partial<GrantPlan>) => {
+    const before = grantPlan;
+    const after = { ...before, ...patch };
+    const beforeSummary = budgetSummary(before);
+    const afterSummary = budgetSummary(after);
+    const beforeValues = {
+      programName: before.programName,
+      agency: before.agency,
+      projectStart: before.schedule?.projectStart || "",
+      projectEnd: before.schedule?.projectEnd || "",
+      reportDeadline: before.schedule?.reportDeadline || "",
+      lines: `${beforeSummary.lineCount}개 · ${formatWon(beforeSummary.total)}`
+    };
+    const afterValues = {
+      programName: after.programName,
+      agency: after.agency,
+      projectStart: after.schedule?.projectStart || "",
+      projectEnd: after.schedule?.projectEnd || "",
+      reportDeadline: after.schedule?.reportDeadline || "",
+      lines: `${afterSummary.lineCount}개 · ${formatWon(afterSummary.total)}`
+    };
+    const entries = buildChangeEntries({
+      entityType: "budget",
+      entityId: workspace.activeProjectId,
+      before: beforeValues,
+      after: afterValues,
+      fields: Object.keys(afterValues),
+      labels: {
+        programName: "사업명(예산)",
+        agency: "재원 기관",
+        projectStart: "사업 시작",
+        projectEnd: "사업 종료",
+        reportDeadline: "결과보고 마감",
+        lines: "비목·합계"
+      },
+      now: new Date()
+    });
+    if (entries.length) {
+      setWork((current) => entries.reduce((next, entry) => mergeBudgetChange(next, entry), current));
+    }
+    setGrantPlan(after);
+  };
 
   const applyGrantPresetToPlan = (presetId: string) => {
     const preset = findGrantPreset(presetId);
@@ -1276,7 +1487,7 @@ export default function App() {
                 <span>진행 {activeMeta.progress}%</span>
               </p>
             )}
-            <button className="secondary-button full" type="button" onClick={() => { setSection("projectBoard"); setMobileNavOpen(false); }}>
+            <button className="secondary-button full" type="button" onClick={() => { setBoardView("list"); setSection("projectBoard"); setMobileNavOpen(false); }}>
               사업 관리 · 새 사업
             </button>
           </div>
@@ -1292,7 +1503,11 @@ export default function App() {
                       className={`nav-item ${section === item.id ? "is-active" : ""}`}
                       type="button"
                       aria-current={section === item.id ? "page" : undefined}
-                      onClick={() => { setSection(item.id); setMobileNavOpen(false); }}
+                      onClick={() => {
+                        if (item.id === "projectBoard") setBoardView("list");
+                        setSection(item.id);
+                        setMobileNavOpen(false);
+                      }}
                     >
                       {item.label}
                     </button>
@@ -1391,13 +1606,15 @@ export default function App() {
             onImportTemplate={parseTemplateFile}
             onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
             templateSummary={templateSession.schema ? summarizeSchema(templateSession.schema) : null}
+            digest={homeDigest}
+            onOpenNextAction={(action) => openProjectDetail(action.projectId, action.tab, action.taskId || "")}
           />
         )}
 
-        {section === "projectBoard" && (
+        {section === "projectBoard" && boardView === "list" && (
           <Panel
             title="사업마다 입력값과 예산을 따로 보관합니다"
-            description="정부·공모·자체 사업을 한 브라우저에 나눠 두고 전환해도 서로 섞이지 않습니다. 진행률은 계획서·예산·정산·결과보고를 합쳐 자동으로 계산합니다."
+            description="정부·공모·자체 사업을 한 브라우저에 나눠 두고 전환해도 서로 섞이지 않습니다. 카드의 ‘상세’를 열면 업무·일정·회차·예산을 한 사업 안에서 이어서 관리합니다."
           >
             <ProjectBoardView
               workspace={workspace}
@@ -1411,8 +1628,30 @@ export default function App() {
               onRename={(name) => updateProject({ projectName: name })}
               onNavigate={setSection}
               onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
+              onOpenDetail={(id) => openProjectDetail(id, "overview")}
             />
           </Panel>
+        )}
+
+        {section === "projectBoard" && boardView === "detail" && activeMeta && (
+          <ProjectDetailView
+            workspace={workspace}
+            meta={activeMeta}
+            project={project}
+            grantPlan={grantPlan}
+            work={work}
+            tab={detailTab}
+            onTabChange={setDetailTab}
+            onBack={() => setBoardView("list")}
+            onUpdateMeta={changeProjectMeta}
+            onRename={(name) => updateProject({ projectName: name })}
+            onUpdateWork={updateWork}
+            onChangeGrantLines={(lines) => updateGrantPlan({ budgetLines: lines })}
+            onNavigate={setSection}
+            onConfirmPlan={confirmPlan}
+            notify={notify}
+            focusTaskId={focusTaskId}
+          />
         )}
 
         {section === "controlTower" && (
@@ -1796,7 +2035,16 @@ export default function App() {
         )}
 
         {section === "driveBackup" && (
-          <Panel title="백업과 복원" description="현재 프로젝트, 저장한 사례, AI 답변 메모를 파일 또는 Google Drive로 보관합니다.">
+          <Panel title="백업과 복원" description="사업·예산·업무·회차·변경 이력까지 파일 또는 Google Drive로 보관합니다.">
+            {schemaNotice && (
+              <div className="pc-notice is-warning" role="status">
+                <div>
+                  <strong>저장 형식이 v3로 올라갔습니다.</strong> 이제 백업 파일에 업무·회차·변경 이력이 함께 담깁니다.
+                  자동으로 내려받지 않으니, 지금 ‘백업 파일 받기’로 한 번 받아 두세요.
+                </div>
+                <button className="ghost-light-button" type="button" onClick={() => setSchemaNotice(false)}>닫기</button>
+              </div>
+            )}
             <div className="coach-bar">
               <div><strong>현재 저장 구조</strong><span>빠른 작업 데이터는 브라우저에 저장하고, 원본 파일은 Google Drive에 보관하는 구조를 권장합니다.</span></div>
               <button className="primary-button" type="button" onClick={downloadArchive}>백업 파일 받기</button>

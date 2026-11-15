@@ -209,6 +209,8 @@ export type DigestEntry = {
   meta: ProjectMeta;
   work: ProjectWork;
   plan?: GrantPlan;
+  /** 아직 아무 내용이 없는 빈 사업이면 다음 행동 추천에서 뺀다. */
+  empty?: boolean;
 };
 
 export const PROJECT_WORK_SCHEMA_VERSION: number;

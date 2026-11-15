@@ -991,7 +991,7 @@ export function nextAction(entries, now) {
 
   for (const entry of list) {
     const meta = entry.meta;
-    if (CLOSED_STATUSES.includes(meta.status)) continue;
+    if (CLOSED_STATUSES.includes(meta.status) || entry.empty) continue;
     const sessions = (entry.work?.sessions || []).filter((session) => session.status === "planned" && session.startAt);
     const today = todayText(now);
     const upcoming = sessions
@@ -1016,7 +1016,7 @@ export function nextAction(entries, now) {
 
   for (const entry of list) {
     const meta = entry.meta;
-    if (CLOSED_STATUSES.includes(meta.status)) continue;
+    if (CLOSED_STATUSES.includes(meta.status) || entry.empty) continue;
     if (CONFIRM_REQUIRED_STATUSES.includes(meta.status)) {
       return {
         kind: "confirm",
@@ -1034,7 +1034,7 @@ export function nextAction(entries, now) {
 
   for (const entry of list) {
     const meta = entry.meta;
-    if (CLOSED_STATUSES.includes(meta.status)) continue;
+    if (CLOSED_STATUSES.includes(meta.status) || entry.empty) continue;
     if (GENERATABLE_STATUSES.includes(meta.status) && !(entry.work?.tasks || []).length) {
       return {
         kind: "generate",
@@ -1052,7 +1052,7 @@ export function nextAction(entries, now) {
 
   for (const entry of list) {
     const meta = entry.meta;
-    if (CLOSED_STATUSES.includes(meta.status)) continue;
+    if (CLOSED_STATUSES.includes(meta.status) || entry.empty) continue;
     if (!(entry.plan?.budgetLines || []).length) {
       return {
         kind: "budget",

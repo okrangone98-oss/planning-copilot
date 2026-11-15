@@ -3,6 +3,7 @@ import type { GrantPlan, SectionId } from "../types";
 import { budgetSummary, formatWon, grantProgress } from "../lib/grantWorkflow.mjs";
 import { SAMPLE_ACCEPT } from "../lib/sampleTemplateParser.mjs";
 import { PROJECT_STATUSES, dDayInfo, type ProjectMeta } from "../lib/projectWorkspace.mjs";
+import type { NextAction, ProjectDigest } from "../lib/projectOperations.mjs";
 
 const START_CARDS: Array<{
   id: string;
@@ -56,7 +57,9 @@ export function WorkHomeView({
   onImportFile,
   onImportTemplate,
   onLoadExample,
-  templateSummary
+  templateSummary,
+  digest,
+  onOpenNextAction
 }: {
   projectName: string;
   plan: GrantPlan;
@@ -71,6 +74,8 @@ export function WorkHomeView({
   onImportTemplate: (file: File) => void;
   onLoadExample: () => void;
   templateSummary: { sections: number; tables: number; slots: number } | null;
+  digest?: ProjectDigest | null;
+  onOpenNextAction?: (action: NextAction) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const templateRef = useRef<HTMLInputElement>(null);
@@ -119,6 +124,68 @@ export function WorkHomeView({
           }}
         />
       </section>
+
+      {digest && (
+        <section className="block home-today" aria-label="오늘 할 일">
+          <div className="block-head">
+            <h3>오늘 할 일</h3>
+            <span className="block-count">사업 {projects.length}개 합산</span>
+          </div>
+          <div className="home-today-grid">
+            <div className={`home-today-stat ${digest.overdue ? "is-danger" : ""}`}>
+              <span>지연 업무</span>
+              <strong>{digest.overdue}</strong>
+            </div>
+            <div className={`home-today-stat ${digest.dueToday ? "is-warning" : ""}`}>
+              <span>오늘 마감</span>
+              <strong>{digest.dueToday}</strong>
+            </div>
+            <div className="home-today-stat">
+              <span>7일 안 마감</span>
+              <strong>{digest.dueSoon}</strong>
+            </div>
+            <div className="home-today-stat">
+              <span>운영 중 사업</span>
+              <strong>{digest.running.length}</strong>
+            </div>
+          </div>
+
+          {digest.next ? (
+            <button className="home-next" type="button" onClick={() => onOpenNextAction?.(digest.next as NextAction)}>
+              <span className="home-next-kicker">다음 권장 행동</span>
+              <strong>{digest.next.label}</strong>
+              <span className="home-next-detail">{digest.next.detail}</span>
+              <em>{digest.next.actionLabel} ›</em>
+            </button>
+          ) : (
+            <p className="block-note">
+              지금 급한 업무가 없습니다. 새 사업을 만들거나 사업 관리에서 다음 단계를 정해 보세요.
+            </p>
+          )}
+
+          {digest.overdueItems.length > 0 && (
+            <ul className="home-overdue-list">
+              {digest.overdueItems.slice(0, 3).map((item) => (
+                <li key={`${item.projectId}-${item.title}`}>
+                  <strong>{item.title}</strong>
+                  <span>{item.projectName} · {item.dueDate}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {digest.running.length > 0 && (
+            <div className="home-running">
+              <span>운영 중</span>
+              {digest.running.slice(0, 4).map((item) => (
+                <button key={item.id} className="home-running-chip" type="button" onClick={() => onSelectProject(item.id)}>
+                  {item.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="block" aria-label="문서·예산 흐름">
         <div className="block-head">
