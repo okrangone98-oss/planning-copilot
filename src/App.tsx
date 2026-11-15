@@ -40,6 +40,7 @@ import {
   CARRYOVER_MODE_HINT,
   detectPreviousYearDocument,
   findLeftoverYearValues,
+  markCarryoverRows,
   type CarryoverDetection
 } from "./lib/yearCarryover.mjs";
 import {
@@ -1343,8 +1344,10 @@ export default function App() {
   };
 
   const applySmartRows = (result: SmartMapResult, note: string) => {
-    setSmartResult(result);
-    setSmartSelected(new Set(result.rows.filter((row) => row.checked).map((row) => row.fieldId)));
+    // 양식 이양 모드 — 전년도 값이 적힌 칸은 바꿀 값이 있으면 미리 체크해 둔다 (사용자가 풀면 그대로 둔다).
+    const marked = carryoverEnabled && carryoverPlan.rows.length ? markCarryoverRows(result, carryoverPlan.rows) : result;
+    setSmartResult(marked);
+    setSmartSelected(new Set(marked.rows.filter((row) => row.checked).map((row) => row.fieldId)));
     setSmartNote(note);
   };
 
