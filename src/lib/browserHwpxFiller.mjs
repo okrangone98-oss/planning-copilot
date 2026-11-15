@@ -9,7 +9,7 @@
 // 여러 줄 값은 같은 문단 모양·글자 모양을 복제한 `<hp:p>` 를 이어 붙여 칸 안에서 줄을 나눈다.
 // 지난 단계까지는 "어느 칸에 무슨 값"만 정하고 실제 쓰기는 kordoc CLI·브릿지에 맡겼는데, 이 모듈이 그 쓰기를 브라우저로 가져온다.
 
-import { isBlankValueCell, isDatePlaceholderCell, isFormLabelCell, isSubLabelBeside, findMatchingFieldKey, normalizeFormLabel, scanInlineFieldSegments } from "./kordocFormSpec.mjs";
+import { isBlankValueCell, isDatePlaceholderCell, isFormLabelCell, isInlineSignatureBlock, isSignaturePlaceholderCell, isSubLabelBeside, findMatchingFieldKey, normalizeFormLabel, scanInlineFieldSegments } from "./kordocFormSpec.mjs";
 
 export const HWPX_MIME = "application/hwp+zip";
 /** 다시 읽을 때 본문으로 보는 ZIP 엔트리 */
@@ -86,6 +86,15 @@ export function parseHwpxXml(xml) {
 
 function elementsOf(node) {
   return (node?.children || []).filter((child) => child.type !== "text");
+}
+
+/** 요소 안에 특정 이름의 요소가 들어 있는가 — 칸 안의 표를 찾을 때 쓴다. */
+function containsLocal(node, local) {
+  for (const child of elementsOf(node)) {
+    if (child.local === local) return true;
+    if (containsLocal(child, local)) return true;
+  }
+  return false;
 }
 
 /** 글자 안 인라인 요소를 같은 길이의 빈칸으로 바꾼다 — offset 을 그대로 두고 글자만 깨끗하게. */
@@ -312,6 +321,8 @@ export function fillableValueState(text) {
   const trimmed = String(text ?? "").trim();
   if (!trimmed) return { fillable: true, placeholder: "" };
   if (isBlankValueCell(trimmed)) return { fillable: true, placeholder: trimmed };
+  // (서명/인)·(인) 같은 서명 자리 표시는 ‘이미 적힌 값’이 아니라 이름을 넣을 자리다.
+  if (isSignaturePlaceholderCell(trimmed)) return { fillable: true, placeholder: trimmed };
   if (FILL_PLACEHOLDER_RE.test(trimmed)) {
     const mustache = /^\{\{\s*([^{}]{1,40}?)\s*\}\}$/.exec(trimmed);
     return { fillable: true, placeholder: trimmed, label: mustache ? mustache[1].trim() : "" };
@@ -472,7 +483,8 @@ function planInlineWrite(xml, paragraph, cursors, filled, where) {
     if (!state.fillable) continue;
     const label = (state.label || segment.extLabel || segment.label || "").trim();
     if (!label) continue;
-    const key = matchKey(label, cursors);
+    // ‘강사 성명’처럼 수식어가 붙은 라벨은 ‘성명’ 키로도 찾는다.
+    const key = matchKey(label, cursors) || (segment.label && segment.label !== label ? matchKey(segment.label, cursors) : undefined);
     if (!key) continue;
     const value = consumeValue(cursors.get(key));
     if (value === undefined) continue;
@@ -532,19 +544,58 @@ export function patchSectionXml(xml, values, options = {}) {
   const splices = [];
   const filled = [];
   const skipped = [];
+  /** 표 전략에서 라벨 칸으로 판정한 칸 — 인라인(서명 블록) 전략이 같은 칸을 다시 쓰지 않게 한다. */
+  const labelCellNodes = new Set();
+
+  /**
+   * 라벨 옆 칸이 값 자리가 아니라 표 제목 띠·레이아웃 여백인가.
+   * - 여러 열을 덮은 제목 칸(“강사카드”, “인적사항”)은 구역 제목이지 라벨이 아니다.
+   * - 라벨 옆 빈 칸 뒤에 다른 내용이 이어지면(‘총 괄 | 빈칸 | 빈칸 | 담당부서’) 그 빈 칸은 값 자리가 아니다.
+   * - 값 칸 안에 표가 들어 있으면(안내 상자) 값을 덮어쓰면 안 된다.
+   */
+  const isBandLabelPair = (table, cells, labelCell, valueCell) => {
+    if (table.columnCount >= 2 && labelCell.colSpan >= table.columnCount) return true;
+    if (labelCell.colSpan >= 3) return true;
+    if (labelCell.colSpan >= 2 && valueCell.rowSpan >= 3) return true;
+    if (containsLocal(valueCell.node, "tbl")) return true;
+    // 행 앞쪽이 전부 빈칸이면 행 머리가 아니라 표 안의 격자 칸이다(책임분담표 같은 다열 표).
+    const before = cells.filter((cell) => cell.colAddr < labelCell.colAddr);
+    if (before.length && before.every((cell) => !cell.text.trim())) return true;
+    if (!fillableValueState(valueCell.text).fillable) return false;
+    const after = cells.filter((cell) => cell.colAddr >= valueCell.colAddr + valueCell.colSpan);
+    const immediate = after[0];
+    if (immediate && isFormLabelCell(immediate.text.trim())) {
+      // 같은 행에 ‘라벨 | 빈칸’이 하나 더 있으면 두 칸짜리 양식 줄이다.
+      const afterImmediate = after[1];
+      if (afterImmediate && fillableValueState(afterImmediate.text).fillable) return false;
+      return true;
+    }
+    const later = after.slice(1).some((cell) => cell.text.trim());
+    return Boolean((immediate && immediate.text.trim()) || later);
+  };
 
   /* 전략 1·2 — 표 */
+  /** 행 하나를 덮은 칸뿐인 구역 제목 띠인가(‘자격사항’, ‘강사카드’) */
+  const isBandRowNode = (table, row) => {
+    const filled = row.cells.filter((cell) => cell.text.trim());
+    if (!filled.length || filled.length > 1) return false;
+    const cell = filled[0];
+    return cell.colSpan >= 3 || (table.columnCount >= 2 && cell.colSpan >= table.columnCount);
+  };
   for (const table of tables) {
     const rows = table.rows;
     if (!rows.length) continue;
-    const headerRow = rows[0];
-    const firstRowAllLabels = rows.length >= 2 && headerRow.cells.length > 0
+    // 제목 띠 다음 줄부터가 실제 머리 행이다 — 띠를 머리로 보면 ‘경력 → 기간’처럼 머리를 값으로 오인한다.
+    let headerIndex = 0;
+    while (headerIndex < rows.length - 1 && isBandRowNode(table, rows[headerIndex])) headerIndex += 1;
+    const headerRow = rows[headerIndex];
+    const firstRowAllLabels = rows.length - headerIndex >= 2 && headerRow.cells.length >= 2
       && headerRow.cells.every((cell) => {
         const trimmed = cell.text.trim();
         return trimmed.length > 0 && trimmed.length <= 20 && isFormLabelCell(trimmed);
       });
-    const headerDataTable = firstRowAllLabels && rows[1] && rows[1].cells.length > 0
-      && !isFormLabelCell(rows[1].cells[0].text.trim());
+    const headerDataTable = firstRowAllLabels && rows[headerIndex + 1] && rows[headerIndex + 1].cells.length > 0
+      && !isFormLabelCell(rows[headerIndex + 1].cells[0].text.trim());
 
     // 전략 2 — 열 머리 아래 데이터 행 (명부형). 배열 값은 행마다 하나씩, 홑값은 첫 데이터 행만.
     if (headerDataTable) {
@@ -553,7 +604,7 @@ export function patchSectionXml(xml, values, options = {}) {
         const key = matchKey(labelText, cursors);
         if (!key) continue;
         const cursor = cursors.get(key);
-        for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+        for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
           const cell = rows[rowIndex].cells.find((item) => item.colAddr === headerCell.colAddr);
           if (!cell) continue;
           if (!fillableValueState(cell.text).fillable) continue;
@@ -580,14 +631,16 @@ export function patchSectionXml(xml, values, options = {}) {
         const labelCell = cells[position];
         const labelText = labelCell.text.trim();
         if (!labelText || !isFormLabelCell(labelText)) continue;
+        labelCellNodes.add(labelCell.node);
         const key = matchKey(labelText, cursors);
         if (!key) continue;
         const valueCell = cells.find((cell) => cell !== labelCell && cell.colAddr === labelCell.colAddr + labelCell.colSpan);
         const nextCell = cells.find((cell) => cell !== labelCell && cell.colAddr === labelCell.colAddr + labelCell.colSpan + (valueCell ? valueCell.colSpan : 1));
         const valueText = valueCell ? valueCell.text : "";
-        // 하위 라벨("성명" → "한자") 옆 칸은 값 자리가 아니다.
+        // 하위 라벨("성명" → "한자") 옆 칸이나 병합 행 머리 오른쪽 열 머리는 값 자리가 아니다.
         if (valueCell && isSubLabelBeside(labelCell.rowSpan, valueText, nextCell ? nextCell.text : undefined)) continue;
         if (!valueCell) continue;
+        if (isBandLabelPair(table, cells, labelCell, valueCell)) continue;
         const state = fillableValueState(valueText);
         const where = `${table.index + 1}번 표 · ${row.index + 1}행 ${valueCell.colAddr + 1}열`;
         if (!state.fillable) {
@@ -607,11 +660,20 @@ export function patchSectionXml(xml, values, options = {}) {
     }
   }
 
-  /* 전략 3 — 표 밖 본문 문단 + 한 칸짜리 상자 */
+  /* 전략 3 — 표 밖 본문 문단 + 한 칸짜리 상자 + 칸 안 인라인 서명 블록 */
   const inlineTargets = collectBodyParagraphs(root);
   for (const table of tables) {
-    if (table.rows.length !== 1 || table.rows[0].cells.length !== 1) continue;
-    for (const paragraph of table.rows[0].cells[0].paragraphs) inlineTargets.push(paragraph);
+    if (table.rows.length === 1 && table.rows[0].cells.length === 1) {
+      for (const paragraph of table.rows[0].cells[0].paragraphs) inlineTargets.push(paragraph);
+    }
+    for (const row of table.rows) {
+      for (const cell of row.cells) {
+        if (labelCellNodes.has(cell.node)) continue;
+        if (containsLocal(cell.node, "tbl")) continue;
+        if (!isInlineSignatureBlock(cell.text)) continue;
+        for (const paragraph of cell.paragraphs) inlineTargets.push(paragraph);
+      }
+    }
   }
   let paragraphIndex = 0;
   const seen = new Set();

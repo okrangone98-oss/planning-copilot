@@ -95,11 +95,58 @@ export function isFormLabelCell(text) {
   return false;
 }
 
-/** 라벨 칸 오른쪽이 하위 라벨이고 그 옆이 빈 값 칸이면 값 자리가 아니다 — kordoc isSubLabelBeside */
+/**
+ * 라벨 칸 오른쪽이 하위 라벨이고 그 옆이 빈 값 칸이면 값 자리가 아니다 — kordoc isSubLabelBeside.
+ * 행 머리가 여러 행을 덮은 표(‘경력’ 아래 ‘기간 | 소속 | 담당과목’)처럼, 병합 행 머리 오른쪽의
+ * 열 머리도 값 자리가 아니라 머리 행이다. 그 아래 행에 값이 들어가므로 여기서 채우면 머리를 덮어쓴다.
+ */
 export function isSubLabelBeside(labelRowSpan, text, after) {
-  if (after === undefined || isBlankValueCell(text) || !isBlankValueCell(after) || !isFormLabelCell(text)) return false;
+  if (after === undefined) return false;
+  if (labelRowSpan > 1 && isFormLabelCell(text) && (isBlankValueCell(after) || isFormLabelCell(after))) return true;
+  if (isBlankValueCell(text) || !isBlankValueCell(after) || !isFormLabelCell(text)) return false;
   const compact = String(text).replace(/\s/g, "");
   return labelRowSpan > 1 || (compact.length <= 15 && [...FORM_LABEL_KEYWORDS].some((keyword) => compact.includes(keyword)));
+}
+
+/**
+ * 값이 들어갈 수 있는 칸 글자인가 — 빈칸·날짜 자리·서명 자리·`{{…}}`·`[입력]`·`___`.
+ * 브라우저 채우기(fillableValueState)와 같은 기준을 스키마 쪽에서도 쓴다.
+ */
+export function isFillableCellText(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return true;
+  if (isBlankValueCell(trimmed) || isDatePlaceholderCell(trimmed) || isSignaturePlaceholderCell(trimmed)) return true;
+  return detectPlaceholders(trimmed).length > 0;
+}
+
+/** 서명·인 자리 표시 — 이름을 적는 칸이지 ‘이미 값이 있는 칸’이 아니다. */
+export function isSignaturePlaceholderCell(text) {
+  return /^[\s(（\[]*(?:서\s*명(?:\s*(?:또는|\/|,|·)\s*인)?|날\s*인|인\s*(?:또는\s*서명)?|서\s*명\s*날\s*인)[\s)）\]]*$/.test(String(text ?? ""));
+}
+
+/**
+ * 한 칸·한 문단 안에 ‘성 명 : … 생년월일 : … 주 소 : …’처럼 라벨이 줄지어 있는 서명 블록인가.
+ * 계약서·서약서·동의서 끝의 서명란은 라벨 칸이 따로 있지 않고 한 칸 안에 인라인으로 들어온다.
+ */
+export function isInlineSignatureBlock(text) {
+  const source = String(text ?? "");
+  if (!source.trim() || source.length > 400) return false;
+  const segments = scanInlineFieldSegments(source);
+  const identity = segments.filter((segment) => {
+    const key = normalizeFormLabel(segment.label);
+    const ext = normalizeFormLabel(segment.extLabel || "");
+    return SIGNATURE_LABEL_WORDS.some((word) => key.includes(word) || ext.includes(word));
+  });
+  if (identity.length >= 2) return true;
+  return identity.length >= 1 && SEAL_TAIL_RE.test(source.trim());
+}
+
+/** 조례·법령 본문처럼 입력칸이 없는 문서인가 — ‘채울 칸 0개’를 오류가 아니라 정상으로 안내한다. */
+export function isLegalDocumentSchema(schema) {
+  const title = String(schema?.title ?? "").trim();
+  if (/(법률|법|조례|시행령|시행규칙|규칙|고시|훈령|예규|지침)$/.test(title)) return true;
+  const sections = Array.isArray(schema?.sections) ? schema.sections : [];
+  return sections.filter((section) => /제\s*\d+\s*조/.test(String(section?.title ?? ""))).length >= 3;
 }
 
 /** 열 머리 행 판정 — 라벨이 위, 값이 아래인 표인가 (kordoc isColumnHeaderRow) */
@@ -173,8 +220,10 @@ export function detectPlaceholders(text) {
 }
 
 const INLINE_LABEL_RE = /((?:[가-힣A-Za-z]{1,10} )?)([가-힣A-Za-z]{2,10})\s*[:：]/g;
-const SPACED_INLINE_LABEL_RE = /(?<![가-힣A-Za-z]\s?)([가-힣]( {1,3})[가-힣](?:\2[가-힣]){0,6})\s*[:：]/g;
+const SPACED_INLINE_LABEL_RE = /(?:(?<![가-힣A-Za-z]\s?)|(?<=\d[일월년]\s))(?<!\d)([가-힣]( {1,3})[가-힣](?:\2[가-힣]){0,6})\s*[:：]/g;
 const SEAL_TAIL_RE = /[(（]\s*(?:인|서\s*명|날\s*인|서명\s*또는\s*인|인\s*또는\s*서명|서명\s*또는\s*날인)\s*[)）]\s*$/;
+/** 서명 블록으로 볼 라벨 — 금액·비목이 줄지은 예산 내역과 구분한다. */
+const SIGNATURE_LABEL_WORDS = ["성명", "이름", "생년월일", "주소", "연락처", "휴대폰", "핸드폰", "전화", "이메일", "소속", "직위", "직장", "대표자", "신청인", "청구인", "작성자", "확인자", "담당자", "서명"];
 
 /**
  * 인라인 양식 한 줄을 라벨 단위로 나눈다 — "사업명: ○○ / 기간: 년 월" 처럼 한 줄에 라벨이 여러 개인 양식.
@@ -187,11 +236,12 @@ export function scanInlineFieldSegments(text) {
   let match;
   while ((match = INLINE_LABEL_RE.exec(source))) {
     if (source[INLINE_LABEL_RE.lastIndex] === "/") continue;
+    const extText = match[1] || "";
     labels.push({
       label: match[2],
-      ext: match[1] ? match[1] + match[2] : undefined,
-      extStart: match[1] ? match.index : undefined,
-      start: match.index + match[1].length,
+      ext: extText ? extText + match[2] : undefined,
+      extStart: extText ? match.index : undefined,
+      start: match.index + extText.length,
       end: INLINE_LABEL_RE.lastIndex
     });
   }
@@ -203,13 +253,24 @@ export function scanInlineFieldSegments(text) {
     labels.push({ label: match[1].replace(/\s+/g, ""), start, end });
   }
   labels.sort((a, b) => a.start - b.start);
+  // 앞 라벨의 값 자리에서 바로 시작하는 수식어는 값이다 — “성명: 홍길동 생년월일:”의 ‘홍길동’.
+  for (let index = 1; index < labels.length; index += 1) {
+    const current = labels[index];
+    if (current.extStart === undefined) continue;
+    let previousValueStart = labels[index - 1].end;
+    while (previousValueStart < source.length && (source[previousValueStart] === " " || source[previousValueStart] === "\t")) previousValueStart += 1;
+    if (current.extStart === previousValueStart) {
+      current.ext = undefined;
+      current.extStart = undefined;
+    }
+  }
 
   const segments = [];
   for (let index = 0; index < labels.length; index += 1) {
     const current = labels[index];
     let valueStart = current.end;
     while (valueStart < source.length && (source[valueStart] === " " || source[valueStart] === "\t")) valueStart += 1;
-    let valueEnd = index + 1 < labels.length ? labels[index + 1].start : source.length;
+    let valueEnd = index + 1 < labels.length ? (labels[index + 1].extStart ?? labels[index + 1].start) : source.length;
     if (valueEnd < valueStart) valueEnd = valueStart;
     const separator = source.slice(valueStart, valueEnd).search(/[\n,;]/);
     if (separator !== -1) valueEnd = valueStart + separator;
@@ -303,7 +364,7 @@ export function extractFormFields(schema) {
     if (!label) return null;
     let key = normalizeFormLabel(label);
     if (!key) return null;
-    if (usedKeys.has(key) && field.origin === "table") {
+    if (usedKeys.has(key) && (field.origin === "table" || field.origin === "inline")) {
       // 같은 라벨이 여러 칸이면 kordoc 은 배열 값으로 순서대로 채운다 — 키는 하나로 둔다.
       field.duplicate = true;
     }
@@ -314,7 +375,7 @@ export function extractFormFields(schema) {
       key,
       fillKey: field.fillLabel || label,
       value: String(field.value ?? ""),
-      empty: isBlankValueCell(field.value) || isDatePlaceholderCell(field.value),
+      empty: isFillableCellText(field.value),
       type: fieldTypeOf(label, field.value),
       required: isRequiredLabel(label) || undefined,
       hint: hintTextOf(field.hint),
@@ -332,6 +393,55 @@ export function extractFormFields(schema) {
     return created;
   };
 
+  /**
+   * 인라인 서명 블록 — 한 칸·한 문단 안에 ‘성명: … 생년월일: … 주소: …’처럼 라벨이 줄지어 있는 자리.
+   * 빈칸은 채울 칸으로, 이미 적힌 값은 ‘원본 유지’ 칸으로 보여 준다(계약서·서약서·동의서 끝).
+   */
+  const pushInlineSignatureFields = ({ text, tableId, rowIndex, columnIndex, slotId, sectionId, context }) => {
+    if (!isInlineSignatureBlock(text)) return 0;
+    let added = 0;
+    for (const segment of scanInlineFieldSegments(text)) {
+      const label = String(segment.extLabel || segment.label || "").trim();
+      const fillLabel = String(segment.label || "").trim();
+      if (!label || !fillLabel || !isFormLabelCell(label)) continue;
+      const value = String(segment.value ?? "").trim();
+      const fillable = isFillableCellText(value);
+      const created = pushField({
+        label,
+        fillLabel,
+        value: fillable ? "" : value,
+        sectionId,
+        tableId,
+        rowIndex,
+        columnIndex,
+        slotId,
+        origin: "inline",
+        hint: "",
+        context
+      });
+      if (created) added += 1;
+    }
+    return added;
+  };
+
+  const pushInlineFieldsOfTable = (table, rows, caption) => {
+    rows.forEach((row, rowIndex) => {
+      const cells = Array.isArray(row) ? row : [];
+      cells.forEach((cell, columnIndex) => {
+        const text = String(cell ?? "").trim();
+        if (!text) return;
+        pushInlineSignatureFields({
+          text,
+          tableId: table.id,
+          rowIndex,
+          columnIndex,
+          sectionId: table.sectionId,
+          context: `${caption} ${rowIndex + 1}행 ${columnIndex + 1}열`
+        });
+      });
+    });
+  };
+
   /* 표 — 라벨 칸 오른쪽(또는 열 머리 아래) 값 칸 */
   for (const table of tables) {
     const headers = Array.isArray(table.headers) ? table.headers : [];
@@ -341,16 +451,87 @@ export function extractFormFields(schema) {
     const genericHead = headers.length >= 2 && isGenericHeader(headers[0]) && isGenericHeader(headers[1]);
     const caption = table.caption || `표 ${table.id}`;
     const rowSpanOf = (rowIndex, column) => Number(spans?.[rowIndex]?.[column]?.[0]) || 1;
+    const colSpanOf = (rowIndex, column) => Number(spans?.[rowIndex]?.[column]?.[1]) || 1;
+    const columnCount = Math.max(headers.length, ...rows.map((row) => (Array.isArray(row) ? row.length : 0)), 1);
+    const hint = (sectionId) => slots.find((slot) => slot.kind === "guide" && slot.sectionId === sectionId)?.preview || "";
+
+    /**
+     * 표 제목 띠·행 머리 띠를 ‘라벨 | 값’으로 오인하지 않는다.
+     * - 여러 열을 덮은 제목 칸(“강사카드”, “인적사항”)은 값 칸이 아니라 구역 제목이다.
+     * - 라벨 옆 빈 칸 뒤에 다른 내용이 이어지면 그 빈 칸은 값 자리가 아니라 레이아웃 여백이다.
+     */
+    const isBandLabelPair = (rowIndex, column, cells) => {
+      const labelColSpan = colSpanOf(rowIndex, column);
+      const valueColSpan = colSpanOf(rowIndex, column + 1);
+      const valueRowSpan = rowSpanOf(rowIndex, column + 1);
+      if (columnCount >= 2 && labelColSpan >= columnCount) return true;
+      if (labelColSpan >= 3) return true;
+      if (labelColSpan >= 2 && valueRowSpan >= 3) return true;
+      const valueText = String(cells[column + 1] ?? "").trim();
+      if (!isFillableCellText(valueText) || !isBlankValueCell(valueText)) return false;
+      const immediateAfter = String(cells[column + 2] ?? "").trim();
+      if (isFormLabelCell(immediateAfter)) return false;
+      const later = cells.slice(column + 3).some((cell) => String(cell ?? "").trim());
+      return Boolean(immediateAfter || later);
+    };
+
+    /** 한 행 전체를 덮은 칸 하나뿐인 행 — 구역 제목 띠 */
+    const isBandRow = (rowIndex, cells) => {
+      const filled = cells.map((cell, column) => ({ text: String(cell ?? "").trim(), column })).filter((cell) => cell.text);
+      if (filled.length > 1) return false;
+      return filled.length === 1 && colSpanOf(rowIndex, filled[0].column) >= 3;
+    };
 
     if (synthetic || genericHead || headers.length === 1) {
+      // 제목 띠(‘자격사항’) 다음 줄이 열 머리이고 그 아래가 빈칸인 표 — 이력서·내역서의 반복 행 표.
+      // 머리 줄을 라벨|값으로 읽으면 ‘경력 → 기간’처럼 머리를 값으로 오인하므로 먼저 열 머리 표로 본다.
+      let headerIndex = 0;
+      while (headerIndex < rows.length && isBandRow(headerIndex, rows[headerIndex])) headerIndex += 1;
+      const headerNames = (Array.isArray(rows[headerIndex]) ? rows[headerIndex] : []).map((cell) => String(cell ?? "").trim());
+      const headerAllLabels = headerIndex > 0
+        && headerNames.filter(Boolean).length >= 2
+        && headerNames.every((text) => !text || isFormLabelCell(text));
+      const nextRow = Array.isArray(rows[headerIndex + 1]) ? rows[headerIndex + 1] : [];
+      const nextRowBlankUnderHeader = headerNames.some((text, column) => column > 0 && text && isFillableCellText(nextRow[column]));
+      if (headerAllLabels && nextRowBlankUnderHeader) {
+        for (let column = 0; column < headerNames.length; column += 1) {
+          const headerName = headerNames[column];
+          if (!headerName) continue;
+          for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+            const rowCells = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
+            const value = String(rowCells[column] ?? "").trim();
+            if (!isFillableCellText(value)) continue;
+            pushField({
+              label: headerName,
+              fillLabel: headerName,
+              value: "",
+              sectionId: table.sectionId,
+              tableId: table.id,
+              rowIndex,
+              columnIndex: column,
+              origin: "table",
+              hint: hint(table.sectionId),
+              context: `${caption} ${rowIndex + 1}행 ${column + 1}열`
+            });
+          }
+        }
+        pushInlineFieldsOfTable(table, rows, caption);
+        continue;
+      }
+
       // 머리글 없는 `라벨 | 값` 표, 또는 "구분 | 내용" 표 — 행마다 라벨·값 쌍
       rows.forEach((row, rowIndex) => {
         const cells = Array.isArray(row) ? row : [];
+        if (isBandRow(rowIndex, cells)) return;
         for (let column = 0; column < cells.length - 1; column += 1) {
           const labelCell = String(cells[column] ?? "").trim();
           const valueCell = String(cells[column + 1] ?? "").trim();
           if (!labelCell || !isFormLabelCell(labelCell)) continue;
-          if (isSubLabelBeside(rowSpanOf(rowIndex, column), labelCell, String(cells[column + 2] ?? "") || undefined)) continue;
+          // 값 칸이 인라인 서명 블록이면 라벨 하나의 값이 아니라 라벨 여러 개의 자리다 — 인라인 전략이 맡는다.
+          if (valueCell && isInlineSignatureBlock(valueCell)) break;
+          // 병합 행 머리(‘경력’·‘전공’) 오른쪽의 열 머리는 값 자리가 아니다 — 그 행은 건너뛴다.
+          if (isSubLabelBeside(rowSpanOf(rowIndex, column), labelCell, String(cells[column + 2] ?? "") || undefined)) break;
+          if (isBandLabelPair(rowIndex, column, cells)) break;
           pushField({
             label: labelCell,
             value: valueCell,
@@ -359,18 +540,20 @@ export function extractFormFields(schema) {
             rowIndex,
             columnIndex: column + 1,
             origin: "table",
-            hint: slots.find((slot) => slot.kind === "guide" && slot.sectionId === table.sectionId)?.preview || "",
+            hint: hint(table.sectionId),
             context: `${caption} ${rowIndex + 1}행`
           });
           break;
         }
       });
+      pushInlineFieldsOfTable(table, rows, caption);
       continue;
     }
 
     // 열 머리 + 데이터 행 표 — 머리 이름이 곧 kordoc 의 채우기 키
     rows.forEach((row, rowIndex) => {
       const cells = Array.isArray(row) ? row : [];
+      if (isBandRow(rowIndex, cells)) return;
       for (let column = 1; column < headers.length; column += 1) {
         const header = String(headers[column] ?? "").trim();
         const value = String(cells[column] ?? "").trim();
@@ -387,11 +570,12 @@ export function extractFormFields(schema) {
           rowIndex,
           columnIndex: column,
           origin: "table",
-          hint: slots.find((slot) => slot.kind === "guide" && slot.sectionId === table.sectionId)?.preview || "",
+          hint: hint(table.sectionId),
           context: `${caption} ${rowIndex + 1}행`
         });
       }
     });
+    pushInlineFieldsOfTable(table, rows, caption);
   }
 
   /* 본문 슬롯 — 인라인 라벨·자리 표시 */
@@ -399,12 +583,23 @@ export function extractFormFields(schema) {
     if (slot.kind === "table-cell" || slot.kind === "guide") continue;
     const preview = String(slot.preview ?? slot.label ?? "");
     if (!preview) continue;
+    // 서명 블록은 라벨이 여러 개라 아래 일반 스캔으로는 일부만 잡힌다 — 한 번에 라벨별로 나눈다.
+    if (isInlineSignatureBlock(preview)) {
+      pushInlineSignatureFields({
+        text: preview,
+        slotId: slot.id,
+        sectionId: slot.sectionId,
+        context: slot.sectionTitle || ""
+      });
+      continue;
+    }
     let matched = false;
     for (const segment of scanInlineFieldSegments(preview)) {
       const value = segment.value.trim();
       if (value && !isBlankValueCell(value) && !detectPlaceholders(value).length) continue;
       pushField({
         label: segment.extLabel || segment.label,
+        fillLabel: segment.label,
         value: isBlankValueCell(value) ? "" : "",
         sectionId: slot.sectionId,
         slotId: slot.id,
@@ -466,6 +661,11 @@ export function applyFieldValues(schema, valuesByFieldId, { force = false } = {}
   for (const field of fields) {
     const value = String(valuesByFieldId?.[field.id] ?? "").trim();
     if (!value) continue;
+    if (field.origin === "inline") {
+      // 인라인 서명 블록의 값은 칸 글자를 통째로 바꾸지 않는다 — .hwpx를 채울 때 같은 자리에 쓴다.
+      applied += 1;
+      continue;
+    }
     if (field.tableId) {
       const table = next.tables.find((item) => item.id === field.tableId);
       if (!table) continue;

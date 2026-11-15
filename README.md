@@ -17,6 +17,7 @@ https://okrangone98-oss.github.io/planning-copilot/
 - [david-workbrain·Notion 연계 Markdown 내보내기](docs/workbrain-export.md)
 - [샘플 양식 구조 파싱·맞춤 채우기](docs/sample-template-fill.md)
 - [kordoc 양식 규격 채우기·자유 텍스트 자동 배치](docs/kordoc-smart-fill.md)
+- [실제 기관 양식 10종+2종 검증과 호환성 개선](docs/real-forms-verification.md)
 - [다중 사업 관리 보드·개인정보 마스킹 가드](docs/multi-project-and-pii-guard.md)
 - [UI/UX 개편 노트(k-style-ui-ux 기반)](docs/ui-ux-k-style.md)
 - [사업 운영 1단계: 업무·일정·회차·예산 연동](docs/project-operations-phase1.md)
