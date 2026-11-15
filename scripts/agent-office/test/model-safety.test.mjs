@@ -18,7 +18,19 @@ test("rejects endpoint credentials, query strings, and custom paths", () => {
 });
 
 test("model settings allowlist drops legacy cloud credentials and remote endpoints", () => {
-  const defaults = { provider: "simulation", ollamaBaseUrl: "http://127.0.0.1:11434", ollamaModel: "llama3.1" };
+  const defaults = {
+    provider: "simulation",
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    ollamaModel: "llama3.1",
+    openrouterModel: "openrouter/free",
+    groqModel: "openai/gpt-oss-120b",
+    geminiModel: "gemini-2.5-flash",
+    exaoneModel: "k-exaone_v2.5",
+    githubModel: "openai/gpt-4.1-mini",
+    amdModel: "Gemma-4-31B-IT",
+    customModel: "",
+    customBaseUrl: ""
+  };
   const settings = sanitizeModelSettings({
     provider: "gemini",
     ollamaBaseUrl: "https://example.com",
@@ -27,7 +39,19 @@ test("model settings allowlist drops legacy cloud credentials and remote endpoin
     githubToken: "must-not-survive"
   }, defaults);
 
-  assert.deepEqual(settings, { provider: "simulation", ollamaBaseUrl: defaults.ollamaBaseUrl, ollamaModel: "qwen2.5" });
+  assert.deepEqual(settings, {
+    provider: "simulation",
+    ollamaBaseUrl: defaults.ollamaBaseUrl,
+    ollamaModel: "qwen2.5",
+    customBaseUrl: "",
+    openrouterModel: defaults.openrouterModel,
+    groqModel: defaults.groqModel,
+    geminiModel: defaults.geminiModel,
+    exaoneModel: defaults.exaoneModel,
+    githubModel: defaults.githubModel,
+    amdModel: defaults.amdModel,
+    customModel: ""
+  });
   assert.equal("geminiApiKey" in settings, false);
   assert.equal("githubToken" in settings, false);
 });

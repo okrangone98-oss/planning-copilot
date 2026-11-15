@@ -1,4 +1,4 @@
-import { emptyProject, type ApprovalItem, type ArchiveData, type KnowledgeDoc, type ModelSettings, type OfficeResult, type ProjectData, type ProjectMemoryEntry } from "../types";
+import { emptyProject, type ApprovalItem, type ArchiveData, type GrantPlan, type KnowledgeDoc, type ModelSettings, type OfficeResult, type ProjectData, type ProjectMemoryEntry } from "../types";
 import { defaultModelSettings } from "./modelRouter";
 import { sanitizeModelSettings } from "./modelSafety.mjs";
 
@@ -38,15 +38,22 @@ export function saveKnowledgeDocs(docs: KnowledgeDoc[]) {
   localStorage.setItem(KNOWLEDGE_KEY, JSON.stringify(docs));
 }
 
-export function createArchive(project: ProjectData, knowledgeDocs: KnowledgeDoc[], approvalItems: ApprovalItem[] = [], memoryEntries: ProjectMemoryEntry[] = []): ArchiveData {
+export function createArchive(
+  project: ProjectData,
+  knowledgeDocs: KnowledgeDoc[],
+  approvalItems: ApprovalItem[] = [],
+  memoryEntries: ProjectMemoryEntry[] = [],
+  grantPlan?: GrantPlan
+): ArchiveData {
   return {
-    version: 4,
+    version: 5,
     exportedAt: new Date().toISOString(),
     app: "planning-copilot",
     project,
     knowledgeDocs,
     approvalItems,
-    memoryEntries
+    memoryEntries,
+    grantPlan
   };
 }
 

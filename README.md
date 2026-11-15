@@ -10,6 +10,12 @@ https://okrangone98-oss.github.io/planning-copilot/
 
 현재 메뉴 구성, 템플릿/로컬 모델 사용, 검토·백업 순서는 [실무 사용 안내](docs/practical-product-usage.md)를 참고하세요. 로컬 실행 기록과 관제탑 연동은 [하네스 운영 안내](docs/agent-office-harness.md)에 정리했습니다.
 
+국고보조사업 실무 묶음은 아래 문서에 따로 정리했습니다.
+
+- [예산 편성·정산 증빙·결과보고](docs/grant-workflow.md)
+- [무료 API 직접 호출(키 미저장)](docs/free-model-api.md)
+- [david-workbrain·Notion 연계 Markdown 내보내기](docs/workbrain-export.md)
+
 ## 실행 방법
 
 개발 중에는 아래 명령으로 실행합니다.
@@ -32,7 +38,9 @@ npm run build
 - 부처별 사업계획서 양식 차이를 반영해 작성 흐름을 잡습니다.
 - 좋은 사례를 모아 두고 현재 공고와 맞는 참고 내용을 찾아옵니다.
 - 사용자의 아이디어를 지우지 않고 문제정의, 실행계획, 성과지표로 바꿉니다.
-- 직접 만들기 어려운 고급 판단은 AI에게 물어볼 질문으로 만들어 줍니다.
+- 국고보조사업 비목별 예산 편성표, 정산 증빙 체크리스트, 결과보고서 골격을 프리셋으로 바로 시작합니다.
+- 템플릿·Ollama·무료 API(OpenRouter Free, Groq, Gemini, EXAONE, GitHub Models, AMD Token Lab, 로컬 프록시) 중에서 실행 경로를 고릅니다. 키는 브라우저 메모리에만 둡니다.
+- 사업계획서·예산·정산·결과보고를 david-workbrain 규격 Markdown 한 편으로 내보내고, my-workbench·Notion으로 이어갑니다.
 - Google Drive와 로컬 저장을 함께 사용합니다.
 - Mermaid 기반 시각자료 초안을 만들 수 있습니다.
 - Jira, Notion, Google Sheet, Google Drive 링크를 프로젝트별로 연결할 수 있습니다.
@@ -42,13 +50,15 @@ npm run build
 1. `공고 해석`에 PDF, DOCX, HWPX, TXT 공고문을 올리거나 내용을 붙여넣고 분석합니다.
 2. `사례 모으기`에 좋은 사업계획서와 비슷한 공고 파일을 저장합니다.
 3. `관련 사례 찾기`로 현재 공고와 맞는 참고 내용을 찾습니다.
-4. `AI 질문`에서 복사할 질문을 만듭니다.
+4. `AI 질문`에서 복사할 질문을 만듭니다(무료 API를 연결했다면 같은 화면에서 바로 실행).
 5. AI 답변을 붙여넣고 반영 메모를 만듭니다.
 6. `시각자료`에서 논리모형과 성과 흐름도를 만듭니다.
 7. `연결 허브`에서 Jira, Notion, Sheet, Drive 링크를 정리합니다.
 8. 문제정의, 성과지표, 실행설계를 채웁니다.
 9. `초안 조립`에서 사업계획서 초안을 만듭니다.
-10. `백업`에서 파일로 저장하거나 Google Drive에 백업합니다.
+10. `예산 편성` → `정산 증빙` → `결과보고`에서 국고보조사업 실무 묶음을 채웁니다.
+11. `워크브레인 내보내기`로 david-workbrain·Notion에 넣을 Markdown을 만듭니다.
+12. `백업`에서 파일로 저장하거나 Google Drive에 백업합니다.
 
 ## 저장 방식
 
