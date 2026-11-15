@@ -16,6 +16,7 @@ https://okrangone98-oss.github.io/planning-copilot/
 - [무료 API 직접 호출(키 미저장)](docs/free-model-api.md)
 - [david-workbrain·Notion 연계 Markdown 내보내기](docs/workbrain-export.md)
 - [샘플 양식 구조 파싱·맞춤 채우기](docs/sample-template-fill.md)
+- [다중 사업 관리 보드·개인정보 마스킹 가드](docs/multi-project-and-pii-guard.md)
 
 ## 첫 화면과 단계 흐름
 
@@ -56,6 +57,8 @@ npm run build
 - 사용자의 아이디어를 지우지 않고 문제정의, 실행계획, 성과지표로 바꿉니다.
 - 국고보조사업 비목별 예산 편성표, 정산 증빙 체크리스트, 결과보고서 골격을 프리셋으로 바로 시작합니다.
 - 템플릿·Ollama·무료 API(OpenRouter Free, Groq, Gemini, EXAONE, GitHub Models, AMD Token Lab, 로컬 프록시) 중에서 실행 경로를 고릅니다. 키는 브라우저 메모리에만 둡니다.
+- 여러 정부·공모·자체 사업을 `사업 관리` 보드에서 나눠 두고 전환하며 작업합니다. 사업마다 입력값·예산·양식 작업이 따로 저장됩니다.
+- 외부 AI·복사·내보내기로 나가기 전에 주민번호·연락처·이메일·계좌·카드·주소·성명을 자동으로 찾아 `[연락처_1]`처럼 가립니다(브라우저 안에서만 동작).
 - 사업계획서·예산·정산·결과보고를 david-workbrain 규격 Markdown 한 편으로 내보내고, my-workbench·Notion으로 이어갑니다.
 - Google Drive와 로컬 저장을 함께 사용합니다.
 - Mermaid 기반 시각자료 초안을 만들 수 있습니다.

@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { GrantPlan, SectionId } from "../types";
 import { budgetSummary, formatWon, grantProgress } from "../lib/grantWorkflow.mjs";
 import { SAMPLE_ACCEPT } from "../lib/sampleTemplateParser.mjs";
+import { PROJECT_STATUSES, dDayInfo, type ProjectMeta } from "../lib/projectWorkspace.mjs";
 
 const START_CARDS: Array<{
   id: string;
@@ -58,6 +59,10 @@ export function WorkHomeView({
   projectName,
   plan,
   started,
+  projects,
+  activeProjectId,
+  onSelectProject,
+  onOpenProjectBoard,
   onNavigate,
   onImportFile,
   onImportTemplate,
@@ -67,6 +72,10 @@ export function WorkHomeView({
   projectName: string;
   plan: GrantPlan;
   started: boolean;
+  projects: ProjectMeta[];
+  activeProjectId: string;
+  onSelectProject: (id: string) => void;
+  onOpenProjectBoard: () => void;
   onNavigate: (section: SectionId) => void;
   onImportFile: (file: File) => void;
   onImportTemplate: (file: File) => void;
@@ -87,6 +96,39 @@ export function WorkHomeView({
           메뉴가 많아도 다 알 필요는 없습니다. 지금 하려는 일 하나를 고르면 필요한 화면만 순서대로 이어집니다.
           나머지 메뉴는 왼쪽에서 그룹을 펼치면 그대로 있습니다.
         </p>
+      </section>
+
+      <section className="home-projects" aria-label="내 사업">
+        <div className="home-projects-head">
+          <div>
+            <strong>내 사업 {projects.length}개</strong>
+            <span>사업을 바꾸면 입력값·예산·양식 작업이 그 사업 것으로 함께 바뀝니다.</span>
+          </div>
+          <button className="secondary-button" type="button" onClick={onOpenProjectBoard}>사업 관리</button>
+        </div>
+        <div className="home-project-list">
+          {projects.slice(0, 6).map((item) => {
+            const isActive = item.id === activeProjectId;
+            const dday = dDayInfo(item.deadline);
+            const statusLabel = PROJECT_STATUSES.find((status) => status.id === item.status)?.label || "";
+            return (
+              <button
+                className={`home-project ${isActive ? "is-active" : ""}`}
+                key={item.id}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => onSelectProject(item.id)}
+              >
+                <strong>{item.name}</strong>
+                <span>
+                  {statusLabel}
+                  <em className={`board-dday is-${dday.tone}`}>{dday.label}</em>
+                  <em>진행 {item.progress}%</em>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <div className="home-start-grid" aria-label="목적별 시작">

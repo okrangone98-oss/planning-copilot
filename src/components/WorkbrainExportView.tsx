@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { GrantPlan, ProjectData } from "../types";
 import { downloadTextFile, safeFileName } from "../lib/storage";
 import { buildNotionPasteMarkdown, buildWorkbrainFileName, buildWorkbrainMarkdown, WORKSPACE_LINKS, type WorkbrainExportOptions } from "../lib/davidWorkbrainExport.mjs";
+import { describePiiScan, maskPii, scanPii } from "../lib/piiGuard.mjs";
 
 type ExportState = {
   domain: "company" | "personal" | "shared";
@@ -44,6 +45,8 @@ export function WorkbrainExportView({
   notify: (message: string) => void;
 }) {
   const [state, setState] = useState<ExportState>(() => createInitialState(Boolean(project.draftOutput.trim())));
+  // 내보내기 전에 민감정보를 점검하고, 원하면 한 번에 가린 문서로 내보낸다.
+  const [piiMasked, setPiiMasked] = useState(false);
 
   const options = useMemo<WorkbrainExportOptions>(() => ({
     domain: state.domain,
@@ -66,18 +69,21 @@ export function WorkbrainExportView({
     () => buildWorkbrainFileName({ programName: plan.programName, title: project.projectName }),
     [plan.programName, project.projectName]
   );
+  const piiScan = useMemo(() => scanPii(markdown), [markdown]);
+  const maskedResult = useMemo(() => (piiScan.total ? maskPii(markdown) : null), [markdown, piiScan.total]);
+  const exportText = piiMasked && maskedResult ? maskedResult.text : markdown;
 
   const copyMarkdown = () => {
-    navigator.clipboard.writeText(markdown).then(() => notify("david-workbrain 형식 Markdown을 복사했습니다."));
+    navigator.clipboard.writeText(exportText).then(() => notify(piiMasked ? "개인정보를 가린 Markdown을 복사했습니다." : "david-workbrain 형식 Markdown을 복사했습니다."));
   };
 
   const copyNotion = () => {
-    navigator.clipboard.writeText(buildNotionPasteMarkdown(markdown)).then(() => notify("Notion 붙여넣기용 Markdown을 복사했습니다."));
+    navigator.clipboard.writeText(buildNotionPasteMarkdown(exportText)).then(() => notify(piiMasked ? "개인정보를 가린 Notion용 Markdown을 복사했습니다." : "Notion 붙여넣기용 Markdown을 복사했습니다."));
   };
 
   const download = () => {
-    downloadTextFile(markdown, safeFileName(fileName, "workbrain-note.md"), "text/markdown;charset=utf-8");
-    notify("Markdown 파일을 내려받았습니다.");
+    downloadTextFile(exportText, safeFileName(fileName, "workbrain-note.md"), "text/markdown;charset=utf-8");
+    notify(piiMasked ? "개인정보를 가린 Markdown 파일을 내려받았습니다." : "Markdown 파일을 내려받았습니다.");
   };
 
   return (
@@ -161,14 +167,51 @@ export function WorkbrainExportView({
         <p className="grant-warning">개인정보·정산 증빙 원본 파일은 내보내지 않습니다. 요약과 체크 상태, 할 일만 담습니다. 원본은 로컬·Drive에 두세요.</p>
       </section>
 
+      <section className={`grant-block pii-export ${piiMasked ? "is-masked" : piiScan.total ? "has-findings" : "is-clean"}`} aria-label="내보내기 개인정보 점검">
+        <div className="grant-block-head">
+          <div>
+            <strong>{piiMasked ? "개인정보를 가린 문서로 내보냅니다" : piiScan.total ? `개인정보 ${piiScan.total}건이 들어 있습니다` : "개인정보 점검 완료"}</strong>
+            <span>{describePiiScan(piiScan)} 가린 문서는 복사·내려받기·Notion 복사에 모두 적용됩니다.</span>
+          </div>
+          <div className="draft-actions">
+            {piiMasked ? (
+              <button className="secondary-button" type="button" onClick={() => setPiiMasked(false)}>원문으로 되돌리기</button>
+            ) : (
+              <button className="primary-button" type="button" onClick={() => setPiiMasked(true)} disabled={!piiScan.total}>원클릭 마스킹</button>
+            )}
+          </div>
+        </div>
+        {piiScan.total > 0 && (
+          <div className="pii-guard-badges">
+            {piiScan.types.map((type) => (
+              <span className="pii-badge" key={type.key}>{type.badge} {type.count}</span>
+            ))}
+          </div>
+        )}
+        {piiMasked && maskedResult && (
+          <ul className="pii-guard-list">
+            {maskedResult.placeholders.slice(0, 40).map((item) => (
+              <li key={item.placeholder}>
+                <span className={`pii-kind is-${item.type}`}>{item.label}</span>
+                <code>{item.placeholder}</code>
+                <span className="pii-preview">{item.preview}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className="grant-block">
         <div className="grant-block-head">
           <div>
             <strong>미리보기 · {fileName}</strong>
-            <span>YAML frontmatter, 메타데이터 표, 추진 일정·마감 요약, 체크리스트, 후속 할 일이 한 문서에 들어갑니다.</span>
+            <span>
+              YAML frontmatter, 메타데이터 표, 추진 일정·마감 요약, 체크리스트, 후속 할 일이 한 문서에 들어갑니다.
+              {piiMasked ? " 지금은 개인정보를 가린 문서를 보여 줍니다." : ""}
+            </span>
           </div>
         </div>
-        <textarea className="draft-output export-preview" rows={26} value={markdown} readOnly />
+        <textarea className="draft-output export-preview" rows={26} value={exportText} readOnly aria-label="내보낼 Markdown 미리보기" />
       </section>
     </div>
   );

@@ -61,7 +61,8 @@ export function TemplateFillView({
   onExportWorkbrain,
   onAddToApproval,
   onOpenModelSettings,
-  onClear
+  onClear,
+  piiGuard
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -84,6 +85,7 @@ export function TemplateFillView({
   onAddToApproval: () => void;
   onOpenModelSettings: () => void;
   onClear: () => void;
+  piiGuard?: React.ReactNode;
 }) {
   const [pasteText, setPasteText] = useState("");
   const [showTables, setShowTables] = useState(true);
@@ -297,6 +299,7 @@ export function TemplateFillView({
               <button className="ghost-light-button" type="button" onClick={onCopyPrompt}>프롬프트 복사</button>
             </div>
           </div>
+          {piiGuard}
           <div className="model-status-bar">
             <strong>입력 자료는 이 브라우저 안에서 정리됩니다</strong>
             <span>{modelNote}</span>

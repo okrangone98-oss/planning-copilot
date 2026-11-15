@@ -6,6 +6,8 @@ import { GrantStepFlow } from "./components/GrantStepFlow";
 import { WorkHomeView } from "./components/WorkHomeView";
 import { WorkbrainExportView } from "./components/WorkbrainExportView";
 import { TemplateFillView } from "./components/TemplateFillView";
+import { ProjectBoardView } from "./components/ProjectBoardView";
+import { PiiGuardNotice } from "./components/PiiGuardNotice";
 import { exampleProject } from "./data/exampleProject";
 import { analyzeNotice, formatKnowledgeResults, generateCoaching, projectSearchQuery, searchKnowledgeDocs } from "./lib/analysis";
 import { generateDraftText } from "./lib/draft";
@@ -33,14 +35,11 @@ import { buildOfficeContext, buildOfficeModelPrompt } from "./lib/agentOfficePro
 import { roleSummary, runOffice } from "./lib/agentOffice";
 import { clearControlTowerState, loadControlTowerState, saveControlTowerApproval, saveControlTowerSnapshot } from "./lib/controlTowerStorage";
 import {
-  clearProject,
-  createArchive,
   downloadTextFile,
   loadDriveEndpoint,
   loadKnowledgeDocs,
   loadModelSettings,
   loadOfficeSession,
-  loadProject,
   loadApprovalItems,
   loadProjectMemory,
   safeFileName,
@@ -49,10 +48,41 @@ import {
   saveModelSettings,
   saveOfficeSession,
   saveApprovalItems,
-  saveProject,
   saveProjectMemory
 } from "./lib/storage";
-import { loadGrantPlan, saveGrantPlan } from "./lib/grantStorage";
+import { maskPii } from "./lib/piiGuard.mjs";
+import {
+  addProject,
+  duplicateProject as duplicateWorkspaceProject,
+  findProject,
+  projectProgress,
+  removeProject as removeWorkspaceProject,
+  dDayInfo,
+  selectProject,
+  updateProjectMeta,
+  PROJECT_STATUSES,
+  type ProjectMeta,
+  type ProjectStatusId,
+  type ProjectTypeId,
+  type Workspace
+} from "./lib/projectWorkspace.mjs";
+import {
+  copySlotData,
+  exportWorkspaceArchive,
+  importWorkspaceArchive,
+  loadPiiMaskPreference,
+  loadProjectData,
+  loadSlotGrantPlan,
+  loadWorkspaceBundle,
+  loadWorkspaceForProject,
+  removeSlotData,
+  sanitizeProjectData,
+  savePiiMaskPreference,
+  saveProjectData,
+  saveSlotGrantPlan,
+  saveWorkspace
+} from "./lib/workspaceStorage";
+import { templateStorageKey } from "./lib/templateStorage";
 import { buildMermaid } from "./lib/visuals";
 import { emptyProject, type AgentDraft, type ApprovalItem, type ApprovalStatus, type ControlTowerApprovalStatus, type ControlTowerSnapshot, type ControlTowerState, type GrantPlan, type KnowledgeDoc, type ModelProvider, type ModelSettings, type ModelRunResult, type OfficeResult, type ProjectData, type ProjectMemoryEntry, type SectionId } from "./types";
 
@@ -61,6 +91,7 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
     title: "업무 홈",
     items: [
       { id: "home", label: "시작 화면" },
+      { id: "projectBoard", label: "사업 관리" },
       { id: "agentOffice", label: "AI 사무국" },
       { id: "controlTower", label: "업무 관제탑" }
     ]
@@ -269,7 +300,10 @@ function TableEditor({
 }
 
 export default function App() {
-  const [project, setProject] = useState<ProjectData>(() => loadProject());
+  // 사업 보드와 현재 사업의 작업 데이터를 한 번에 읽는다. 예전 단일 저장 키에 작업이 있으면 첫 사업으로 옮긴다.
+  const [initial] = useState(() => loadWorkspaceBundle());
+  const [workspace, setWorkspace] = useState<Workspace>(initial.workspace);
+  const [project, setProject] = useState<ProjectData>(initial.project);
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(() => loadKnowledgeDocs());
   const [section, setSection] = useState<SectionId>("home");
   const [expandedNavGroups, setExpandedNavGroups] = useState<string[]>([DEFAULT_NAV_GROUP]);
@@ -293,10 +327,12 @@ export default function App() {
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryEntry[]>(() => loadProjectMemory());
   const [memoryNote, setMemoryNote] = useState("");
   const [controlTowerState, setControlTowerState] = useState<ControlTowerState>(() => loadControlTowerState());
-  const [grantPlan, setGrantPlan] = useState<GrantPlan>(() => loadGrantPlan());
-  const [templateSession, setTemplateSession] = useState<TemplateSession>(() => loadTemplateSession());
+  const [grantPlan, setGrantPlan] = useState<GrantPlan>(initial.grantPlan);
+  const [templateSession, setTemplateSession] = useState<TemplateSession>(() => loadTemplateSession(initial.workspace.activeProjectId));
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateError, setTemplateError] = useState("");
+  // 개인정보 마스킹은 기본 켜짐. 끄면 그 선택을 기억하되, 켜라는 안내는 화면에 남긴다.
+  const [piiMaskEnabled, setPiiMaskEnabled] = useState(() => loadPiiMaskPreference());
   // API 키는 이 탭의 메모리에만 둔다. localStorage·백업·아카이브 어디에도 저장하지 않는다.
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [remoteAck, setRemoteAck] = useState(false);
@@ -310,9 +346,16 @@ export default function App() {
     [grantPlan, project.projectName, project.noticeText, project.draftOutput]
   );
 
+  // 외부 AI로 나갈 질문·프롬프트는 화면에서 미리 점검한다. (스캔은 브라우저 안에서만)
+  const aiQuestionPreview = useMemo(() => project.modelPrompt || buildModelPrompt(project, knowledgeDocs), [project, knowledgeDocs]);
+  const templatePromptPreview = useMemo(
+    () => (templateSession.schema ? buildTemplateFillPrompt({ schema: templateSession.schema, profile: templateSession.profile }) : ""),
+    [templateSession]
+  );
+
   useEffect(() => {
-    saveProject(project);
-  }, [project]);
+    saveProjectData(workspace.activeProjectId, project);
+  }, [project, workspace.activeProjectId]);
 
   useEffect(() => {
     saveKnowledgeDocs(knowledgeDocs);
@@ -362,15 +405,140 @@ export default function App() {
   }, [memoryEntries]);
 
   useEffect(() => {
-    saveGrantPlan(grantPlan);
-  }, [grantPlan]);
+    saveSlotGrantPlan(workspace.activeProjectId, grantPlan);
+  }, [grantPlan, workspace.activeProjectId]);
 
   useEffect(() => {
-    saveTemplateSession(templateSession);
-  }, [templateSession]);
+    saveTemplateSession(templateSession, workspace.activeProjectId);
+  }, [templateSession, workspace.activeProjectId]);
+
+  useEffect(() => {
+    saveWorkspace(workspace);
+  }, [workspace]);
+
+  // 사업 카드의 이름·진행률은 현재 사업 입력값에서 다시 계산해 보드에 반영한다.
+  useEffect(() => {
+    const percent = projectProgress({ project, plan: grantPlan }).percent;
+    const typedName = project.projectName.trim().slice(0, 80);
+    setWorkspace((current) => {
+      const target = findProject(current, current.activeProjectId);
+      if (!target) return current;
+      const patch: Partial<ProjectMeta> = {};
+      if (target.progress !== percent) patch.progress = percent;
+      if (typedName && target.name !== typedName) patch.name = typedName;
+      if (!Object.keys(patch).length) return current;
+      return updateProjectMeta(current, target.id, patch);
+    });
+  }, [project, grantPlan]);
+
+  useEffect(() => {
+    if (initial.migrated) setToast("예전 작업 데이터를 첫 사업으로 옮겼습니다. 사업 관리에서 확인해 주세요.");
+  }, [initial.migrated]);
 
   const updateProject = (patch: Partial<ProjectData>) => setProject((current) => ({ ...current, ...patch }));
   const notify = (message: string) => setToast(message);
+
+  /* ── 사업 보드: 생성·전환·복제·삭제 ─────────────────────────── */
+
+  const activeMeta = findProject(workspace, workspace.activeProjectId);
+
+  /** 사업을 옮기기 전에 지금 사업을 확실히 저장한다. (효과가 이미 저장하지만 전환 직전에 한 번 더 못박는다) */
+  const persistActiveProject = () => {
+    saveProjectData(workspace.activeProjectId, project);
+    saveSlotGrantPlan(workspace.activeProjectId, grantPlan);
+    saveTemplateSession(templateSession, workspace.activeProjectId);
+  };
+
+  const switchProject = (id: string) => {
+    if (!id || id === workspace.activeProjectId) return;
+    const target = findProject(workspace, id);
+    if (!target) return;
+    persistActiveProject();
+    const next = loadWorkspaceForProject(id);
+    setWorkspace((current) => selectProject(current, id));
+    setProject(next.project);
+    setGrantPlan(next.grantPlan);
+    setTemplateSession(loadTemplateSession(id));
+    setMobileNavOpen(false);
+    notify(`‘${target.name}’ 사업으로 전환했습니다.`);
+  };
+
+  const createNewProject = (meta: { name: string; type: ProjectTypeId; status: ProjectStatusId; deadline: string }) => {
+    const result = addProject(workspace, meta);
+    if (!result.project) {
+      notify(result.error || "사업을 만들지 못했습니다.");
+      return;
+    }
+    persistActiveProject();
+    saveProjectData(result.project.id, { ...emptyProject, projectName: result.project.name });
+    saveSlotGrantPlan(result.project.id, createEmptyGrantPlan());
+    setWorkspace(result.workspace);
+    setProject({ ...emptyProject, projectName: result.project.name });
+    setGrantPlan(createEmptyGrantPlan());
+    setTemplateSession(createEmptyTemplateSession());
+    notify(`‘${result.project.name}’ 사업을 만들었습니다. 이제 이 사업으로 작업합니다.`);
+  };
+
+  const duplicateProjectById = (id: string) => {
+    const source = findProject(workspace, id);
+    if (!source) return;
+    const result = duplicateWorkspaceProject(workspace, id);
+    if (!result.project) {
+      notify(result.error || "사업을 복제하지 못했습니다.");
+      return;
+    }
+    persistActiveProject();
+    copySlotData(id, result.project.id);
+    setWorkspace(result.workspace);
+    setProject(loadProjectData(result.project.id));
+    setGrantPlan(loadSlotGrantPlan(result.project.id));
+    setTemplateSession(loadTemplateSession(id));
+    notify(`‘${source.name}’ 사업을 ‘${result.project.name}’(으)로 복제했습니다.`);
+  };
+
+  const removeProjectById = (id: string) => {
+    const target = findProject(workspace, id);
+    if (!target) return;
+    if (!window.confirm(`‘${target.name}’ 사업을 삭제할까요? 이 브라우저에 저장된 이 사업의 입력값·예산·정산·양식 작업이 함께 사라집니다.`)) return;
+    const result = removeWorkspaceProject(workspace, id);
+    if (!result.removed) {
+      notify(result.error || "사업을 삭제하지 못했습니다.");
+      return;
+    }
+    removeSlotData(id);
+    try {
+      localStorage.removeItem(templateStorageKey(id));
+    } catch {
+      // 이미 지워졌으면 그대로 둔다.
+    }
+    setWorkspace(result.workspace);
+    if (workspace.activeProjectId === id) {
+      const next = loadWorkspaceForProject(result.workspace.activeProjectId);
+      setProject(next.project);
+      setGrantPlan(next.grantPlan);
+      setTemplateSession(loadTemplateSession(result.workspace.activeProjectId));
+    }
+    notify(`‘${target.name}’ 사업을 삭제했습니다.`);
+  };
+
+  const changeProjectMeta = (id: string, patch: Partial<ProjectMeta>) => {
+    setWorkspace((current) => updateProjectMeta(current, id, patch));
+  };
+
+  /* ── 개인정보 가드 ────────────────────────────────────────── */
+
+  const setPiiMask = (enabled: boolean) => {
+    setPiiMaskEnabled(enabled);
+    savePiiMaskPreference(enabled);
+  };
+
+  /** 외부 AI·복사로 나가는 텍스트를 보내기 직전에 가린다. */
+  const maskForExternal = (text: string, label: string) => {
+    if (!piiMaskEnabled) return text;
+    const masked = maskPii(text);
+    if (masked.total) notify(`${label}: 개인정보 ${masked.total}건(${masked.badgeText})을 [연락처_1] 형태로 가린 뒤 보냈습니다.`);
+    return masked.text;
+  };
 
   const readFile = (file: File, onText: (text: string) => void) => {
     extractDocument(file)
@@ -510,7 +678,7 @@ export default function App() {
 
     setTemplateBusy(true);
     try {
-      const prompt = buildTemplateFillPrompt({ schema, profile: templateSession.profile });
+      const prompt = maskForExternal(buildTemplateFillPrompt({ schema, profile: templateSession.profile }), "양식 채우기");
       const modelResult = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
       if (!modelResult.ok) {
         // AI가 실패해도 작업이 멈추지 않게, 같은 양식 구조로 규칙 기반 초안을 먼저 채워 둔다.
@@ -541,7 +709,7 @@ export default function App() {
       notify("먼저 샘플 양식을 읽어 주세요.");
       return;
     }
-    copyText(buildTemplateFillPrompt({ schema: templateSession.schema, profile: templateSession.profile }), "양식 채우기 프롬프트를 복사했습니다. 외부 AI에 붙여넣어 주세요.");
+    copyText(maskForExternal(buildTemplateFillPrompt({ schema: templateSession.schema, profile: templateSession.profile }), "양식 채우기 프롬프트"), "양식 채우기 프롬프트를 복사했습니다. 외부 AI에 붙여넣어 주세요.");
   };
 
   const downloadTemplateResult = () => {
@@ -673,9 +841,15 @@ export default function App() {
     notify("시각자료 초안을 만들었습니다.");
   };
 
+  const buildCurrentArchive = () => {
+    persistActiveProject();
+    return exportWorkspaceArchive({ workspace, knowledgeDocs, approvalItems, memoryEntries });
+  };
+
   const downloadArchive = () => {
-    downloadTextFile(JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries, grantPlan), null, 2), `${safeFileName(project.projectName, "planning-copilot")}-archive-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
-    notify("백업 파일을 내려받았습니다.");
+    const archive = buildCurrentArchive();
+    downloadTextFile(JSON.stringify(archive, null, 2), `${safeFileName(project.projectName || activeMeta?.name || "planning-copilot", "planning-copilot")}-archive-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
+    notify(`사업 ${workspace.projects.length}개를 백업 파일로 내려받았습니다. API 키는 담기지 않습니다.`);
   };
 
   const backupToDrive = () => {
@@ -700,7 +874,7 @@ export default function App() {
     const payload = document.createElement("input");
     payload.type = "hidden";
     payload.name = "payload";
-    payload.value = JSON.stringify(createArchive(project, knowledgeDocs, approvalItems, memoryEntries, grantPlan));
+    payload.value = JSON.stringify(buildCurrentArchive());
     form.appendChild(payload);
     document.body.appendChild(form);
     form.submit();
@@ -712,10 +886,18 @@ export default function App() {
     readFile(file, (text) => {
       try {
         const archive = JSON.parse(text);
-        setProject({ ...emptyProject, ...archive.project });
+        const restored = importWorkspaceArchive(archive);
+        const activeEntry = restored.entries.find((entry) => entry.id === restored.workspace.activeProjectId);
+        setWorkspace(restored.workspace);
+        setProject(activeEntry?.project ? sanitizeProjectData(activeEntry.project) : { ...emptyProject });
+        setGrantPlan(activeEntry?.grantPlan ? sanitizeGrantPlan(activeEntry.grantPlan) : createEmptyGrantPlan());
+        setTemplateSession(loadTemplateSession(restored.workspace.activeProjectId));
         setKnowledgeDocs(Array.isArray(archive.knowledgeDocs) ? archive.knowledgeDocs : []);
-        if (archive.grantPlan) setGrantPlan(sanitizeGrantPlan(archive.grantPlan));
-        notify("백업 파일을 복원했습니다.");
+        setApprovalItems(Array.isArray(archive.approvalItems) ? archive.approvalItems : []);
+        setMemoryEntries(Array.isArray(archive.memoryEntries) ? archive.memoryEntries : []);
+        notify(restored.legacy
+          ? "예전 백업 파일을 한 사업으로 복원했습니다."
+          : `백업을 복원했습니다. 사업 ${restored.workspace.projects.length}개를 불러왔습니다.`);
       } catch {
         notify("백업 파일을 읽지 못했습니다.");
       }
@@ -759,7 +941,7 @@ export default function App() {
     }
 
     const context = buildOfficeContext(project, searchKnowledgeDocs(knowledgeDocs, normalizedCommand, 3));
-    const prompt = buildOfficeModelPrompt({ command: normalizedCommand, tasks: result.tasks, context });
+    const prompt = maskForExternal(buildOfficeModelPrompt({ command: normalizedCommand, tasks: result.tasks, context }), "AI 사무국 실행");
     const modelName = currentModelName(modelSettings) || "이름 미입력";
     setModelBusy(true);
     try {
@@ -897,7 +1079,7 @@ export default function App() {
     }
     setModelBusy(true);
     try {
-      const result = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
+      const result = await runModelPrompt(maskForExternal(prompt, "모델 실행"), modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
       setModelTestResult(result);
       notify(result.ok ? `${modelLabel(result.provider)} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
       return result;
@@ -1044,7 +1226,34 @@ export default function App() {
           </button>
         </div>
         <div id="sidebar-body" className={`sidebar-body ${mobileNavOpen ? "" : "is-collapsed-mobile"}`}>
-        <TextInput label="프로젝트명" value={project.projectName} onChange={(projectName) => updateProject({ projectName })} placeholder="예: 생활문화 혁신 지원사업" />
+        <div className="project-switcher">
+          <label className="field project-switcher-select">
+            <span>현재 사업</span>
+            <select value={workspace.activeProjectId} onChange={(event) => switchProject(event.target.value)} aria-label="사업 전환">
+              {workspace.projects.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+          <div className="project-switcher-row">
+            <button className="secondary-button" type="button" onClick={() => { setSection("projectBoard"); setMobileNavOpen(false); }}>사업 관리</button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => createNewProject({ name: `새 사업 ${workspace.projects.length + 1}`, type: "contest", status: "planning", deadline: "" })}
+            >
+              + 새 사업
+            </button>
+          </div>
+          {activeMeta && (
+            <p className="project-switcher-meta">
+              <span className={`board-status is-${activeMeta.status}`}>{PROJECT_STATUSES.find((status) => status.id === activeMeta.status)?.label}</span>
+              <span className={`board-dday is-${dDayInfo(activeMeta.deadline).tone}`}>{dDayInfo(activeMeta.deadline).label}</span>
+              <span>진행 {activeMeta.progress}%</span>
+            </p>
+          )}
+          <TextInput label="사업명" value={project.projectName} onChange={(projectName) => updateProject({ projectName })} placeholder={activeMeta?.name || "예: 생활문화 혁신 지원사업"} />
+        </div>
         <nav className="step-nav" aria-label="업무 영역">
           <div className="nav-head-row">
             <span className="nav-head-label">업무 메뉴</span>
@@ -1085,7 +1294,7 @@ export default function App() {
           <button className="secondary-button" type="button" onClick={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}>
             예시 불러오기
           </button>
-          <button className="ghost-button" type="button" onClick={() => { if (window.confirm("현재 입력값을 초기화할까요?")) { clearProject(); setProject(emptyProject); notify("초기화했습니다."); } }}>
+          <button className="ghost-button" type="button" onClick={() => { if (window.confirm("현재 사업의 사업계획 입력값을 초기화할까요? 사업 목록·예산·다른 사업은 그대로 남습니다.")) { setProject({ ...emptyProject, projectName: project.projectName }); notify("현재 사업의 사업계획 입력값을 초기화했습니다. 예산·정산은 그대로입니다."); } }}>
             초기화
           </button>
         </div>
@@ -1095,11 +1304,11 @@ export default function App() {
       <section className={GRANT_SECTIONS.includes(section) ? "workspace has-step-dock" : "workspace"}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">{project.projectName || "새 프로젝트"}</p>
+            <p className="eyebrow">{project.projectName || activeMeta?.name || "새 프로젝트"}</p>
             <h2>{sectionTitle}</h2>
           </div>
           <div className="topbar-actions">
-            <button className="secondary-button" type="button" onClick={() => { saveProject(project); notify("저장했습니다."); }}>저장</button>
+            <button className="secondary-button" type="button" onClick={() => { saveProjectData(workspace.activeProjectId, project); saveSlotGrantPlan(workspace.activeProjectId, grantPlan); saveWorkspace(workspace); notify("저장했습니다."); }}>저장</button>
             {/* 시작 화면에서는 시작 카드 3개가 주인공이 되도록 내보내기를 낮춰 둔다. */}
             <button
               className={section === "home" ? "secondary-button" : "primary-button"}
@@ -1116,15 +1325,40 @@ export default function App() {
 
         {section === "home" && (
           <WorkHomeView
-            projectName={project.projectName}
+            projectName={project.projectName || activeMeta?.name || ""}
             plan={grantPlan}
             started={hasAnyWork}
+            projects={workspace.projects}
+            activeProjectId={workspace.activeProjectId}
+            onSelectProject={switchProject}
+            onOpenProjectBoard={() => setSection("projectBoard")}
             onNavigate={setSection}
             onImportFile={importDocument}
             onImportTemplate={parseTemplateFile}
             onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
             templateSummary={templateSession.schema ? summarizeSchema(templateSession.schema) : null}
           />
+        )}
+
+        {section === "projectBoard" && (
+          <Panel
+            title="사업 관리"
+            description="여러 정부·공모·자체 사업을 한 브라우저에 나눠 두고, 사업마다 입력값·예산·정산·양식 작업을 따로 보관합니다. 전환해도 서로 섞이지 않습니다."
+          >
+            <ProjectBoardView
+              workspace={workspace}
+              project={project}
+              grantPlan={grantPlan}
+              onCreate={createNewProject}
+              onSelect={switchProject}
+              onDuplicate={duplicateProjectById}
+              onRemove={removeProjectById}
+              onUpdateMeta={changeProjectMeta}
+              onRename={(name) => updateProject({ projectName: name })}
+              onNavigate={setSection}
+              onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
+            />
+          </Panel>
         )}
 
         {section === "controlTower" && (
@@ -1171,7 +1405,7 @@ export default function App() {
               <OfficeResultView
                 result={officeResult}
                 onCopyReport={() => copyText(officeResult.report.markdown, "아침 보고서를 복사했습니다.")}
-                onCopyPrompt={() => copyText(officeResult.promptPackage.unifiedPrompt, "GPT 질문 패키지를 복사했습니다.")}
+                onCopyPrompt={() => copyText(maskForExternal(officeResult.promptPackage.unifiedPrompt, "GPT 질문 복사"), "GPT 질문 패키지를 복사했습니다.")}
                 onCopyDrafts={copyOfficeDrafts}
                 onSendPrompt={sendOfficePromptToAiBridge}
                 onSendReport={sendOfficeReportToDraft}
@@ -1312,6 +1546,14 @@ export default function App() {
               <div><strong>공고문 자동 분석</strong><span>공고문을 붙여넣거나 파일을 올린 뒤 분석을 누르세요.</span></div>
               <button className="primary-button" type="button" onClick={runNoticeAnalysis}>공고문 분석</button>
             </div>
+            <PiiGuardNotice
+              text={project.noticeText}
+              enabled={piiMaskEnabled}
+              onToggle={setPiiMask}
+              title="공고문 개인정보 점검"
+              compact
+              note="공고문 분석은 브라우저 안에서만 합니다. 이 공고문을 외부 AI 질문에 넣을 때는 위에서 켠 마스킹 설정을 따라 가린 텍스트가 전송됩니다."
+            />
             <label className="file-drop">
               <span>공고문 파일 첨부</span>
               <input type="file" accept=".pdf,.docx,.hwpx,.txt,.md,.csv,.html,.htm,.json,.xml" onChange={(event) => {
@@ -1380,13 +1622,20 @@ export default function App() {
               <div><strong>질문 생성</strong><span>현재 공고, 아이디어, 사례 검색 결과를 하나의 깊은 질문으로 만듭니다.</span></div>
               <button className="primary-button" type="button" onClick={() => { updateProject({ modelPrompt: buildModelPrompt(project, knowledgeDocs) }); notify("AI에게 물어볼 질문을 만들었습니다."); }}>AI 질문 생성</button>
             </div>
+            <PiiGuardNotice
+              text={aiQuestionPreview}
+              enabled={piiMaskEnabled}
+              onToggle={setPiiMask}
+              title="외부 AI로 보내기 전 개인정보 점검"
+              note="켜 두면 질문 복사와 무료 API 실행에 [연락처_1]·[주민번호_1] 같은 표시로 바뀐 질문이 쓰입니다. 탐지와 마스킹은 이 브라우저 안에서만 합니다."
+            />
             <div className="form-grid">
               <Field label="AI에 복사할 질문" value={project.modelPrompt} onChange={(modelPrompt) => updateProject({ modelPrompt })} rows={14} wide />
               <Field label="AI 답변 붙여넣기" value={project.modelResponse} onChange={(modelResponse) => updateProject({ modelResponse })} rows={12} wide />
               <Field label="반영 메모" value={project.aiSynthesis} onChange={(aiSynthesis) => updateProject({ aiSynthesis })} rows={8} wide />
             </div>
             <div className="draft-actions bridge-actions">
-              <button className="secondary-button" type="button" onClick={() => copyText(project.modelPrompt || buildModelPrompt(project, knowledgeDocs), "AI 질문을 복사했습니다.")}>질문 복사</button>
+              <button className="secondary-button" type="button" onClick={() => copyText(maskForExternal(project.modelPrompt || buildModelPrompt(project, knowledgeDocs), "AI 질문 복사"), "AI 질문을 복사했습니다.")}>질문 복사</button>
               <button className="secondary-button" type="button" onClick={() => { if (!project.modelResponse) notify("먼저 AI 답변을 붙여넣어 주세요."); else updateProject({ aiSynthesis: absorbModelResponse(project.modelResponse) }); }}>답변 반영 메모화</button>
             </div>
             <section className="grant-block">
@@ -1409,7 +1658,7 @@ export default function App() {
                   <strong>실행 실패</strong>
                   <span>{freeRunError}</span>
                   <div className="draft-actions">
-                    <button className="secondary-button" type="button" onClick={() => copyText(buildModelPrompt(project, knowledgeDocs), "질문을 복사했습니다. 외부 AI에 붙여넣어 주세요.")}>질문 복사로 이어가기</button>
+                    <button className="secondary-button" type="button" onClick={() => copyText(maskForExternal(buildModelPrompt(project, knowledgeDocs), "질문 복사"), "질문을 복사했습니다. 외부 AI에 붙여넣어 주세요.")}>질문 복사로 이어가기</button>
                     <button className="ghost-light-button" type="button" onClick={() => setSection("modelSettings")}>모델 설정 열기</button>
                   </div>
                 </div>
@@ -1609,6 +1858,15 @@ export default function App() {
               onAddToApproval={addTemplateResultToApproval}
               onOpenModelSettings={() => setSection("modelSettings")}
               onClear={clearTemplateSchema}
+              piiGuard={(
+                <PiiGuardNotice
+                  text={templatePromptPreview}
+                  enabled={piiMaskEnabled}
+                  onToggle={setPiiMask}
+                  title="양식 채우기 프롬프트 개인정보 점검"
+                  note="켜 두면 AI 실행과 프롬프트 복사에 가린 프롬프트가 쓰입니다. 이름·연락처는 [성명_1]·[연락처_1]로 바뀌고, 원문은 전송되지 않습니다."
+                />
+              )}
             />
           </Panel>
         )}

@@ -1,5 +1,6 @@
 export type SectionId =
   | "home"
+  | "projectBoard"
   | "agentOffice"
   | "modelSettings"
   | "approvalInbox"

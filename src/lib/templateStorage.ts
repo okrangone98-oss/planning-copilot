@@ -3,6 +3,11 @@ import type { TemplateProfile, TemplateSchema } from "./sampleTemplateParser.mjs
 
 const TEMPLATE_KEY = "planningCopilotTemplateSession";
 
+/** 양식 채우기 작업도 사업별로 나눈다. id가 없으면 예전 단일 키를 쓴다. */
+export function templateStorageKey(id?: string) {
+  return id ? `${TEMPLATE_KEY}:${id}` : TEMPLATE_KEY;
+}
+
 export type TemplateSession = {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -88,9 +93,11 @@ export function sanitizeTemplateSchema(value: unknown): TemplateSchema | null {
   return schema;
 }
 
-export function loadTemplateSession(): TemplateSession {
+export function loadTemplateSession(id?: string): TemplateSession {
   try {
-    const parsed = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || "{}");
+    // 사업별 키에 아직 없으면 예전 단일 키에서 한 번 읽어 준다. (기존 작업 보존)
+    const raw = localStorage.getItem(templateStorageKey(id)) ?? (id ? localStorage.getItem(TEMPLATE_KEY) : null);
+    const parsed = JSON.parse(raw || "{}");
     return {
       schema: sanitizeTemplateSchema(parsed.schema),
       profile: normalizeProfileKeepWhitespace(parsed.profile),
@@ -102,9 +109,9 @@ export function loadTemplateSession(): TemplateSession {
   }
 }
 
-export function saveTemplateSession(session: TemplateSession) {
+export function saveTemplateSession(session: TemplateSession, id?: string) {
   try {
-    localStorage.setItem(TEMPLATE_KEY, JSON.stringify({
+    localStorage.setItem(templateStorageKey(id), JSON.stringify({
       schema: session.schema,
       profile: normalizeProfileKeepWhitespace(session.profile),
       result: session.result.slice(0, 200000),
