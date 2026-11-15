@@ -59,7 +59,9 @@ export function WorkHomeView({
   onLoadExample,
   templateSummary,
   digest,
-  onOpenNextAction
+  onOpenNextAction,
+  onOpenSession,
+  onOpenEvidence
 }: {
   projectName: string;
   plan: GrantPlan;
@@ -76,6 +78,10 @@ export function WorkHomeView({
   templateSummary: { sections: number; tables: number; slots: number } | null;
   digest?: ProjectDigest | null;
   onOpenNextAction?: (action: NextAction) => void;
+  /** 다가오는 회차를 눌렀을 때 그 사업의 회차 탭으로 간다. */
+  onOpenSession?: (projectId: string, sessionId: string) => void;
+  /** 증빙 미확인 사업을 눌렀을 때 지출 원장(예산·집행)으로 간다. */
+  onOpenEvidence?: (projectId: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const templateRef = useRef<HTMLInputElement>(null);
@@ -144,6 +150,14 @@ export function WorkHomeView({
               <span>7일 안 마감</span>
               <strong>{digest.dueSoon}</strong>
             </div>
+            <div className={`home-today-stat ${digest.evidence?.missing ? "is-warning" : ""}`}>
+              <span>증빙 미확인</span>
+              <strong>{digest.evidence?.missing || 0}</strong>
+            </div>
+            <div className="home-today-stat">
+              <span>다가오는 회차</span>
+              <strong>{digest.upcomingSessions?.length || 0}</strong>
+            </div>
             <div className="home-today-stat">
               <span>운영 중 사업</span>
               <strong>{digest.running.length}</strong>
@@ -161,6 +175,49 @@ export function WorkHomeView({
             <p className="block-note">
               지금 급한 업무가 없습니다. 새 사업을 만들거나 사업 관리에서 다음 단계를 정해 보세요.
             </p>
+          )}
+
+          {digest.upcomingSessions?.length > 0 && (
+            <div className="home-upcoming">
+              <div className="home-upcoming-head">
+                <strong>다가오는 회차</strong>
+                <span>30일 안 · 가까운 순</span>
+              </div>
+              <ul className="home-session-list">
+                {digest.upcomingSessions.slice(0, 4).map((session) => (
+                  <li key={session.sessionId}>
+                    <button
+                      className="home-session"
+                      type="button"
+                      onClick={() => onOpenSession?.(session.projectId, session.sessionId)}
+                    >
+                      <span className="home-session-dday">{session.days === 0 ? "오늘" : `D-${session.days}`}</span>
+                      <span className="home-session-main">
+                        <strong>{session.title.startsWith(`${session.sequence}회차`) ? session.title : `${session.sequence}회차 · ${session.title}`}</strong>
+                        <small>{session.projectName}{session.venue ? ` · ${session.venue}` : ""}</small>
+                      </span>
+                      <span className="home-session-time">{session.startAt.slice(5, 10).replace("-", "/")}{session.startAt.includes("T") ? ` ${session.startAt.slice(11, 16)}` : ""}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {digest.evidence?.missing > 0 && (
+            <div className="home-evidence">
+              <div className="home-upcoming-head">
+                <strong>증빙 미확인</strong>
+                <span>{digest.evidence.missing}건 · {formatWon(digest.evidence.amount)}</span>
+              </div>
+              <div className="home-running">
+                {digest.evidence.items.map((item) => (
+                  <button key={item.projectId} className="home-running-chip is-warning" type="button" onClick={() => onOpenEvidence?.(item.projectId)}>
+                    {item.projectName} 미확인 {item.missing}건
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {digest.overdueItems.length > 0 && (

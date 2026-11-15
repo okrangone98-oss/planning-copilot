@@ -1,12 +1,22 @@
 import { useMemo, useState } from "react";
 import type { GrantBudgetLine, GrantChecklistItem, GrantPlan, GrantPreset, ProjectData } from "../types";
 import { budgetSummary, checklistSummary, emptyBudgetLine, formatWon, groupChecklist, lineAmount, reportSummary, toText } from "../lib/grantWorkflow.mjs";
+import { attendanceReport, expenseSummary, type ProjectWork } from "../lib/projectOperations.mjs";
 import { BudgetImportPanel } from "./BudgetImportPanel";
 
 type GrantViewProps = {
   plan: GrantPlan;
   onChange: (patch: Partial<GrantPlan>) => void;
   notify: (message: string) => void;
+};
+
+/** 다른 사업의 지출·증빙 누락 요약(정산 화면에서 사업을 넘겨 볼 때). */
+export type EvidenceRollup = {
+  projectId: string;
+  projectName: string;
+  total: number;
+  missing: number;
+  amount: number;
 };
 
 const CATEGORY_SUGGESTIONS = ["인건비", "운영비", "사업비", "홍보비", "여비", "일반수용비", "시설·장비비", "기타"];
@@ -408,11 +418,29 @@ export function GrantBudgetView({
   );
 }
 
-export function GrantChecklistView({ plan, onChange, notify }: GrantViewProps) {
+export function GrantChecklistView({
+  plan,
+  work,
+  evidenceRollup,
+  activeProjectId,
+  onOpenBudget,
+  onChange,
+  notify
+}: GrantViewProps & {
+  /** 현재 사업의 지출 원장. 없으면 누락 요약을 건너뛴다. */
+  work?: ProjectWork | null;
+  /** 사업별 지출·증빙 누락(현재 사업 포함). */
+  evidenceRollup?: EvidenceRollup[];
+  activeProjectId?: string;
+  /** 사업의 예산·집행 탭을 연다. 없으면 요약만 보여 준다. */
+  onOpenBudget?: (projectId: string) => void;
+}) {
   const summary = useMemo(() => checklistSummary(plan), [plan]);
   const groups = useMemo(() => groupChecklist(plan), [plan]);
+  const ledger = useMemo(() => expenseSummary(work, plan), [work, plan]);
   const [filter, setFilter] = useState<"all" | "open" | "required">("all");
   const [newItem, setNewItem] = useState({ group: "", label: "" });
+  const rollup = (evidenceRollup || []).filter((item) => item.missing > 0);
 
   const updateItem = (id: string, patch: Partial<GrantChecklistItem>) => {
     onChange({ checklist: plan.checklist.map((item) => (item.id === id ? { ...item, ...patch } : item)) });
@@ -456,6 +484,63 @@ export function GrantChecklistView({ plan, onChange, notify }: GrantViewProps) {
 
   return (
     <div className="grant-layout">
+      <section className="grant-block pc-evidence-rollup" aria-label="지출·증빙 누락 요약">
+        <div className="grant-block-head">
+          <div>
+            <strong>지출·증빙 누락</strong>
+            <span>예산·집행 탭의 지출 원장과 같은 데이터입니다. 증빙 확인을 하지 않은 지출만 골라 보여 줍니다.</span>
+          </div>
+          {onOpenBudget && (
+            <button className="secondary-button" type="button" onClick={() => onOpenBudget(activeProjectId || "")}>
+              지출 원장 열기
+            </button>
+          )}
+        </div>
+        {ledger.expenseCount === 0 ? (
+          <p className="block-note">
+            이 사업에는 아직 지출 기록이 없습니다. 사업 상세 → `예산·집행`에서 지출을 적거나 엑셀·시트 내역을 붙여넣으면 여기에 누락이 모입니다.
+          </p>
+        ) : (
+          <>
+            <div className="grant-summary" aria-label="지출·증빙 요약">
+              <div><span>지출</span><strong>{ledger.expenseCount}건</strong></div>
+              <div><span>증빙 대상</span><strong>{ledger.evidence.total}건</strong></div>
+              <div className={ledger.evidence.missing ? "is-warning" : ""}><span>증빙 미확인</span><strong>{ledger.evidence.missing}건</strong></div>
+              <div><span>미확인 금액</span><strong>{formatWon(ledger.evidence.missingAmount)}</strong></div>
+            </div>
+            {ledger.evidence.items.length > 0 && (
+              <ul className="pc-evidence-list">
+                {ledger.evidence.items.slice(0, 8).map((item) => (
+                  <li key={item.id}>
+                    <span className="pc-evidence-date">{item.spentAt || "날짜 없음"}</span>
+                    <span className="pc-evidence-main">{item.description || item.vendor || "지출"}</span>
+                    <span className="pc-evidence-meta">{item.category} · {formatWon(item.amount)}</span>
+                  </li>
+                ))}
+                {ledger.evidence.items.length > 8 && (
+                  <li className="pc-evidence-more">외 {ledger.evidence.items.length - 8}건은 예산·집행 탭에서 확인하세요.</li>
+                )}
+              </ul>
+            )}
+            {rollup.length > 1 && (
+              <ul className="pc-evidence-projects">
+                {rollup.map((item) => (
+                  <li key={item.projectId}>
+                    <button
+                      className={`ghost-light-button ${item.projectId === activeProjectId ? "is-on" : ""}`}
+                      type="button"
+                      onClick={() => onOpenBudget?.(item.projectId)}
+                    >
+                      {item.projectName} · 미확인 {item.missing}건 ({formatWon(item.amount)})
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </section>
+
       <section className="grant-summary" aria-label="증빙 점검 요약">
         <div><span>전체 항목</span><strong>{summary.total}</strong></div>
         <div><span>확인 완료</span><strong>{summary.done}</strong></div>
@@ -554,9 +639,77 @@ export function GrantReportView({
   onChange,
   notify,
   project,
+  work,
   onNavigate
-}: GrantViewProps & { project: ProjectData; onNavigate: (section: "grantBudget") => void }) {
+}: GrantViewProps & {
+  project: ProjectData;
+  /** 회차·지출 원장. 있으면 참석 연인원·예산/집행/잔액을 자동으로 채워 보여 준다. */
+  work?: ProjectWork | null;
+  onNavigate: (section: "grantBudget" | "grantChecklist") => void;
+}) {
   const summary = useMemo(() => reportSummary(plan), [plan]);
+  const attendance = useMemo(() => attendanceReport(work), [work]);
+  const ledger = useMemo(() => expenseSummary(work, plan), [work, plan]);
+  const [targetSection, setTargetSection] = useState("");
+
+  const suggestedSection = useMemo(() => {
+    const sections = plan.reportSections || [];
+    const byKeyword = sections.find((section) => /운영\s*결과|추진\s*실적|사업\s*실적|주요\s*성과|예산\s*집행/.test(section.title));
+    if (byKeyword) return byKeyword;
+    return sections.find((section) => !section.content.trim()) || sections[0] || null;
+  }, [plan.reportSections]);
+  const effectiveTargetId = targetSection || suggestedSection?.id || "";
+
+  /** 결과보고에 넣을 요약 문단. 숫자는 회차·지출 원장에서 계산하고, 빠진 것을 함께 적는다. */
+  const autoSummary = useMemo(() => {
+    if (!work) return "";
+    const lines = ["[자동 집계 · 회차·예산에서 계산]"];
+    if (attendance.sessionTotal) {
+      lines.push(
+        `· 회차: 전체 ${attendance.sessionTotal}회 · 집계 대상 ${attendance.tracked}회 · 완료 ${attendance.doneSessions}회${attendance.cancelled ? ` · 취소 ${attendance.cancelled}회` : ""}`
+      );
+      lines.push(
+        attendance.tracked
+          ? `· 참석 연인원: ${attendance.attended}명 (완료 회차 ${attendance.attendedDone}명)`
+          : "· 참석 연인원: 인원을 기록한 회차가 없습니다(0명이 아니라 집계 제외)"
+      );
+      if (attendance.missingCount) lines.push(`  - 참석을 적지 않은 ${attendance.missingCount}회차는 합계에 넣지 않았습니다.`);
+      if (attendance.untracked) lines.push(`  - 인원 기록을 꺼 둔 ${attendance.untracked}회차는 집계 제외입니다.`);
+    }
+    if (ledger.expenseCount || ledger.total.plan) {
+      lines.push(
+        `· 예산: 편성 ${formatWon(ledger.total.plan)} / 집행 ${formatWon(ledger.total.spent)} (완료 ${formatWon(ledger.total.paid)} · 예정 ${formatWon(ledger.total.pending)}) / 잔액 ${formatWon(ledger.total.balance)}${ledger.total.plan ? ` (집행률 ${ledger.total.rate}%)` : ""}`
+      );
+      lines.push(`· 증빙: 대상 ${ledger.evidence.total}건 중 ${ledger.evidence.checked}건 확인${ledger.evidence.missing ? `, 미확인 ${ledger.evidence.missing}건(${formatWon(ledger.evidence.missingAmount)})` : ""}`);
+    }
+    lines.push("· 제출 전 실제 증빙·출석부와 대조해 수치를 확인해 주세요.");
+    return lines.join("\n");
+  }, [work, attendance, ledger]);
+
+  const insertSummary = () => {
+    if (!autoSummary) return;
+    const target = (plan.reportSections || []).find((section) => section.id === effectiveTargetId);
+    if (!target) {
+      notify("넣을 섹션을 골라 주세요. 결과보고 골격이 없으면 예산 편성에서 프리셋을 적용하세요.");
+      return;
+    }
+    if (target.content.includes("[자동 집계")) {
+      notify(`‘${target.title}’에 이미 자동 집계가 있습니다. 새 수치로 바꾸려면 그 부분을 지우고 다시 넣어 주세요.`);
+      return;
+    }
+    const content = target.content.trim() ? `${target.content.trim()}\n\n${autoSummary}` : autoSummary;
+    onChange({ reportSections: plan.reportSections.map((section) => (section.id === target.id ? { ...section, content } : section)) });
+    notify(`‘${target.title}’ ${target.content.trim() ? "끝에" : "에"} 운영 실적·예산 수치를 넣었습니다. 문장은 직접 다듬어 주세요.`);
+  };
+
+  const copySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(autoSummary);
+      notify("운영 실적·예산 요약을 복사했습니다.");
+    } catch {
+      notify("복사하지 못했습니다. 브라우저가 클립보드를 막았는지 확인해 주세요.");
+    }
+  };
 
   const updateSection = (id: string, content: string) => {
     onChange({ reportSections: plan.reportSections.map((section) => (section.id === id ? { ...section, content } : section)) });
@@ -595,6 +748,52 @@ export function GrantReportView({
         <div><strong>프로젝트 입력값으로 초안 채우기</strong><span>문제정의·실행설계·성과지표에 적어 둔 내용을 비어 있는 섹션에만 넣습니다. 기존 글은 건드리지 않습니다.</span></div>
         <button className="secondary-button" type="button" onClick={prefillFromProject}>초안 채우기</button>
       </div>
+
+      {work && (attendance.sessionTotal > 0 || ledger.expenseCount > 0) && (
+        <section className="grant-block pc-report-auto" aria-label="운영 실적 자동 반영">
+          <div className="grant-block-head">
+            <div>
+              <strong>운영 실적·예산 자동 반영</strong>
+              <span>회차 탭의 참석 연인원과 예산·집행 탭의 계획/집행/잔액을 그대로 계산합니다. 넣기 전에 숫자가 맞는지 먼저 보세요.</span>
+            </div>
+            <span className="block-count">{attendance.tracked ? `집계 대상 ${attendance.tracked}회` : "인원 기록 없음"}</span>
+          </div>
+          <div className="grant-summary" aria-label="운영 실적 요약">
+            <div><span>참석 연인원</span><strong>{attendance.tracked ? `${attendance.attended}명` : "—"}</strong></div>
+            <div><span>완료 회차 참석</span><strong>{attendance.doneSessions ? `${attendance.attendedDone}명` : "—"}</strong></div>
+            <div><span>편성 예산</span><strong>{formatWon(ledger.total.plan)}</strong></div>
+            <div><span>집행액</span><strong>{formatWon(ledger.total.spent)}</strong></div>
+            <div className={ledger.total.balance < 0 ? "is-warning" : ""}><span>잔액</span><strong>{formatWon(ledger.total.balance)}</strong></div>
+            <div className={ledger.evidence.missing ? "is-warning" : ""}><span>증빙 미확인</span><strong>{ledger.evidence.missing}건</strong></div>
+          </div>
+          {(attendance.missingCount > 0 || attendance.untracked > 0 || !attendance.tracked) && (
+            <p className="pc-notice is-warning">
+              {!attendance.tracked
+                ? "인원을 기록한 회차가 없습니다. 참석 0명이 아니라 집계 제외입니다. 회차 탭에서 ‘인원 켜기’로 기록하면 여기에 들어옵니다."
+                : [
+                  attendance.missingCount ? `참석을 적지 않은 ${attendance.missingCount}회차는 합계에서 빼 두었습니다(0명으로 세지 않음).` : "",
+                  attendance.untracked ? `인원 기록을 꺼 둔 ${attendance.untracked}회차는 집계 제외입니다.` : ""
+                ].filter(Boolean).join(" ")}
+            </p>
+          )}
+          {autoSummary && <pre className="pc-auto-text">{autoSummary}</pre>}
+          <div className="pc-auto-actions">
+            <label className="field">
+              <span>넣을 섹션</span>
+              <select value={effectiveTargetId} onChange={(event) => setTargetSection(event.target.value)}>
+                {(plan.reportSections || []).map((section) => (
+                  <option key={section.id} value={section.id}>{section.title}{section.content.trim() ? " (작성함)" : " (비어 있음)"}</option>
+                ))}
+              </select>
+            </label>
+            <div className="draft-actions">
+              <button className="primary-button" type="button" onClick={insertSummary} disabled={!plan.reportSections.length}>섹션에 넣기</button>
+              <button className="secondary-button" type="button" onClick={() => { void copySummary(); }}>복사</button>
+            </div>
+          </div>
+          <p className="block-note">넣으면 기존 글은 지우지 않고 섹션 끝에 덧붙입니다. 넣은 뒤에는 직접 문장을 다듬어 주세요.</p>
+        </section>
+      )}
 
       {plan.reportSections.length ? (
         plan.reportSections.map((section) => (

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { GrantPlan, ProjectData } from "../types";
+import type { ProjectWork } from "../lib/projectOperations.mjs";
 import { downloadTextFile, safeFileName } from "../lib/storage";
 import { buildNotionPasteMarkdown, buildWorkbrainFileName, buildWorkbrainMarkdown, WORKSPACE_LINKS, type WorkbrainExportOptions } from "../lib/davidWorkbrainExport.mjs";
 import { describePiiScan, maskPii, scanPii } from "../lib/piiGuard.mjs";
@@ -39,10 +40,13 @@ function createInitialState(hasDraft: boolean): ExportState {
 export function WorkbrainExportView({
   plan,
   project,
+  work,
   notify
 }: {
   plan: GrantPlan;
   project: ProjectData;
+  /** 운영 데이터가 있으면 회차 참석 연인원·집행현황을 문서에 함께 싣는다. */
+  work?: ProjectWork | null;
   notify: (message: string) => void;
 }) {
   const [state, setState] = useState<ExportState>(() => createInitialState(Boolean(project.draftOutput.trim())));
@@ -63,8 +67,8 @@ export function WorkbrainExportView({
   }), [state, plan.schedule]);
 
   const markdown = useMemo(
-    () => buildWorkbrainMarkdown({ plan, project, options }),
-    [plan, project, options]
+    () => buildWorkbrainMarkdown({ plan, project, options, work }),
+    [plan, project, options, work]
   );
   const fileName = useMemo(
     () => buildWorkbrainFileName({ programName: plan.programName, title: project.projectName }),

@@ -14,6 +14,7 @@ import {
   scheduleEntries,
   toText
 } from "./grantWorkflow.mjs";
+import { attendanceReport, expenseSummary } from "./projectOperations.mjs";
 
 export const DEFAULT_SENSITIVE_HANDLING =
   "개인정보, 정산자료, 계약자료, 주민정보 가능 자료는 자동 요약하지 않고 검토 필요로 표시";
@@ -173,6 +174,56 @@ function draftBody(plan, projectDraft) {
   return draft || `초안 조립 화면에서 초안을 만들면 이곳에 함께 내보냅니다. (사업명: ${plan.programName || "미입력"})`;
 }
 
+/**
+ * 운영 실적·집행 현황: 회차 참석 연인원과 비목별 계획·집행·잔액을 문서에 그대로 싣는다.
+ * 미입력·집계 제외를 0명과 섞지 않도록, 합계 옆에 무엇이 빠졌는지 함께 적는다.
+ */
+function operationsBody(plan, work) {
+  if (!work || typeof work !== "object") return "";
+  const sessions = Array.isArray(work.sessions) ? work.sessions : [];
+  const expenses = Array.isArray(work.expenses) ? work.expenses : [];
+  if (!sessions.length && !expenses.length) return "";
+  const attendance = attendanceReport(work);
+  const ledger = expenseSummary(work, plan);
+  const lines = [];
+
+  if (sessions.length) {
+    const notes = [];
+    if (attendance.missingCount) notes.push(`미입력 ${attendance.missingCount}회차는 합계에 넣지 않았습니다.`);
+    if (attendance.untracked) notes.push(`인원 기록을 꺼 둔 ${attendance.untracked}회차는 집계 제외입니다(0명이 아님).`);
+    if (attendance.zeroSessions) notes.push(`적힌 0명 ${attendance.zeroSessions}회차는 합계에 포함했습니다.`);
+    lines.push(
+      table(
+        ["항목", "값"],
+        [
+          ["회차", `전체 ${attendance.sessionTotal} · 집계 대상 ${attendance.tracked} · 완료 ${attendance.doneSessions}${attendance.cancelled ? ` · 취소 ${attendance.cancelled}` : ""}`],
+          ["참석 연인원", attendance.tracked ? `${attendance.attended}명` : "인원을 기록한 회차 없음"],
+          ["완료 회차 참석", `${attendance.attendedDone}명`]
+        ]
+      )
+    );
+    if (notes.length) lines.push("", `> ${notes.join(" ")}`);
+  }
+
+  if (expenses.length) {
+    lines.push(
+      "",
+      table(
+        ["비목", "계획액", "집행액", "잔액", "집행률"],
+        [
+          ...ledger.rows.map((row) => [row.category, formatWon(row.plan), formatWon(row.spent), formatWon(row.balance), row.plan ? `${row.rate}%` : "-"]),
+          ["합계", formatWon(ledger.total.plan), formatWon(ledger.total.spent), formatWon(ledger.total.balance), ledger.total.plan ? `${ledger.total.rate}%` : "-"]
+        ]
+      ),
+      "",
+      `> 집행액은 집행 완료 + 지출 예정입니다. 계획만 세운 ${formatWon(ledger.plannedOnly)}은 잔액에서 빼지 않았습니다. 증빙 확인 ${ledger.evidence.checked}/${ledger.evidence.total}건${ledger.evidence.missing ? ` · 미확인 ${ledger.evidence.missing}건(${formatWon(ledger.evidence.missingAmount)})` : ""}.`
+    );
+    if (ledger.overRows.length) lines.push(`> 계획을 넘긴 비목: ${ledger.overRows.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
 function followUpBody(plan, now) {
   const followUps = pendingFollowUps(plan, now);
   if (!followUps.length) return "- [ ] 제출 전 원본 증빙과 금액을 한 번 더 확인합니다.";
@@ -231,7 +282,7 @@ function normalizeOptions(options, plan) {
  * david-workbrain · Notion에 붙일 Markdown 한 편을 만든다.
  * 원본 증빙 파일은 담지 않고, 요약·체크 상태·할 일만 담는다.
  */
-export function buildWorkbrainMarkdown({ plan, project, options, now } = {}) {
+export function buildWorkbrainMarkdown({ plan, project, options, work, now } = {}) {
   const safePlan = plan && typeof plan === "object" ? plan : {};
   const safeProject = project && typeof project === "object" ? project : {};
   const settings = normalizeOptions(options, safePlan);
@@ -279,6 +330,8 @@ export function buildWorkbrainMarkdown({ plan, project, options, now } = {}) {
     ["추진 일정·마감일 요약", scheduleBody(safePlan, now)]
   ];
   if (settings.includeBudget) sections.push(["예산 편성표", budgetBody(safePlan)]);
+  const operations = operationsBody(safePlan, work);
+  if (operations) sections.push(["운영 실적·집행 현황", operations]);
   if (settings.includeChecklist) sections.push(["정산 증빙 체크리스트", checklistBody(safePlan)]);
   if (settings.includeReport) sections.push(["결과보고서 초안", reportBody(safePlan)]);
   if (settings.includeDraft) sections.push(["사업계획서 초안", draftBody(safePlan, safeProject.draftOutput)]);

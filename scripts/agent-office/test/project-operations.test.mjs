@@ -450,7 +450,7 @@ test("리비전은 확정 시점 스냅샷과 승인일을 남긴다", () => {
   assert.equal(latestRevision(many).revision, 25);
 });
 
-test("예산 금액은 운영 데이터에 복제하지 않는다", () => {
+test("계획 금액은 운영 데이터에 복제하지 않는다(지출 원장은 실제 집행만 적는다)", () => {
   const plan = planWithBudget();
   const total = budgetSummary(plan).total;
   assert.equal(total, 300000);
@@ -458,6 +458,8 @@ test("예산 금액은 운영 데이터에 복제하지 않는다", () => {
   const first = generated(createEmptyProjectWork(PROJECT_ID));
   const serialized = JSON.stringify({ tasks: first.work.tasks, sessions: first.work.sessions, revisions: first.work.revisions });
   assert.doesNotMatch(serialized, /unitCost|amount|100000|300000/);
+  // 지출 원장은 비어 있고, 금액은 비목 id로만 계획 행을 가리킨다.
+  assert.equal(first.work.expenses.length, 0);
   assert.equal(budgetSummary(plan).total, total);
 });
 
