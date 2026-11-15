@@ -1300,20 +1300,83 @@
   font-weight: 700;
 }
 
-.step-flow-actions {
+/* ── 화면 하단 고정 단계 이동 바 (safe-area 포함) ────────── */
+.step-dock {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 320px;
+  z-index: 30;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  gap: 14px;
+  padding: 12px 24px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #c8e0d9;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 -10px 26px rgba(24, 32, 42, 0.1);
+  backdrop-filter: blur(8px);
 }
 
-.step-flow-next {
-  min-height: 56px;
+.step-dock-progress {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: #e3ece9;
+}
+
+.step-dock-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.step-dock-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.step-dock-text strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-dock-text span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.step-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.step-dock-prev,
+.step-dock-next {
+  min-height: 48px;
+  white-space: nowrap;
+}
+
+.step-dock-next {
   border-radius: 10px;
   padding: 12px 22px;
-  font-size: 17px;
+  font-size: 16px;
+}
+
+.workspace.has-step-dock {
+  padding-bottom: 112px;
+}
+
+.workspace.has-step-dock ~ .toast {
+  bottom: 96px;
 }
 
 /* ── 모델 설정: 기본 경로 / 고급 접이식 ─────────────────── */
@@ -1415,9 +1478,17 @@
 
 @media (max-width: 760px) {
   .home-start-grid,
-  .home-step-list,
-  .step-flow-list {
+  .home-step-list {
     grid-template-columns: 1fr;
+  }
+
+  /* 단계 칩은 한 줄을 다 먹지 않고 옆으로 넘겨 본다. */
+  .step-flow-list {
+    grid-auto-columns: minmax(140px, 1fr);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 
   .home-start-card {
@@ -1442,18 +1513,44 @@
     font-size: 22px;
   }
 
-  .step-flow-actions {
-    flex-direction: column;
-    align-items: stretch;
+  .step-dock {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
-  .step-flow-actions > button {
-    width: 100%;
+  .step-dock-text {
+    display: flex;
+    flex: 1 1 100%;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
   }
 
-  .step-flow-next {
-    order: -1;
+  .step-dock-actions {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
     margin-left: 0;
+  }
+
+  .step-dock-prev {
+    min-height: 48px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  .step-dock-next {
+    min-height: 48px;
+    padding: 10px 14px;
+    font-size: 15px;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .workspace.has-step-dock {
+    padding-bottom: 136px;
   }
 
   .model-section-head,
@@ -1658,4 +1755,243 @@
   .model-section-count {
     display: none;
   }
+}
+
+/* ── 2차 UX 보완: 고정 이동 바·모바일 아코디언·터치 크기 ───────── */
+
+/* 데스크톱 사이드바는 화면을 따라온다. */
+@media (min-width: 981px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 980px) {
+  .step-dock {
+    left: 0;
+  }
+}
+
+/* 모바일 토스트: 하단 고정 이동 바를 가리지 않도록 위쪽에 띄운다. */
+@media (max-width: 768px) {
+  .toast {
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    right: 12px;
+    bottom: auto;
+    left: 12px;
+    max-width: none;
+    transform: translateY(-12px);
+  }
+
+  .toast.is-visible {
+    transform: translateY(0);
+  }
+
+  .workspace.has-step-dock ~ .toast {
+    bottom: auto;
+  }
+}
+
+/* 모바일 예산 편성표: 요약 1줄 + 탭해서 상세 입력 */
+.budget-accordion {
+  display: none;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.budget-acc-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.budget-acc-item.is-open {
+  border-color: #c8e0d9;
+}
+
+.budget-acc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.budget-acc-main {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.budget-acc-main strong {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.budget-acc-main span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budget-acc-amount {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.budget-acc-caret {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 140ms ease;
+}
+
+.budget-acc-item.is-open .budget-acc-caret {
+  transform: rotate(225deg) translateY(-2px);
+}
+
+.budget-acc-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  border-top: 1px solid #eef2f6;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.budget-acc-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.budget-acc-field.wide {
+  grid-column: 1 / -1;
+}
+
+.budget-acc-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.budget-acc-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.budget-acc-foot {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+@media (max-width: 768px) {
+  .budget-desktop {
+    display: none;
+  }
+
+  .budget-accordion {
+    display: grid;
+  }
+}
+
+/* 모바일 메뉴를 연 동안에는 하단 이동 바를 잠시 감춘다(메뉴 버튼과 겹치지 않게). */
+@media (max-width: 980px) {
+  .app-shell.nav-open .step-dock {
+    display: none;
+  }
+}
+
+/* 체크박스 터치 영역: 행 최소 44px, 상자 22px */
+.grant-check-list li {
+  min-height: 44px;
+}
+
+.grant-check-main {
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 0;
+}
+
+.grant-check-main input[type="checkbox"] {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin-top: 0;
+  accent-color: var(--accent);
+}
+
+.grant-inline-check {
+  min-height: 44px;
+}
+
+.grant-inline-check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+.grant-block-head .secondary-button,
+.grant-block-head .ghost-light-button {
+  white-space: nowrap;
+}
+
+.office-empty-action {
+  justify-self: start;
+  margin-top: 6px;
+}
+
+.grant-reset-row {
+  margin-top: 14px;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-light-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 진행률 막대가 색 변수(--primary) 오타로 보이지 않던 문제 보정 */
+.grant-progress i {
+  background: var(--accent);
+}
+
+.grant-filter-buttons .is-on {
+  border-color: var(--accent);
 }

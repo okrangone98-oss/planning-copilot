@@ -103,8 +103,15 @@ const navGroups: Array<{ title: string; items: Array<{ id: SectionId; label: str
 const navItems = navGroups.flatMap((group) => group.items);
 const DEFAULT_NAV_GROUP = navGroups[0].title;
 // 모델 설정 화면: 브라우저에서 바로 쓰는 경로를 먼저, 차단·로컬 경로는 접이식 영역으로 내린다.
-const primaryModelOptions = modelProviderOptions.filter((option) => PRIMARY_MODEL_PROVIDERS.includes(option.id));
-const advancedModelOptions = modelProviderOptions.filter((option) => ADVANCED_MODEL_PROVIDERS.includes(option.id));
+// 카드 순서는 안내 문구의 순서와 맞춘다: 템플릿 → 무료 3종 / 차단 3종 → 로컬 프록시 → Ollama.
+function pickModelOptions(ids: readonly string[]) {
+  return ids
+    .map((id) => modelProviderOptions.find((option) => option.id === id))
+    .filter((option): option is (typeof modelProviderOptions)[number] => Boolean(option));
+}
+const primaryModelOptions = pickModelOptions(PRIMARY_MODEL_PROVIDERS);
+const advancedModelOptions = pickModelOptions(ADVANCED_MODEL_PROVIDERS);
+const GRANT_SECTIONS: SectionId[] = ["grantBudget", "grantChecklist", "grantReport", "workbrainExport"];
 const quickOfficeCommands = [
   "2026 청년 관광두레 플러스사업 지원 전략 짜줘",
   "다음 주 의기양양 두레동아리 홍보 콘텐츠 기획해줘",
@@ -279,6 +286,11 @@ export default function App() {
   const [freeRunError, setFreeRunError] = useState("");
 
   const sectionTitle = useMemo(() => navItems.find((item) => item.id === section)?.label || "", [section]);
+  // 내보낼 내용이 있는지: 홈 첫 화면에서 빈 프로젝트로 내보내기 하는 일을 막는다.
+  const hasAnyWork = useMemo(
+    () => hasGrantWork(grantPlan) || Boolean(project.projectName.trim() || project.noticeText.trim() || project.draftOutput.trim()),
+    [grantPlan, project.projectName, project.noticeText, project.draftOutput]
+  );
 
   useEffect(() => {
     saveProject(project);
@@ -291,7 +303,13 @@ export default function App() {
   useEffect(() => {
     const activeGroup = navGroups.find((group) => group.items.some((item) => item.id === section));
     if (!activeGroup) return;
-    setExpandedNavGroups((current) => current.includes(activeGroup.title) ? current : [...current, activeGroup.title]);
+    // 그룹은 누적하지 않는다. 기본 보기(업무 홈)와 지금 화면의 그룹만 펼친다.
+    setExpandedNavGroups(Array.from(new Set([DEFAULT_NAV_GROUP, activeGroup.title])));
+  }, [section]);
+
+  useEffect(() => {
+    // 하단 고정 바로 다음 단계로 넘어갈 때, 새 화면이 중간부터 보이지 않게 맨 위에서 시작한다.
+    window.scrollTo({ top: 0, behavior: "auto" });
   }, [section]);
 
   useEffect(() => {
@@ -780,7 +798,7 @@ export default function App() {
   };
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${mobileNavOpen ? "nav-open" : ""}`}>
       <aside className="sidebar" aria-label="업무 영역">
         <div className="sidebar-brand-row">
           <div className="brand-block">
@@ -807,7 +825,7 @@ export default function App() {
               type="button"
               onClick={() => setExpandedNavGroups((current) => current.length === navGroups.length ? [DEFAULT_NAV_GROUP] : navGroups.map((group) => group.title))}
             >
-              {expandedNavGroups.length === navGroups.length ? "모두 접기" : "모두 펼치기"}
+              {expandedNavGroups.length === navGroups.length ? "기본 보기로" : "모두 펼치기"}
             </button>
           </div>
           {navGroups.map((group) => {
@@ -846,7 +864,7 @@ export default function App() {
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className={GRANT_SECTIONS.includes(section) ? "workspace has-step-dock" : "workspace"}>
         <header className="topbar">
           <div>
             <p className="eyebrow">{project.projectName || "새 프로젝트"}</p>
@@ -854,11 +872,17 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <button className="secondary-button" type="button" onClick={() => { saveProject(project); notify("저장했습니다."); }}>저장</button>
-            <button className="primary-button" type="button" onClick={() => {
-              const content = project.draftOutput || generateDraftText(project);
-              downloadTextFile(content, `${safeFileName(project.projectName, "planning-copilot-draft")}.md`, "text/markdown;charset=utf-8");
-              notify("Markdown 파일을 내보냈습니다.");
-            }}>Markdown 내보내기</button>
+            {/* 시작 화면에서는 시작 카드 3개가 주인공이 되도록 내보내기를 낮춰 둔다. */}
+            <button
+              className={section === "home" ? "secondary-button" : "primary-button"}
+              type="button"
+              disabled={section === "home" && !hasAnyWork}
+              title={section === "home" && !hasAnyWork ? "시작 카드에서 내용을 채우면 내보낼 수 있습니다." : undefined}
+              onClick={() => {
+                const content = project.draftOutput || generateDraftText(project);
+                downloadTextFile(content, `${safeFileName(project.projectName, "planning-copilot-draft")}.md`, "text/markdown;charset=utf-8");
+                notify("Markdown 파일을 내보냈습니다.");
+              }}>Markdown 내보내기</button>
           </div>
         </header>
 
@@ -866,7 +890,7 @@ export default function App() {
           <WorkHomeView
             projectName={project.projectName}
             plan={grantPlan}
-            started={hasGrantWork(grantPlan) || Boolean(project.projectName.trim() || project.noticeText.trim() || project.draftOutput.trim())}
+            started={hasAnyWork}
             onNavigate={setSection}
             onImportFile={importDocument}
             onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
@@ -1282,9 +1306,8 @@ export default function App() {
               onApplyPreset={applyGrantPresetToPlan}
               notify={notify}
             />
-            <div className="draft-actions">
-              <button className="secondary-button" type="button" onClick={() => setSection("grantChecklist")}>정산 증빙으로</button>
-              <button className="secondary-button" type="button" onClick={() => setSection("grantReport")}>결과보고로</button>
+            {/* 단계 이동은 화면 하단 고정 바가 맡는다. 여기에는 되돌리는 버튼만 둔다. */}
+            <div className="draft-actions grant-reset-row">
               <button className="ghost-light-button" type="button" onClick={resetGrantPlan}>예산·정산 초기화</button>
             </div>
             <GrantStepFlow current="grantBudget" plan={grantPlan} onNavigate={setSection} />
@@ -1294,21 +1317,13 @@ export default function App() {
         {section === "grantChecklist" && (
           <Panel title="정산 증빙 체크리스트" description="교부·집행·인건비·실적·마감 증빙을 순서대로 점검하고, 확인한 메모를 남깁니다.">
             <GrantChecklistView plan={grantPlan} onChange={updateGrantPlan} notify={notify} />
-            <div className="draft-actions">
-              <button className="secondary-button" type="button" onClick={() => setSection("grantBudget")}>예산 편성으로</button>
-              <button className="secondary-button" type="button" onClick={() => setSection("grantReport")}>결과보고로</button>
-            </div>
             <GrantStepFlow current="grantChecklist" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
 
         {section === "grantReport" && (
           <Panel title="결과보고서 초안" description="기관 결과보고 양식 순서대로 섹션을 만들고 초안을 채웁니다. 프로젝트 입력값에서 가져올 수 있습니다.">
-            <GrantReportView plan={grantPlan} project={project} onChange={updateGrantPlan} notify={notify} />
-            <div className="draft-actions">
-              <button className="secondary-button" type="button" onClick={() => setSection("grantChecklist")}>정산 증빙으로</button>
-              <button className="primary-button" type="button" onClick={() => setSection("workbrainExport")}>워크브레인으로 내보내기</button>
-            </div>
+            <GrantReportView plan={grantPlan} project={project} onChange={updateGrantPlan} notify={notify} onNavigate={setSection} />
             <GrantStepFlow current="grantReport" plan={grantPlan} onNavigate={setSection} />
           </Panel>
         )}
