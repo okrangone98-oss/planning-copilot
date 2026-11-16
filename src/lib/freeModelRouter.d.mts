@@ -4,6 +4,8 @@ export type FreeModelRequest = {
   prompt: string;
   apiKey?: string;
   baseUrl?: string;
+  /** 공용 무료 AI 중계에서 넘길 상위 경로 — auto | openrouter | gemini | amd */
+  route?: string;
   systemPrompt?: string;
   maxTokens?: number;
   temperature?: number;
@@ -22,8 +24,9 @@ export function requestFreeModel(input: {
   prompt: string;
   apiKey?: string;
   baseUrl?: string;
+  route?: string;
   systemPrompt?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxTokens?: number;
-}): Promise<{ ok: true; output: string; url: string } | { ok: false; error: string }>;
+}): Promise<{ ok: true; output: string; url: string; upstream: string } | { ok: false; error: string }>;

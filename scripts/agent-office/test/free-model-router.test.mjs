@@ -170,11 +170,69 @@ test("fetch를 주입해 성공·한도·차단 경로를 확인한다", async (
   assert.match(blocked.error, /CORS/);
 });
 
+test("공용 무료 AI 중계는 키 없이 호출하고, 상위 경로를 본문에 넣는다", async () => {
+  const { buildChatRequest, parseChatCompletion, requestFreeModel, resolveEndpoint } = await import("../../../src/lib/freeModelRouter.mjs");
+
+  assert.equal(
+    resolveEndpoint("team-free-proxy"),
+    "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1/chat/completions"
+  );
+
+  // 키도 모델도 없이 요청이 만들어진다 — 중계가 경로별 기본 모델을 고른다.
+  const auto = buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "auto" });
+  const autoBody = JSON.parse(String(auto.init.body));
+  assert.equal(auto.url, "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1/chat/completions");
+  assert.equal(autoBody.provider, "auto");
+  assert.equal("model" in autoBody, false, "모델을 비우면 본문에 모델 이름을 보내지 않는다");
+  assert.equal("Authorization" in auto.init.headers, false, "중계에는 개인 키를 보내지 않는다");
+  assert.equal(autoBody.stream, false);
+  assert.equal(autoBody.messages.length, 2);
+
+  const gemini = buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "gemini", model: "gemini-2.5-flash" });
+  const geminiBody = JSON.parse(String(gemini.init.body));
+  assert.equal(geminiBody.provider, "gemini");
+  assert.equal(geminiBody.model, "gemini-2.5-flash");
+
+  // 목록에 없는 경로는 auto 로 되돌린다(중계에 임의 문자열을 넘기지 않는다).
+  assert.equal(JSON.parse(String(buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "openai-paid" }).init.body)).provider, "auto");
+
+  // 중계가 알려 준 실제 경로(X-Proxy-Provider)를 돌려준다.
+  const response = await requestFreeModel({
+    provider: "team-free-proxy",
+    prompt: "성과 3개",
+    route: "auto",
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (name.toLowerCase() === "x-proxy-provider" ? "gemini" : null) },
+      json: async () => ({ choices: [{ message: { content: "1. 소득 증대" } }] })
+    })
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.output, "1. 소득 증대");
+  assert.equal(response.upstream, "gemini");
+
+  // 헤더를 못 읽는 환경에서도 응답은 살린다.
+  const noHeader = await requestFreeModel({
+    provider: "team-free-proxy",
+    prompt: "성과 3개",
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: "답" } }] }) })
+  });
+  assert.equal(noHeader.ok, true);
+  assert.equal(noHeader.upstream, "");
+
+  // 무료 추론 모델이 본문 없이 생각만 하다 끝난 경우를 ‘빈 응답’과 구분해 알려 준다.
+  assert.throws(() => parseChatCompletion({ choices: [{ message: { content: null, reasoning: "생각만 함" }, finish_reason: "length" }] }), /생각만/);
+  assert.throws(() => parseChatCompletion({ choices: [] }), /비어 있습니다/);
+});
+
 test("저장 설정에는 어떤 제공자의 키도 남지 않는다", () => {
   const defaults = {
     provider: "simulation",
     ollamaBaseUrl: "http://127.0.0.1:11434",
     ollamaModel: "llama3.1",
+    proxyRoute: "auto",
+    proxyModel: "",
     openrouterModel: "openrouter/free",
     groqModel: "openai/gpt-oss-120b",
     geminiModel: "gemini-2.5-flash",
@@ -201,6 +259,8 @@ test("저장 설정에는 어떤 제공자의 키도 남지 않는다", () => {
     ollamaBaseUrl: defaults.ollamaBaseUrl,
     ollamaModel: "qwen2.5",
     customBaseUrl: "http://127.0.0.1:8080/v1",
+    proxyRoute: "auto",
+    proxyModel: "",
     openrouterModel: defaults.openrouterModel,
     groqModel: defaults.groqModel,
     geminiModel: "gemini-2.5-flash-lite",

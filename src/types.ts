@@ -161,6 +161,7 @@ export type OfficeExecution = {
 };
 
 export type ModelProvider =
+  | "team-free-proxy"
   | "simulation"
   | "ollama"
   | "openrouter-free"
@@ -175,6 +176,10 @@ export type ModelSettings = {
   provider: ModelProvider;
   ollamaBaseUrl: string;
   ollamaModel: string;
+  /** 공용 무료 AI 중계의 상위 경로 — auto | openrouter | gemini | amd */
+  proxyRoute?: string;
+  /** 공용 무료 AI 중계에 직접 지정할 모델 이름(비우면 중계가 고름) */
+  proxyModel?: string;
   openrouterModel: string;
   groqModel: string;
   geminiModel: string;
@@ -190,6 +195,8 @@ export type ModelRunResult = {
   ok: boolean;
   output: string;
   error?: string;
+  /** 공용 중계가 알려 준 실제 응답 경로(X-Proxy-Provider) */
+  upstream?: string;
 };
 
 export type GrantBudgetLine = {

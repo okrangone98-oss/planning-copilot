@@ -24,10 +24,41 @@ export function isRemoteOllamaModel(value) {
 }
 
 /**
+ * 공용 무료 AI 중계(Cloudflare Worker)가 받는 상위 경로.
+ * 중계 서버가 이 값을 보고 OpenRouter·Gemini·AMD 무료 경로 중 하나로 넘긴다. `auto`는 되는 경로로 넘긴다.
+ */
+export const PROXY_ROUTES = ["auto", "openrouter", "gemini", "amd"];
+export const PROXY_ROUTE_LABELS = {
+  auto: "자동 (되는 무료 경로로)",
+  openrouter: "OpenRouter 무료",
+  gemini: "Google Gemini 무료",
+  amd: "AMD Token Lab 무료"
+};
+
+/** 중계에 넘길 상위 경로 값 — 목록에 없는 값은 auto로 되돌린다. */
+export function normalizeProxyRoute(value) {
+  const route = String(value ?? "").trim().toLowerCase();
+  return PROXY_ROUTES.includes(route) ? route : "auto";
+}
+
+/**
  * 무료 API 제공자. 주소는 대부분 앱에 고정하고, 로컬 프록시만 사용자가 입력한다.
  * cors 값은 2026-11-15에 실제 프리플라이트(Origin: https://okrangone98-oss.github.io)로 확인한 결과다.
  */
 export const REMOTE_PROVIDERS = {
+  // 키를 넣지 않아도 되는 기본 경로. 상위 무료 키는 중계 서버에만 있다.
+  "team-free-proxy": {
+    label: "공용 무료 AI (키 불필요 · Cloudflare 중계)",
+    baseUrl: "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1",
+    defaultModel: "",
+    models: [],
+    keyPattern: /^$/,
+    requiresKey: false,
+    keyLabel: "별도 키 입력 불필요 (중계 서버에 암호화 보관)",
+    cors: "allowed",
+    corsNote:
+      "이 앱의 Cloudflare 중계로 보냅니다(2026-11-16 확인: 브라우저 직접 호출·CORS 허용). 상위 무료 경로의 키는 중계 서버에만 있고 브라우저로 오지 않습니다."
+  },
   "openrouter-free": {
     label: "OpenRouter Free",
     baseUrl: "https://openrouter.ai/api/v1",
@@ -103,6 +134,7 @@ export const REMOTE_PROVIDERS = {
 
 /** 설정에 저장해도 되는 모델 이름 필드. 키는 저장하지 않는다. */
 export const REMOTE_MODEL_FIELDS = {
+  "team-free-proxy": "proxyModel",
   "openrouter-free": "openrouterModel",
   "groq-free": "groqModel",
   "gemini-openai": "geminiModel",
@@ -118,7 +150,7 @@ export const MODEL_PROVIDERS = new Set(["simulation", "ollama", ...Object.keys(R
  * 모델 설정 화면의 기본 노출 순서. 브라우저에서 바로 호출되는 무료 경로만 먼저 보여준다.
  * 차단·로컬 설치는 '고급 / 로컬 연결' 접이식 영역으로 내린다.
  */
-export const PRIMARY_MODEL_PROVIDERS = ["simulation", "openrouter-free", "groq-free", "gemini-openai"];
+export const PRIMARY_MODEL_PROVIDERS = ["team-free-proxy", "simulation", "openrouter-free", "groq-free", "gemini-openai"];
 export const ADVANCED_MODEL_PROVIDERS = ["exaone", "github-models", "amd-tokenlab", "custom-openai", "ollama"];
 
 export function isAdvancedModelProvider(provider) {
@@ -135,6 +167,7 @@ export function providerConfig(provider) {
 
 /** 기본 노출 카드에 붙는 짧은 상태 표시. */
 export function providerAvailabilityNote(provider) {
+  if (provider === "team-free-proxy") return "키 없이 바로 사용 · 공용 중계";
   if (provider === "simulation") return "키 없이 바로 사용";
   if (provider === "ollama") return "내 컴퓨터에 설치 필요";
   const config = providerConfig(provider);
@@ -171,10 +204,26 @@ export function isProxyBaseUrl(value) {
   return normalizeProxyBaseUrl(value) !== null;
 }
 
+/** 키를 넣지 않아도 되는 경로인지 — 공용 중계가 그렇다. */
+export function providerRequiresKey(provider) {
+  const config = providerConfig(provider);
+  return config ? config.requiresKey !== false : false;
+}
+
+/**
+ * 실행 전에 ‘외부로 보낸다’를 사용자가 확인해야 하는 경로인지.
+ * 공용 중계는 붙여넣은 개인 키가 아니라 앱이 운영하는 중계로 보내므로, 키를 넣는 경로에서만 확인을 받는다.
+ */
+export function providerNeedsExternalAck(provider) {
+  return providerRequiresKey(provider);
+}
+
 /** 키 형식만 확인한다. 실제 유효성은 호출 응답으로만 확인할 수 있다. */
 export function validateApiKey(provider, apiKey) {
   const config = providerConfig(provider);
   if (!config) return { ok: false, message: "무료 API 제공자가 선택되지 않았습니다." };
+  // 공용 중계처럼 키가 필요 없는 경로는 빈 값이 정상이다.
+  if (config.requiresKey === false) return { ok: true, message: "" };
   const key = typeof apiKey === "string" ? apiKey.trim() : "";
   if (!key) {
     if (provider === "custom-openai") return { ok: true, message: "" };
@@ -216,7 +265,8 @@ export function sanitizeModelSettings(saved, defaults) {
     ollamaModel: typeof value.ollamaModel === "string" && value.ollamaModel.trim()
       ? value.ollamaModel.trim()
       : defaults.ollamaModel,
-    customBaseUrl: normalizeProxyBaseUrl(value.customBaseUrl) || ""
+    customBaseUrl: normalizeProxyBaseUrl(value.customBaseUrl) || "",
+    proxyRoute: normalizeProxyRoute(value.proxyRoute ?? defaults.proxyRoute ?? "auto")
   };
   Object.values(REMOTE_MODEL_FIELDS).forEach((field) => {
     settings[field] = normalizeModelName(value[field], defaults[field] ?? "");
