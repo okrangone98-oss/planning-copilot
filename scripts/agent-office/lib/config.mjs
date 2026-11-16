@@ -1,0 +1,85 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDirectory = path.dirname(fileURLToPath(import.meta.url));
+
+function canonicalPath(value) {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return value;
+  }
+}
+
+function canonicalCandidate(value) {
+  const resolvedPath = path.resolve(value);
+  const missingSegments = [];
+  let existingPath = resolvedPath;
+
+  while (true) {
+    let stat;
+    try {
+      stat = fs.lstatSync(existingPath);
+    } catch {
+      const parentPath = path.dirname(existingPath);
+      if (parentPath === existingPath) break;
+      missingSegments.unshift(path.basename(existingPath));
+      existingPath = parentPath;
+      continue;
+    }
+
+    if (stat.isSymbolicLink()) {
+      try {
+        existingPath = fs.realpathSync.native(existingPath);
+      } catch {
+        throw new Error("OAuth credential path contains an unresolved symlink.");
+      }
+      continue;
+    }
+
+    break;
+  }
+
+  return path.join(canonicalPath(existingPath), ...missingSegments);
+}
+const REQUIRED_PATHS = [
+  "GOOGLE_OAUTH_CLIENT_SECRET_PATH",
+  "GOOGLE_OAUTH_TOKEN_PATH"
+];
+function requiredPaths(env) {
+  const missing = REQUIRED_PATHS.filter((name) => !env[name]);
+  if (missing.length > 0) {
+    throw new Error(`${missing.join(", ")} 환경 변수가 필요합니다.`);
+  }
+}
+
+function externalPath(value, name) {
+  const resolvedPath = canonicalCandidate(value);
+  const relativePath = path.relative(repositoryRoot, resolvedPath);
+  const isInRepository = relativePath === "" ||
+    (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath));
+
+  if (isInRepository) {
+    throw new Error(`${name} must be outside the repository.`);
+  }
+
+  return resolvedPath;
+}
+
+export function loadBriefingConfig(env = process.env) {
+  requiredPaths(env);
+
+  return {
+    clientSecretPath: externalPath(env.GOOGLE_OAUTH_CLIENT_SECRET_PATH, "GOOGLE_OAUTH_CLIENT_SECRET_PATH"),
+    tokenPath: externalPath(env.GOOGLE_OAUTH_TOKEN_PATH, "GOOGLE_OAUTH_TOKEN_PATH"),
+    calendarId: env.GOOGLE_CALENDAR_ID || "primary",
+    spreadsheetId: env.PROJECT_STATE_SPREADSHEET_ID || "",
+    sheetName: env.PROJECT_STATE_SHEET_NAME || "",
+    aliasConfigPath: env.PROJECT_ALIAS_CONFIG_PATH || "automation/project-aliases.example.json",
+    timezone: "Asia/Seoul",
+    outputDir: env.OFFICE_BRIEFING_OUTPUT_DIR || "reports/private"
+  };
+}
+
+const repositoryRoot = canonicalPath(path.resolve(configDirectory, "../../.."));

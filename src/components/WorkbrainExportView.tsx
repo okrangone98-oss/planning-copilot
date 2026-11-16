@@ -1,0 +1,224 @@
+import { useMemo, useState } from "react";
+import type { GrantPlan, ProjectData } from "../types";
+import type { ProjectWork } from "../lib/projectOperations.mjs";
+import { downloadTextFile, safeFileName } from "../lib/storage";
+import { buildNotionPasteMarkdown, buildWorkbrainFileName, buildWorkbrainMarkdown, WORKSPACE_LINKS, type WorkbrainExportOptions } from "../lib/davidWorkbrainExport.mjs";
+import { describePiiScan, maskPii, scanPii } from "../lib/piiGuard.mjs";
+import { HwpxExportPanel } from "./HwpxExportPanel";
+
+type ExportState = {
+  domain: "company" | "personal" | "shared";
+  targetFolder: "01_회사_사업" | "outputs";
+  status: string;
+  tags: string;
+  deadline: string;
+  includeBudget: boolean;
+  includeChecklist: boolean;
+  includeReport: boolean;
+  includeDraft: boolean;
+  includeFollowUps: boolean;
+};
+
+const initialState: ExportState = {
+  domain: "company",
+  targetFolder: "01_회사_사업",
+  status: "draft",
+  tags: "planning-copilot, 국고보조사업, 예산정산",
+  deadline: "",
+  includeBudget: true,
+  includeChecklist: true,
+  includeReport: true,
+  includeDraft: false,
+  includeFollowUps: true
+};
+
+/** 초안 조립·양식 채우기에서 넘어온 초안이 있으면 ‘사업계획서 초안’을 미리 켜 둔다. */
+function createInitialState(hasDraft: boolean): ExportState {
+  return { ...initialState, includeDraft: hasDraft };
+}
+
+export function WorkbrainExportView({
+  plan,
+  project,
+  work,
+  notify
+}: {
+  plan: GrantPlan;
+  project: ProjectData;
+  /** 운영 데이터가 있으면 회차 참석 연인원·집행현황을 문서에 함께 싣는다. */
+  work?: ProjectWork | null;
+  notify: (message: string) => void;
+}) {
+  const [state, setState] = useState<ExportState>(() => createInitialState(Boolean(project.draftOutput.trim())));
+  // 내보내기 전에 민감정보를 점검하고, 원하면 한 번에 가린 문서로 내보낸다.
+  const [piiMasked, setPiiMasked] = useState(false);
+
+  const options = useMemo<WorkbrainExportOptions>(() => ({
+    domain: state.domain,
+    targetFolder: state.targetFolder,
+    status: state.status,
+    deadline: state.deadline || plan.schedule?.reportDeadline || plan.schedule?.settlementDeadline,
+    tags: state.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+    includeBudget: state.includeBudget,
+    includeChecklist: state.includeChecklist,
+    includeReport: state.includeReport,
+    includeDraft: state.includeDraft,
+    includeFollowUps: state.includeFollowUps
+  }), [state, plan.schedule]);
+
+  const markdown = useMemo(
+    () => buildWorkbrainMarkdown({ plan, project, options, work }),
+    [plan, project, options, work]
+  );
+  const fileName = useMemo(
+    () => buildWorkbrainFileName({ programName: plan.programName, title: project.projectName }),
+    [plan.programName, project.projectName]
+  );
+  const piiScan = useMemo(() => scanPii(markdown), [markdown]);
+  const maskedResult = useMemo(() => (piiScan.total ? maskPii(markdown) : null), [markdown, piiScan.total]);
+  const exportText = piiMasked && maskedResult ? maskedResult.text : markdown;
+
+  const copyMarkdown = () => {
+    navigator.clipboard.writeText(exportText).then(() => notify(piiMasked ? "개인정보를 가린 Markdown을 복사했습니다." : "david-workbrain 형식 Markdown을 복사했습니다."));
+  };
+
+  const copyNotion = () => {
+    navigator.clipboard.writeText(buildNotionPasteMarkdown(exportText)).then(() => notify(piiMasked ? "개인정보를 가린 Notion용 Markdown을 복사했습니다." : "Notion 붙여넣기용 Markdown을 복사했습니다."));
+  };
+
+  const download = () => {
+    downloadTextFile(exportText, safeFileName(fileName, "workbrain-note.md"), "text/markdown;charset=utf-8");
+    notify(piiMasked ? "개인정보를 가린 Markdown 파일을 내려받았습니다." : "Markdown 파일을 내려받았습니다.");
+  };
+
+  return (
+    <div className="grant-layout">
+      <section className="grant-block">
+        <div className="grant-block-head">
+          <div>
+            <strong>공용 두뇌로 보내는 느슨한 연계</strong>
+            <span>
+              앱을 하나로 합치지 않습니다. planning-copilot은 계획·예산·정산을 만들고, david-workbrain이 지식·SOP·템플릿을 맡고,
+              my-workbench에서 지시와 승인을 관리합니다. 이 화면은 그 사이를 Markdown으로 잇는 역할만 합니다.
+            </span>
+          </div>
+        </div>
+        <div className="integration-grid workspace-links">
+          {WORKSPACE_LINKS.map((link) => (
+            <div className="integration-card" key={link.label}>
+              <strong>{link.label}</strong>
+              <span>{link.role}</span>
+              <a className="secondary-button link-button" href={link.url} target="_blank" rel="noreferrer">{link.label} 열기</a>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="grant-block">
+        <div className="grant-block-head">
+          <div>
+            <strong>내보내기 설정</strong>
+            <span>david-workbrain의 `01_회사_사업/` 또는 `outputs/`에 그대로 넣을 수 있는 YAML frontmatter를 만듭니다.</span>
+          </div>
+          <div className="draft-actions">
+            <button className="secondary-button" type="button" onClick={copyMarkdown}>Markdown 복사</button>
+            <button className="secondary-button" type="button" onClick={copyNotion}>Notion용 복사</button>
+            <button className="primary-button" type="button" onClick={download}>.md 내려받기</button>
+          </div>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>넣을 폴더</span>
+            <select value={state.targetFolder} onChange={(event) => setState({ ...state, targetFolder: event.target.value as ExportState["targetFolder"] })}>
+              <option value="01_회사_사업">01_회사_사업</option>
+              <option value="outputs">outputs</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>domain</span>
+            <select value={state.domain} onChange={(event) => setState({ ...state, domain: event.target.value as ExportState["domain"] })}>
+              <option value="company">company</option>
+              <option value="personal">personal</option>
+              <option value="shared">shared</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>status</span>
+            <input value={state.status} onChange={(event) => setState({ ...state, status: event.target.value })} placeholder="draft" />
+          </label>
+          <label className="field">
+            <span>마감일</span>
+            <input type="date" value={state.deadline} onChange={(event) => setState({ ...state, deadline: event.target.value })} />
+          </label>
+          <label className="field wide">
+            <span>태그(쉼표로 구분)</span>
+            <input value={state.tags} onChange={(event) => setState({ ...state, tags: event.target.value })} placeholder="planning-copilot, 국고보조사업, 예산정산" />
+          </label>
+        </div>
+        <div className="grant-check-options">
+          {([
+            ["includeBudget", "예산 편성표"],
+            ["includeChecklist", "정산 증빙 체크리스트"],
+            ["includeReport", "결과보고서 초안"],
+            ["includeDraft", "사업계획서 초안"],
+            ["includeFollowUps", "후속 할 일"]
+          ] as const).map(([key, label]) => (
+            <label key={key} className="grant-inline-check">
+              <input type="checkbox" checked={state[key]} onChange={(event) => setState({ ...state, [key]: event.target.checked })} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+        <p className="grant-warning">개인정보·정산 증빙 원본 파일은 내보내지 않습니다. 요약과 체크 상태, 할 일만 담습니다. 원본은 로컬·Drive에 두세요.</p>
+      </section>
+
+      <section className={`grant-block pii-export ${piiMasked ? "is-masked" : piiScan.total ? "has-findings" : "is-clean"}`} aria-label="내보내기 개인정보 점검">
+        <div className="grant-block-head">
+          <div>
+            <strong>{piiMasked ? "개인정보를 가린 문서로 내보냅니다" : piiScan.total ? `개인정보 ${piiScan.total}건이 들어 있습니다` : "개인정보 점검 완료"}</strong>
+            <span>{describePiiScan(piiScan)} 가린 문서는 복사·내려받기·Notion 복사에 모두 적용됩니다.</span>
+          </div>
+          <div className="draft-actions">
+            {piiMasked ? (
+              <button className="secondary-button" type="button" onClick={() => setPiiMasked(false)}>원문으로 되돌리기</button>
+            ) : (
+              <button className="primary-button" type="button" onClick={() => setPiiMasked(true)} disabled={!piiScan.total}>원클릭 마스킹</button>
+            )}
+          </div>
+        </div>
+        {piiScan.total > 0 && (
+          <div className="pii-guard-badges">
+            {piiScan.types.map((type) => (
+              <span className="pii-badge" key={type.key}>{type.badge} {type.count}</span>
+            ))}
+          </div>
+        )}
+        {piiMasked && maskedResult && (
+          <ul className="pii-guard-list">
+            {maskedResult.placeholders.slice(0, 40).map((item) => (
+              <li key={item.placeholder}>
+                <span className={`pii-kind is-${item.type}`}>{item.label}</span>
+                <code>{item.placeholder}</code>
+                <span className="pii-preview">{item.preview}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="grant-block">
+        <div className="grant-block-head">
+          <div>
+            <strong>미리보기 · {fileName}</strong>
+            <span>
+              YAML frontmatter, 메타데이터 표, 추진 일정·마감 요약, 체크리스트, 후속 할 일이 한 문서에 들어갑니다.
+              {piiMasked ? " 지금은 개인정보를 가린 문서를 보여 줍니다." : ""}
+            </span>
+          </div>
+        </div>
+        <textarea className="draft-output export-preview" rows={26} value={exportText} readOnly aria-label="내보낼 Markdown 미리보기" />
+        <HwpxExportPanel markdown={exportText} fileName={fileName.replace(/\.[^.]+$/, "")} notify={notify} />
+      </section>
+    </div>
+  );
+}

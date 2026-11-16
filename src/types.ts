@@ -1,0 +1,448 @@
+export type SectionId =
+  | "home"
+  | "projectBoard"
+  | "agentOffice"
+  | "modelSettings"
+  | "approvalInbox"
+  | "projectMemory"
+  | "notice"
+  | "cowork"
+  | "ragRoom"
+  | "aiBridge"
+  | "visuals"
+  | "integrations"
+  | "driveBackup"
+  | "sample"
+  | "idea"
+  | "problem"
+  | "logic"
+  | "metrics"
+  | "execution"
+  | "blueprint"
+  | "draft"
+  | "templateFill"
+  | "grantBudget"
+  | "grantChecklist"
+  | "grantReport"
+  | "workbrainExport"
+  | "controlTower";
+
+export type HarnessJobType = "daily-briefing" | "agent-office-command";
+export type HarnessStatus = "QUEUED" | "RUNNING" | "WAITING_APPROVAL" | "SUCCEEDED" | "NEEDS_ATTENTION" | "FAILED" | "CANCELLED";
+export type ControlTowerApprovalStatus = "approved" | "blocked";
+
+export type HarnessStepSummary = {
+  id: string;
+  label: string;
+  status: HarnessStatus;
+  message?: string;
+};
+
+export type HarnessAlert = {
+  id: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+};
+
+export type ApprovalItemSnapshot = {
+  id: string;
+  title: string;
+  summary: string;
+  status: "pending" | "approved" | "blocked";
+  artifactId?: string;
+};
+
+export type ArtifactRef = {
+  id: string;
+  name: string;
+  mediaType: string;
+  path: string;
+};
+
+export type SanitizedSourceRef = {
+  sourceType: "gmail" | "calendar" | "drive" | "sheets" | "agent-office" | "local";
+  sourceUrl: string;
+  projectId?: string;
+  detectedAt?: string;
+};
+
+export type ControlTowerSnapshot = {
+  schemaVersion: "1.0";
+  generatedAt: string;
+  run: {
+    id: string;
+    jobType: HarnessJobType;
+    status: HarnessStatus;
+    startedAt: string;
+    finishedAt?: string;
+    summary: string;
+  };
+  steps: HarnessStepSummary[];
+  alerts: HarnessAlert[];
+  approvals: ApprovalItemSnapshot[];
+  artifacts: ArtifactRef[];
+  sources: SanitizedSourceRef[];
+};
+
+export type ControlTowerState = {
+  snapshot: ControlTowerSnapshot | null;
+  approvals: Record<string, ControlTowerApprovalStatus>;
+};
+
+export type AgentId =
+  | "chief"
+  | "local-planning"
+  | "research"
+  | "content"
+  | "admin-doc"
+  | "email-draft"
+  | "review";
+
+export type AgentRole = {
+  id: AgentId;
+  name: string;
+  role: string;
+  goal: string;
+  constraints: string[];
+  outputFormat: string;
+  promptTemplate: string;
+};
+
+export type AgentTask = {
+  id: string;
+  agentId: AgentId;
+  title: string;
+  input: string;
+  dependsOn: string[];
+};
+
+export type AgentDraft = {
+  taskId: string;
+  agentId: AgentId;
+  content: string;
+  reviewStatus: "approved" | "revised" | "rejected";
+  reviewNote?: string;
+  mode: "simulation" | "llm";
+};
+
+export type MorningReport = {
+  command: string;
+  createdAt: string;
+  highlights: string[];
+  drafts: AgentDraft[];
+  nextActions: string[];
+  markdown: string;
+};
+
+export type PromptPackage = {
+  rolePrompts: Array<{
+    agentId: AgentId;
+    title: string;
+    prompt: string;
+  }>;
+  unifiedPrompt: string;
+  usageGuide: string[];
+};
+
+export type OfficeResult = {
+  tasks: AgentTask[];
+  drafts: AgentDraft[];
+  report: MorningReport;
+  promptPackage: PromptPackage;
+  execution?: OfficeExecution;
+};
+
+export type OfficeExecution = {
+  mode: ModelProvider;
+  status: "completed" | "failed";
+  model?: string;
+  contextSources: string[];
+  error?: string;
+};
+
+export type ModelProvider =
+  | "team-free-proxy"
+  | "simulation"
+  | "ollama"
+  | "openrouter-free"
+  | "groq-free"
+  | "gemini-openai"
+  | "exaone"
+  | "github-models"
+  | "amd-tokenlab"
+  | "custom-openai";
+
+export type ModelSettings = {
+  provider: ModelProvider;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+  /** 공용 무료 AI 중계의 상위 경로 — auto | openrouter | gemini | amd */
+  proxyRoute?: string;
+  /** 공용 무료 AI 중계에 직접 지정할 모델 이름(비우면 중계가 고름) */
+  proxyModel?: string;
+  openrouterModel: string;
+  groqModel: string;
+  geminiModel: string;
+  exaoneModel: string;
+  githubModel: string;
+  amdModel: string;
+  customModel: string;
+  customBaseUrl: string;
+};
+
+export type ModelRunResult = {
+  provider: ModelProvider;
+  ok: boolean;
+  output: string;
+  error?: string;
+  /** 공용 중계가 알려 준 실제 응답 경로(X-Proxy-Provider) */
+  upstream?: string;
+};
+
+export type GrantBudgetLine = {
+  id: string;
+  category: string;
+  item: string;
+  unitCost: string;
+  quantity: string;
+  basis: string;
+  note: string;
+};
+
+export type GrantChecklistItem = {
+  id: string;
+  group: string;
+  label: string;
+  basis: string;
+  required: boolean;
+  checked: boolean;
+  note: string;
+};
+
+export type GrantReportSection = {
+  id: string;
+  title: string;
+  hint: string;
+  content: string;
+};
+
+export type GrantSchedule = {
+  applyDeadline: string;
+  projectStart: string;
+  projectEnd: string;
+  settlementDeadline: string;
+  reportDeadline: string;
+  memo: string;
+};
+
+/** 국고보조사업 예산·정산·결과보고 작업 단위. 프로젝트(사업계획서)와 별도 저장 키를 쓴다. */
+export type GrantPlan = {
+  schemaVersion: number;
+  presetId: string;
+  presetName: string;
+  programName: string;
+  agency: string;
+  fundingSource: string;
+  fundingYear: string;
+  subsidyRate: string;
+  localRate: string;
+  selfRate: string;
+  budgetLines: GrantBudgetLine[];
+  checklist: GrantChecklistItem[];
+  reportSections: GrantReportSection[];
+  schedule: GrantSchedule;
+  memo: string;
+  updatedAt: string;
+};
+
+export type GrantPreset = {
+  id: string;
+  name: string;
+  summary: string;
+  agency: string;
+  fundingSource: string;
+  subsidyRate: string;
+  localRate: string;
+  selfRate: string;
+  budgetLines: Array<Omit<GrantBudgetLine, "id">>;
+  checklist: Array<Omit<GrantChecklistItem, "id" | "checked" | "note">>;
+  reportSections: Array<Omit<GrantReportSection, "id" | "content">>;
+};
+
+export type ApprovalStatus = "draft" | "reviewing" | "approved" | "blocked" | "discarded";
+
+export type ApprovalItem = {
+  id: string;
+  title: string;
+  type: "report" | "prompt" | "email" | "content" | "admin-doc" | "plan";
+  status: ApprovalStatus;
+  content: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectMemoryEntry = {
+  id: string;
+  projectName: string;
+  title: string;
+  summary: string;
+  source: string;
+  createdAt: string;
+};
+
+export type KnowledgeDoc = {
+  id: string;
+  title: string;
+  type: string;
+  text: string;
+  createdAt: string;
+};
+
+export type ProjectData = {
+  projectName: string;
+  noticeText: string;
+  policyGoal: string;
+  evaluationFocus: string;
+  requirements: string;
+  advantageSignals: string;
+  agentMemo: string;
+  nextQuestions: string;
+  writingStrategy: string;
+  missingEvidence: string;
+  ragQuery: string;
+  ragResults: string;
+  modelPrompt: string;
+  modelResponse: string;
+  aiSynthesis: string;
+  visualMermaid: string;
+  jiraUrl: string;
+  notionUrl: string;
+  spreadsheetUrl: string;
+  driveFolderUrl: string;
+  integrationMemo: string;
+  sampleSource: string;
+  sampleStructure: string;
+  sampleSignals: string;
+  sampleAdaptation: string;
+  coreIdea: string;
+  targetUsers: string;
+  fieldEvidence: string;
+  founderInsight: string;
+  problemSituation: string;
+  rootCauses: string;
+  existingLimits: string;
+  whyNow: string;
+  inputs: string;
+  activities: string;
+  outputs: string;
+  shortOutcomes: string;
+  longOutcomes: string;
+  milestones: string;
+  teamSystem: string;
+  budgetPlan: string;
+  riskPlan: string;
+  metricsTable: string[][];
+  blueprintTable: string[][];
+  draftOutput: string;
+};
+
+export type ArchiveData = {
+  version: number;
+  exportedAt: string;
+  app: "planning-copilot";
+  project: ProjectData;
+  knowledgeDocs: KnowledgeDoc[];
+  approvalItems?: ApprovalItem[];
+  memoryEntries?: ProjectMemoryEntry[];
+  grantPlan?: GrantPlan;
+};
+
+export const textFields: Array<keyof ProjectData> = [
+  "projectName",
+  "noticeText",
+  "policyGoal",
+  "evaluationFocus",
+  "requirements",
+  "advantageSignals",
+  "agentMemo",
+  "nextQuestions",
+  "writingStrategy",
+  "missingEvidence",
+  "ragQuery",
+  "ragResults",
+  "modelPrompt",
+  "modelResponse",
+  "aiSynthesis",
+  "visualMermaid",
+  "sampleSource",
+  "sampleStructure",
+  "sampleSignals",
+  "sampleAdaptation",
+  "coreIdea",
+  "targetUsers",
+  "fieldEvidence",
+  "founderInsight",
+  "problemSituation",
+  "rootCauses",
+  "existingLimits",
+  "whyNow",
+  "inputs",
+  "activities",
+  "outputs",
+  "shortOutcomes",
+  "longOutcomes",
+  "milestones",
+  "teamSystem",
+  "budgetPlan",
+  "riskPlan",
+  "draftOutput"
+];
+
+export const emptyProject: ProjectData = {
+  projectName: "",
+  noticeText: "",
+  policyGoal: "",
+  evaluationFocus: "",
+  requirements: "",
+  advantageSignals: "",
+  agentMemo: "",
+  nextQuestions: "",
+  writingStrategy: "",
+  missingEvidence: "",
+  ragQuery: "",
+  ragResults: "",
+  modelPrompt: "",
+  modelResponse: "",
+  aiSynthesis: "",
+  visualMermaid: "",
+  jiraUrl: "",
+  notionUrl: "",
+  spreadsheetUrl: "",
+  driveFolderUrl: "",
+  integrationMemo: "",
+  sampleSource: "",
+  sampleStructure: "",
+  sampleSignals: "",
+  sampleAdaptation: "",
+  coreIdea: "",
+  targetUsers: "",
+  fieldEvidence: "",
+  founderInsight: "",
+  problemSituation: "",
+  rootCauses: "",
+  existingLimits: "",
+  whyNow: "",
+  inputs: "",
+  activities: "",
+  outputs: "",
+  shortOutcomes: "",
+  longOutcomes: "",
+  milestones: "",
+  teamSystem: "",
+  budgetPlan: "",
+  riskPlan: "",
+  metricsTable: [["", "", "", ""]],
+  blueprintTable: [["", "", "", "", ""]],
+  draftOutput: ""
+};

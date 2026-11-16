@@ -1,0 +1,7 @@
+/* 화면 스타일 진입점 — 토큰 → 기본 → 골격 → 부품 → 화면 순서로만 불러온다. */
+@import "./styles/tokens.css";
+@import "./styles/base.css";
+@import "./styles/layout.css";
+@import "./styles/components.css";
+@import "./styles/screens.css";
+@import "./styles/project-detail.css";

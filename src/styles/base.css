@@ -1,0 +1,172 @@
+/* 기본 리셋과 한국어 조판.
+   한국어는 어절 중간에서 끊지 않는다(keep-all). 긴 URL·코드만 anywhere로 넘긴다. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--c-bg);
+  color: var(--c-text-1);
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--tracking);
+  word-break: keep-all;
+  overflow-wrap: break-word; /* 한 단어가 칸보다 길 때만 끊는다 */
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+figure {
+  margin: 0;
+  padding: 0;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: inherit;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap; /* 버튼 글자는 두 줄로 쪼개지 않는다 */
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  min-width: 0;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  text-align: left;
+  font-weight: inherit;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+  border-radius: var(--r-s);
+}
+
+::selection {
+  background: var(--c-brand-tint);
+  color: var(--c-brand-tint-text);
+}
+
+/* 공통 글자 */
+.eyebrow {
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: var(--lh-caption);
+  letter-spacing: 0.04em;
+  color: var(--c-text-3);
+  text-transform: none;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--c-text-1);
+}
+
+.muted-inline {
+  color: var(--c-text-3);
+  font-size: var(--fs-sub);
+}
+
+.muted-link {
+  color: var(--c-text-3);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+}
+
+.block-note {
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--c-text-2);
+}
+
+/* 화면 안에서만 가로로 넘치는 표·코드 */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

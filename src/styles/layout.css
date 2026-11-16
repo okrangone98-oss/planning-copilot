@@ -1,0 +1,569 @@
+/* 화면 골격 — 왼쪽 사이드바 + 가운데 읽기 폭 본문. 모바일은 아래 탭바 + 서랍. */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--c-bg);
+}
+
+/* ── 사이드바 ───────────────────────────── */
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px 14px;
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-line);
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.brand-mark {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-m);
+  background: var(--c-brand);
+  color: var(--c-on-brand);
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.brand-block {
+  min-width: 0;
+  flex: 1;
+}
+
+.brand-block h1 {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--c-text-1);
+}
+
+.brand-block .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.mobile-nav-toggle {
+  display: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-s);
+  color: var(--c-text-2);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+}
+
+.sidebar-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-m);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.step-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-actions {
+  flex: none;
+}
+
+.project-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--r-m);
+  background: var(--c-bg);
+}
+
+.project-switcher .field > span {
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+}
+
+.project-switcher select {
+  min-height: var(--h-input);
+  background: var(--c-surface);
+  font-weight: 600;
+}
+
+.project-switcher-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+}
+
+/* ── 업무 메뉴 ───────────────────────────── */
+.step-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-group-title {
+  padding: 0 8px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--c-text-3);
+}
+
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-m);
+  color: var(--c-text-2);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  white-space: normal;
+}
+
+.nav-item:hover {
+  background: var(--c-bg);
+  color: var(--c-text-1);
+}
+
+.nav-item.is-active {
+  background: var(--c-brand-tint);
+  color: var(--c-brand-tint-text);
+  font-weight: 700;
+}
+
+.nav-group-items.is-lab {
+  padding-left: 8px;
+  border-left: 1px solid var(--c-line);
+  margin-left: 8px;
+}
+
+.nav-group-items.is-lab .nav-item {
+  min-height: 40px;
+  font-size: var(--fs-sub);
+  color: var(--c-text-3);
+}
+
+.lab-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--stack-s);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 8px;
+  color: var(--c-text-2);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  border-radius: var(--r-s);
+}
+
+.lab-toggle small {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--c-text-3);
+}
+
+.lab-toggle:hover {
+  background: var(--c-bg);
+}
+
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  padding-top: var(--stack-m);
+  border-top: 1px solid var(--c-line);
+}
+
+/* 팔레트 전환 — 색 점 + 이름. 고른 것만 진하게 */
+.palette-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-m);
+  background: var(--c-bg);
+}
+
+.palette-chip {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 0 4px;
+  border-radius: var(--r-s);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.palette-chip.is-selected {
+  background: var(--c-surface);
+  color: var(--c-text-1);
+  box-shadow: var(--shadow-1);
+}
+
+.palette-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-pill);
+  background: var(--c-text-3);
+}
+
+.palette-dot.is-forest {
+  background: #1f7a68;
+}
+
+.palette-dot.is-blue {
+  background: #1177ca;
+}
+
+.palette-dot.is-ink {
+  background: #19191a;
+}
+
+/* ── 본문 ───────────────────────────── */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 100vh;
+  padding-bottom: var(--stack-l);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+  max-width: var(--content-w);
+  display: flex;
+  align-items: center;
+  gap: var(--stack-m);
+  min-height: var(--h-topbar);
+  padding: 18px var(--page-x) 12px;
+  background: var(--c-bg);
+}
+
+.topbar-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar-title .eyebrow {
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-title h1 {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  color: var(--c-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--stack-s);
+}
+
+.mobile-menu-toggle {
+  display: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-s);
+  background: var(--c-surface);
+  color: var(--c-text-1);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+}
+
+.page {
+  width: 100%;
+  max-width: var(--content-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--block-gap);
+  padding: 4px var(--page-x) var(--stack-l);
+}
+
+/* ── 모바일 탭바 ───────────────────────────── */
+.tabbar {
+  display: none;
+}
+
+/* ── 하단 고정 단계 이동 바 ───────────────────────────── */
+.step-dock {
+  position: fixed;
+  left: var(--sidebar-w);
+  right: 0;
+  bottom: 0;
+  z-index: 15;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--stack-m);
+  padding: 12px max(var(--page-x), calc((100vw - var(--sidebar-w) - var(--content-w)) / 2 + var(--page-x)));
+  background: color-mix(in srgb, var(--c-bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--c-line);
+}
+
+.step-dock-progress {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--c-line);
+  overflow: hidden;
+}
+
+.step-dock-progress i {
+  display: block;
+  height: 100%;
+  background: var(--c-text-1);
+}
+
+.step-dock-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack-s);
+  min-width: 0;
+}
+
+.step-dock-text strong {
+  font-size: var(--fs-sub);
+  font-weight: 700;
+  color: var(--c-text-1);
+}
+
+.step-dock-text span {
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+}
+
+.step-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--stack-s);
+}
+
+.has-step-dock .page {
+  padding-bottom: 132px;
+}
+
+/* ── 알림 ───────────────────────────── */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 88px;
+  transform: translate(-50%, 12px);
+  z-index: 60;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 18px;
+  border-radius: var(--r-m);
+  background: var(--c-text-1);
+  color: var(--c-surface);
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ── 좁은 화면 ───────────────────────────── */
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(86vw, 320px);
+    height: 100%;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+    box-shadow: var(--shadow-2);
+  }
+
+  .app-shell.nav-open .sidebar {
+    transform: none;
+  }
+
+  .app-shell.nav-open::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    background: var(--c-overlay);
+  }
+
+  .mobile-nav-toggle,
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar-body.is-collapsed-mobile {
+    display: none;
+  }
+
+  /* 좁은 화면에서는 라벨을 줄여 메뉴가 한 화면에 더 많이 보이게 한다 */
+  .project-switcher .field > span {
+    display: none;
+  }
+
+  .project-switcher {
+    padding: 8px;
+  }
+
+  .topbar {
+    padding: 10px 16px 6px;
+    gap: var(--stack-s);
+    min-height: auto;
+  }
+
+  .topbar-title h1 {
+    font-size: 20px;
+  }
+
+  .topbar-actions {
+    gap: 4px;
+  }
+
+  .topbar-actions .primary-button,
+  .topbar-actions .secondary-button {
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: var(--fs-sub);
+  }
+
+  .page {
+    padding: 4px 16px 96px;
+  }
+
+  .topbar-actions .topbar-export {
+    display: none;
+  }
+
+  .tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 25;
+    display: flex;
+    height: calc(var(--h-tab) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--c-surface);
+    border-top: 1px solid var(--c-line);
+  }
+
+  .tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    font-size: var(--fs-caption);
+    font-weight: 600;
+    color: var(--c-text-3);
+    white-space: nowrap;
+  }
+
+  .tab[aria-current="page"] {
+    color: var(--c-brand-text);
+    font-weight: 700;
+  }
+
+  .step-dock {
+    left: 0;
+    bottom: calc(var(--h-tab) + env(safe-area-inset-bottom));
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--stack-s);
+    padding: 10px 16px 12px;
+  }
+
+  .step-dock-text {
+    flex: 1;
+  }
+
+  .step-dock-actions {
+    width: 100%;
+  }
+
+  .step-dock-actions > button {
+    flex: 1;
+  }
+
+  .has-step-dock .page {
+    padding-bottom: 180px;
+  }
+
+  .toast {
+    bottom: calc(var(--h-tab) + 24px);
+  }
+}
