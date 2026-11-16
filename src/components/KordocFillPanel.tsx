@@ -505,25 +505,30 @@ export function KordocFillPanel({
       <section className="hwpx-block kordoc-fill" aria-label="다운로드 전 사전 점검" ref={preflightRef}>
         <div className="hwpx-head">
           <div>
-            <h3>다운로드 전 사전 점검</h3>
+            <h3>{compact ? "내려받기 전 확인" : "다운로드 전 사전 점검"}</h3>
             <p>
-              내려받기 전에 <strong>필수값 누락·형식 오류·미배치 글·예산 합계·출석</strong>을 한 번에 봅니다.
-              앱이 확정할 수 없는 항목(병합 칸 위치, 원본 값 유지, 자동 배치 신뢰도)은 <strong>직접 확인</strong>으로 따로 표시합니다.
+              {compact
+                ? "작년 값이 남은 칸과 값 형식만 봅니다. 표시가 있어도 그대로 내려받을 수 있고, 고칠 곳만 위 표에서 고치면 됩니다."
+                : "내려받기 전에 필수값 누락·형식 오류·미배치 글·예산 합계·출석을 한 번에 봅니다. 앱이 확정할 수 없는 항목(병합 칸 위치, 원본 값 유지, 자동 배치 신뢰도)은 ‘직접 확인’으로 따로 표시합니다."}
             </p>
           </div>
           <span className={`badge ${preflight.canDownload ? "is-info" : "is-warning"}`}>{preflight.canDownload ? "막는 문제 없음" : `확인 ${preflight.counts.block}건`}</span>
         </div>
         <p className={`preflight-headline ${preflight.canDownload ? "is-clear" : "is-attention"}`} role="status">{preflight.headline}</p>
-        {preflight.items.length > 0 ? (
-          <ul className="preflight-list">
-            {preflight.items.map(renderItem)}
-          </ul>
-        ) : (
-          <p className="block-note">필수값·형식·예산·출석에서 걸리는 항목이 없습니다. 그래도 제출 전 원본 양식과 한 번 대조해 주세요.</p>
-        )}
-        <p className="block-note">
-          점검은 값을 고치지 않습니다. 표시가 있어도 그대로 내려받을 수 있고, 고칠 곳만 3단계에서 고치면 됩니다.
-        </p>
+        {(() => {
+          // 간단 화면에서는 이양과 무관한 빈칸·필수값 경고를 접는다 — 작년 문서는 빈칸이 있는 게 정상이다.
+          const shown = compact
+            ? preflight.items.filter((item) => ["carryover-leftover", "invalid-format", "budget-mismatch", "no-file", "no-values"].includes(item.id))
+            : preflight.items;
+          if (!shown.length) {
+            return <p className="block-note">작년 값이 남은 칸과 값 형식에서 걸리는 항목이 없습니다. 내려받은 문서를 한글에서 한 번 대조해 주세요.</p>;
+          }
+          return (
+            <ul className="preflight-list">
+              {shown.slice(0, compact ? 4 : shown.length).map(renderItem)}
+            </ul>
+          );
+        })()}
       </section>
 
       <section className="hwpx-block kordoc-fill" aria-label="hwpx로 내려받기">
