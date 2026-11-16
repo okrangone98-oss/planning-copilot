@@ -8,24 +8,23 @@
 //  - 원장에 사람이 적은 지출이 있는 비목은 격자에서 집행액을 고칠 수 없다(어느 쪽이 맞는지 화면이 정하지 않는다).
 
 import { emptyBudgetLine, formatWon, lineAmount, parseAmount, parseQuantity } from "./grantWorkflow.mjs";
-import { addExpenses, removeExpense, updateExpense } from "./projectOperations.mjs";
+import { addExpenses, expenseSummary, removeExpense, updateExpense } from "./projectOperations.mjs";
 import { mapHeaderRow } from "./budgetImport.mjs";
+import {
+  DEFAULT_BUDGET_COLUMNS,
+  cellValueOf,
+  columnTotalOf,
+  isNumericColumn,
+  isTotalColumn,
+  normalizeBudgetColumns,
+  numericValueOf
+} from "./budgetColumns.mjs";
 
 /** 격자에서 적은 집행액에 붙는 적요 — 원장에서 이 글자로 찾아 고치고 지운다. */
 export const GRID_SPENT_LABEL = "예산 관리표에서 입력";
 
-/** 열 정의 — 순서가 곧 표의 열 순서다. */
-export const BUDGET_SHEET_COLUMNS = [
-  { key: "category", label: "비목", kind: "text", align: "left", width: 104 },
-  { key: "item", label: "세목", kind: "text", align: "left", width: 136 },
-  { key: "unitCost", label: "단가", kind: "money", align: "right", width: 104 },
-  { key: "quantity", label: "수량", kind: "quantity", align: "right", width: 64 },
-  { key: "amount", label: "편성액", kind: "calc", align: "right", width: 110 },
-  { key: "spent", label: "집행액", kind: "spent", align: "right", width: 110 },
-  { key: "balance", label: "잔액", kind: "calc", align: "right", width: 110 },
-  { key: "basis", label: "산출근거", kind: "text", align: "left", width: 176 },
-  { key: "note", label: "비고", kind: "text", align: "left", width: 132 }
-];
+/** 기본 열 정의 — 사업에 저장된 열(budgetColumns)이 없으면 이 순서를 쓴다. */
+export const BUDGET_SHEET_COLUMNS = DEFAULT_BUDGET_COLUMNS;
 
 /** 붙여넣기로 값을 넣을 수 있는 열. */
 export const PASTEABLE_COLUMNS = ["category", "item", "unitCost", "quantity", "spent", "basis", "note"];
@@ -95,6 +94,7 @@ export function sheetRows({ lines, expenses } = {}) {
       balance: plan - spent,
       basis: String(line?.basis ?? ""),
       note: String(line?.note ?? ""),
+      custom: line && typeof line.custom === "object" && line.custom ? { ...line.custom } : {},
       plannedOnly: entry ? entry.plannedOnly : 0,
       expenseCount: entry ? entry.expenseCount : 0,
       locked: entry ? entry.locked : false
@@ -102,9 +102,18 @@ export function sheetRows({ lines, expenses } = {}) {
   });
 }
 
-/** 합계 줄 — 화면·내보내기·서류 채우기가 같은 숫자를 쓴다. */
-export function sheetTotals(rows) {
+/**
+ * 합계 줄 — 화면·내보내기·서류 채우기가 같은 숫자를 쓴다.
+ * 사용자가 더한 숫자 열(국비·지방비·자부담 같은)도 columnTotals 에 함께 모은다.
+ */
+export function sheetTotals(rows, columns = null) {
   const list = Array.isArray(rows) ? rows : [];
+  const cols = columns ? normalizeBudgetColumns(columns) : DEFAULT_BUDGET_COLUMNS;
+  const columnTotals = {};
+  for (const column of cols) {
+    if (!isTotalColumn(column)) continue;
+    columnTotals[column.id] = columnTotalOf(list, column);
+  }
   const plan = list.reduce((sum, row) => sum + amountOf(row?.amount), 0);
   const spent = list.reduce((sum, row) => sum + amountOf(row?.spent), 0);
   const plannedOnly = list.reduce((sum, row) => sum + amountOf(row?.plannedOnly), 0);
@@ -118,7 +127,8 @@ export function sheetTotals(rows) {
     rate: plan ? Math.round((spent / plan) * 100) : 0,
     plannedOnly,
     over: overRows.length,
-    overRows: overRows.map((row) => String(row?.item ?? "").trim() || String(row?.category ?? "").trim() || "이름 없는 행")
+    overRows: overRows.map((row) => String(row?.item ?? "").trim() || String(row?.category ?? "").trim() || "이름 없는 행"),
+    columnTotals
   };
 }
 
@@ -201,8 +211,9 @@ export function applyGridSpent({ work, updates = [], now } = {}) {
  * - 집행액 칸은 원장 기록이 없는 비목에만 넣고 spentChanges 로 돌려준다.
  * @returns {{lines:Array, spentChanges:Array<{lineId:string,amount:number}>, cells:number, newRows:number, skippedLocked:number, warnings:string[]}}
  */
-export function applyBlockPaste({ lines = [], expenses = [], startRow = 0, startColumn = 0, block = [], now = Date.now() } = {}) {
+export function applyBlockPaste({ lines = [], expenses = [], startRow = 0, startColumn = 0, block = [], columns = null, now = Date.now() } = {}) {
   const grid = (Array.isArray(block) ? block : []).map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? "").trim()) : []));
+  const sheetColumns = normalizeBudgetColumns(columns);
   const warnings = [];
   if (!grid.length) return { lines, spentChanges: [], cells: 0, newRows: 0, skippedLocked: 0, warnings: ["붙여넣은 표가 비어 있습니다."] };
 
@@ -234,10 +245,11 @@ export function applyBlockPaste({ lines = [], expenses = [], startRow = 0, start
     let lineTouched = false;
     rowCells.forEach((cell, columnOffset) => {
       if (!cell) return;
-      const column = BUDGET_SHEET_COLUMNS[columnStart + columnOffset];
+      const column = sheetColumns[columnStart + columnOffset];
       if (!column) return;
-      if (column.kind === "calc") {
-        if (column.key === "amount" && parseAmount(cell) > 0 && !parseQuantity(line.quantity) && !parseAmount(line.unitCost)) {
+      const role = column.role;
+      if (role === "budget") {
+        if (parseAmount(cell) > 0 && !parseQuantity(line.quantity) && !parseAmount(line.unitCost)) {
           line.unitCost = String(parseAmount(cell));
           line.quantity = "1";
           lineTouched = true;
@@ -245,7 +257,8 @@ export function applyBlockPaste({ lines = [], expenses = [], startRow = 0, start
         }
         return;
       }
-      if (column.key === "spent") {
+      if (role === "balance") return;
+      if (role === "spent") {
         const entry = ledger.get(String(line.id ?? ""));
         if (entry && entry.locked) {
           skippedLocked += 1;
@@ -257,12 +270,16 @@ export function applyBlockPaste({ lines = [], expenses = [], startRow = 0, start
         cells += 1;
         return;
       }
-      if (column.key === "unitCost") {
+      if (role === "unitPrice") {
         line.unitCost = parseAmount(cell) ? String(parseAmount(cell)) : "";
-      } else if (column.key === "quantity") {
+      } else if (role === "qty") {
         line.quantity = cell.slice(0, 40);
-      } else if (column.key === "category" || column.key === "item" || column.key === "basis" || column.key === "note") {
-        line[column.key] = cell.slice(0, 200);
+      } else if (role === "category" || role === "item" || role === "basis" || role === "note") {
+        line[role] = cell.slice(0, 200);
+      } else {
+        // 사용자가 만든 열 — 열 id 로 값을 남긴다(이름을 바꿔도 값이 따라가지 않게).
+        if (!line.custom || typeof line.custom !== "object") line.custom = {};
+        line.custom[column.id] = cell.slice(0, 200);
       }
       lineTouched = true;
       cells += 1;
@@ -289,28 +306,65 @@ export function applyBlockPaste({ lines = [], expenses = [], startRow = 0, start
   };
 }
 
-/** 격자 → 내려받기 표(머리글 포함). 금액은 계산 가능한 숫자로 쓴다. */
-export function sheetExportRows({ lines, expenses } = {}) {
+/** 격자 → 내려받기 표(머리글 포함). 금액은 계산 가능한 숫자로 쓴다. 머리글은 사용자가 바꾼 열 이름을 그대로 쓴다. */
+export function sheetExportRows({ lines, expenses, columns = null } = {}) {
+  const cols = normalizeBudgetColumns(columns);
   const rows = sheetRows({ lines, expenses });
-  const body = rows.map((row) => [
-    row.category,
-    row.item,
-    parseAmount(row.unitCost) ? String(parseAmount(row.unitCost)) : "",
-    row.quantity,
-    String(row.amount),
-    String(row.spent),
-    String(row.balance),
-    row.basis,
-    row.note
-  ]);
-  return [SHEET_EXPORT_HEADERS, ...body];
+  const headers = cols.map((column) => column.label);
+  const body = rows.map((row) => cols.map((column) => {
+    const value = cellValueOf(row, column);
+    if (!isNumericColumn(column)) return String(value ?? "");
+    if (column.role === "unitPrice") return parseAmount(value) ? String(parseAmount(value)) : "";
+    const number = numericValueOf(row, column);
+    return number === null ? "" : String(number);
+  }));
+  return [headers, ...body];
 }
 
 /** 격자 전체를 시트에 붙일 수 있는 탭 구분 글. */
-export function sheetToTsv({ lines, expenses } = {}) {
-  return sheetExportRows({ lines, expenses })
+export function sheetToTsv({ lines, expenses, columns = null } = {}) {
+  return sheetExportRows({ lines, expenses, columns })
     .map((row) => row.map((cell) => String(cell ?? "").replace(/[\t\r\n]+/g, " ")).join("\t"))
     .join("\n");
+}
+
+/**
+ * 서류·결과보고에 넣을 예산 표 — 사용자가 바꾼 열 이름·순서·값을 그대로 쓴다.
+ * 숫자 열은 계산 가능한 숫자 문자열로 두고, 서식(쉼표·원)은 문서를 만드는 쪽이 붙인다.
+ * @returns {{headers:string[], rows:string[][], total:string[], numeric:boolean[]}}
+ */
+export function budgetDocumentTable({ plan, work, columns = null } = {}) {
+  const cols = normalizeBudgetColumns(columns ?? plan?.budgetColumns);
+  const rows = sheetRows({ lines: plan?.budgetLines, expenses: work?.expenses });
+  const numeric = cols.map((column) => isNumericColumn(column));
+  const cellOf = (row, column) => {
+    const value = cellValueOf(row, column);
+    if (!isNumericColumn(column)) return String(value ?? "");
+    if (column.role === "unitPrice") return parseAmount(value) ? String(parseAmount(value)) : "";
+    const number = numericValueOf(row, column);
+    return number === null ? "" : String(number);
+  };
+
+  const documentRows = rows.map((row) => cols.map((column) => cellOf(row, column)));
+
+  // 비목을 지정하지 않은 지출은 표에도 한 줄로 남긴다 — 표의 합과 집계 합이 어긋나지 않게.
+  const ledger = work ? expenseSummary(work, plan) : null;
+  const unassigned = (ledger?.rows || []).find((bucket) => bucket.category === "비목 미지정" && bucket.count > 0);
+  if (unassigned) {
+    const synthetic = { category: "비목 미지정", item: `비목을 지정하지 않은 지출 ${unassigned.count}건`, amount: unassigned.plan, spent: unassigned.spent, balance: unassigned.plan - unassigned.spent, custom: {} };
+    documentRows.push(cols.map((column) => cellOf(synthetic, column)));
+  }
+
+  // 합계 줄 — 첫 글자 열에 '합계', 숫자 열에는 열 합계.
+  const labelIndex = Math.max(0, cols.findIndex((column) => !isNumericColumn(column)));
+  const total = cols.map((column, index) => {
+    if (index === labelIndex) return "합계";
+    if (!isTotalColumn(column)) return "";
+    const value = columnTotalOf(rows, column);
+    return value === null ? "" : String(value);
+  });
+
+  return { headers: cols.map((column) => column.label), rows: documentRows, total, numeric, columns: cols };
 }
 
 /** 합계를 한 줄로 — 알림·화면 보조 문구용. */

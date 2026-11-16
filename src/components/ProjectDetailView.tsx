@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { GrantBudgetLine, GrantPlan, ProjectData, SectionId } from "../types";
+import type { BudgetSheetColumn, GrantBudgetLine, GrantPlan, ProjectData, SectionId } from "../types";
 import { budgetSummary, formatWon } from "../lib/grantWorkflow.mjs";
 import {
   PROJECT_STATUSES,
@@ -108,6 +108,7 @@ export function ProjectDetailView({
   onRename,
   onUpdateWork,
   onChangeGrantLines,
+  onChangeGrantColumns,
   onNavigate,
   onConfirmPlan,
   notify,
@@ -126,6 +127,8 @@ export function ProjectDetailView({
   onRename: (name: string) => void;
   onUpdateWork: (next: ProjectWork) => void;
   onChangeGrantLines: (lines: GrantBudgetLine[]) => void;
+  /** 예산 관리표의 머리글·열을 사업에 저장한다. */
+  onChangeGrantColumns: (columns: BudgetSheetColumn[]) => void;
   onNavigate: (section: SectionId) => void;
   onConfirmPlan: (request: ConfirmPlanRequest) => ConfirmPlanResult;
   notify: (message: string) => void;
@@ -379,6 +382,7 @@ export function ProjectDetailView({
           plan={grantPlan}
           work={work}
           onChangeLines={onChangeGrantLines}
+          onChangeColumns={onChangeGrantColumns}
           onUpdateWork={onUpdateWork}
           notify={notify}
           onNavigate={onNavigate}

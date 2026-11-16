@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { BUDGET_IMPORT_SAMPLE, mergeBudgetLines, parseBudgetTable, type BudgetImportMode, type ParsedBudgetRow, type BudgetParseResult } from "../lib/budgetImport.mjs";
 import { formatWon } from "../lib/grantWorkflow.mjs";
 import { readXlsxWorkbook, rowsToTsvText } from "../lib/xlsxTable.mjs";
-import type { GrantBudgetLine } from "../types";
+import type { BudgetSheetColumn, GrantBudgetLine } from "../types";
 
 const MODES: Array<{ id: BudgetImportMode; label: string; hint: string }> = [
   { id: "append", label: "아래에 덧붙이기", hint: "지금 표는 그대로 두고 읽은 행을 뒤에 붙입니다." },
@@ -18,6 +18,7 @@ export function BudgetImportPanel({
   lines,
   onChange,
   notify,
+  columns,
   onImportRows,
   onClose,
   defaultOpen = false
@@ -25,6 +26,8 @@ export function BudgetImportPanel({
   lines: GrantBudgetLine[];
   onChange: (lines: GrantBudgetLine[]) => void;
   notify: (message: string) => void;
+  /** 사업의 표 열(바꾼 머리글·사용자 열) — 표 머리글을 이 이름으로 먼저 맞춘다. */
+  columns?: BudgetSheetColumn[];
   /** 집행액까지 함께 반영해야 할 때 — 넘기면 이 함수가 표에 넣는 일을 맡는다. */
   onImportRows?: (rows: ParsedBudgetRow[], mode: BudgetImportMode) => void;
   onClose?: () => void;
@@ -42,7 +45,7 @@ export function BudgetImportPanel({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const readText = (value: string) => {
-    const parsed = parseBudgetTable(value);
+    const parsed = parseBudgetTable(value, { columns });
     setResult(parsed.rows.length ? parsed : null);
     setError(parsed.rows.length ? "" : parsed.warnings[parsed.warnings.length - 1] || "표를 읽지 못했습니다.");
     if (!parsed.rows.length) notify("붙여넣은 내용에서 예산 행을 찾지 못했습니다.");

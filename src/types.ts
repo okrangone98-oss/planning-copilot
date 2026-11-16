@@ -1,3 +1,7 @@
+import type { BudgetSheetColumn } from "./lib/budgetColumns.mjs";
+
+export type { BudgetSheetColumn };
+
 export type SectionId =
   | "home"
   | "projectBoard"
@@ -207,6 +211,8 @@ export type GrantBudgetLine = {
   quantity: string;
   basis: string;
   note: string;
+  /** 사용자가 더한 열의 값 — 열 id 로 찾는다(열 이름을 바꿔도 값이 따라간다). */
+  custom?: Record<string, string>;
 };
 
 export type GrantChecklistItem = {
@@ -248,6 +254,8 @@ export type GrantPlan = {
   localRate: string;
   selfRate: string;
   budgetLines: GrantBudgetLine[];
+  /** 사용자가 바꾼 표 열(머리글 이름·순서·추가 열). 비어 있으면 기본 열을 쓴다. */
+  budgetColumns?: BudgetSheetColumn[];
   checklist: GrantChecklistItem[];
   reportSections: GrantReportSection[];
   schedule: GrantSchedule;

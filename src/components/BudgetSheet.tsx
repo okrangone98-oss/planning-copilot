@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { GrantBudgetLine } from "../types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BudgetSheetColumn, GrantBudgetLine } from "../types";
 import { emptyBudgetLine, formatWon, parseAmount } from "../lib/grantWorkflow.mjs";
 import {
-  BUDGET_SHEET_COLUMNS,
   GRID_SPENT_LABEL,
   applyBlockPaste,
   sheetExportRows,
@@ -12,16 +11,38 @@ import {
   sheetTotals,
   type GridSpentUpdate
 } from "../lib/budgetSheet.mjs";
+import {
+  cellValueOf,
+  columnOfRole,
+  createBudgetColumn,
+  isNumericColumn,
+  numericValueOf,
+  normalizeBudgetColumns
+} from "../lib/budgetColumns.mjs";
 import { buildXlsxBytes, rowsToCsvText } from "../lib/xlsxTable.mjs";
 import { mergeBudgetLines, parseBudgetTable, type BudgetImportMode, type ParsedBudgetRow } from "../lib/budgetImport.mjs";
 import type { ProjectExpense } from "../lib/projectOperations.mjs";
 import { downloadTextFile, safeFileName } from "../lib/storage";
 import { BudgetImportPanel } from "./BudgetImportPanel";
 
-type EditableKey = "category" | "item" | "unitCost" | "quantity" | "spent" | "basis" | "note";
-type CellRef = { row: number; key: EditableKey };
+type CellRef = { row: number; id: string };
 
-const TEXT_KEYS: EditableKey[] = ["category", "item", "basis", "note"];
+/** 열 역할 → 예산 행의 필드. 역할이 없는 열(사용자 열)은 빈 글자. */
+function fieldOfRole(role: string): keyof GrantBudgetLine | "" {
+  switch (role) {
+    case "category": return "category";
+    case "item": return "item";
+    case "unitPrice": return "unitCost";
+    case "qty": return "quantity";
+    case "basis": return "basis";
+    case "note": return "note";
+    default: return "";
+  }
+}
+
+function grouped(value: number) {
+  return Math.round(value).toLocaleString("ko-KR");
+}
 
 function downloadBytes(bytes: Uint8Array, fileName: string) {
   const copy = new Uint8Array(bytes.byteLength);
@@ -47,6 +68,8 @@ function pasteBlockOf(text: string) {
 /**
  * 예산 관리표 — 엑셀·구글 시트처럼 칸을 눌러 바로 고치는 표.
  *
+ * - 머리글을 눌러 이름을 바꾸고, 열을 더하거나 지울 수 있다. 바뀐 이름·열은 이 사업에 저장되어
+ *   내려받기(CSV·XLSX)·서류 양식 채우기·결과보고 .hwpx 에 그대로 쓰인다.
  * - 편성액 = 단가 × 수량, 잔액 = 편성액 − 집행액 은 계산 칸이라 직접 고치지 않는다.
  * - 집행액은 지출 원장에서 가져온다. 원장에 기록이 없는 비목이면 여기서 적을 수 있고,
  *   적은 값은 '예산 관리표에서 입력' 한 건으로 원장에 남는다(결과보고·내보내기가 같은 숫자를 쓴다).
@@ -58,6 +81,8 @@ export function BudgetSheet({
   notify,
   expenses,
   onSetSpent,
+  columns: columnsProp,
+  onChangeColumns,
   fileNamePrefix = "예산관리표",
   hint,
   badge,
@@ -70,6 +95,10 @@ export function BudgetSheet({
   expenses?: ProjectExpense[];
   /** 격자에서 고친 집행액을 원장에 반영한다(한 번에 여러 건). */
   onSetSpent?: (updates: GridSpentUpdate[]) => void;
+  /** 사업에 저장된 열 정의 — 없으면 기본 열로 시작하고 이 화면 안에서만 바뀐다. */
+  columns?: BudgetSheetColumn[];
+  /** 머리글 이름·열 추가/삭제를 사업에 저장한다. */
+  onChangeColumns?: (columns: BudgetSheetColumn[]) => void;
   fileNamePrefix?: string;
   hint?: string;
   /** 표 제목 옆에 붙는 짧은 셈 — 예: "지출 1건 · 비목 4개" */
@@ -77,41 +106,62 @@ export function BudgetSheet({
   /** 툴바 끝에 붙일 화면별 버튼(예: 서류 양식에 숫자 넣기) */
   actions?: React.ReactNode;
 }) {
+  const [localColumns, setLocalColumns] = useState<BudgetSheetColumn[]>(() => normalizeBudgetColumns(null));
+  const columns = useMemo(
+    () => (columnsProp ? normalizeBudgetColumns(columnsProp) : localColumns),
+    [columnsProp, localColumns]
+  );
+  const setColumns = useCallback(
+    (next: BudgetSheetColumn[]) => {
+      const normalized = normalizeBudgetColumns(next);
+      if (onChangeColumns) onChangeColumns(normalized);
+      else setLocalColumns(normalized);
+    },
+    [onChangeColumns]
+  );
+
   const rows = useMemo(() => sheetRows({ lines, expenses }), [lines, expenses]);
-  const totals = useMemo(() => sheetTotals(rows), [rows]);
+  const totals = useMemo(() => sheetTotals(rows, columns), [rows, columns]);
   const withLedger = Array.isArray(expenses);
-  const columns = BUDGET_SHEET_COLUMNS;
   const [editing, setEditing] = useState<CellRef | null>(null);
   const [draft, setDraft] = useState("");
   const [active, setActive] = useState<CellRef | null>(null);
   const [pending, setPending] = useState<CellRef | null>(null);
+  const [headerEdit, setHeaderEdit] = useState<{ id: string; draft: string } | null>(null);
+  const [adding, setAdding] = useState<{ label: string; numeric: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const skipBlur = useRef(false);
+  const skipHeaderBlur = useRef(false);
 
-  const valueOf = (rowIndex: number, key: EditableKey) => {
+  const columnById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+
+  const valueOf = (rowIndex: number, column: BudgetSheetColumn) => {
     const row = rows[rowIndex];
-    if (!row) return "";
-    if (key === "spent") return row.spent ? String(row.spent) : "";
-    return String((row as unknown as Record<string, unknown>)[key] ?? "");
+    if (!row || !column) return "";
+    if (column.role === "spent") return row.spent ? String(row.spent) : "";
+    const value = cellValueOf(row, column);
+    return value === null || value === undefined ? "" : String(value);
   };
 
-  const canEdit = (rowIndex: number, key: EditableKey) => {
-    if (!lines[rowIndex]) return false;
-    if (key === "spent") return Boolean(onSetSpent) && !rows[rowIndex]?.locked;
+  const canEdit = (rowIndex: number, column: BudgetSheetColumn) => {
+    if (!lines[rowIndex] || !column) return false;
+    if (column.role === "budget" || column.role === "balance") return false;
+    if (column.role === "spent") return Boolean(onSetSpent) && !rows[rowIndex]?.locked;
     return true;
   };
 
-  const startEdit = (rowIndex: number, key: EditableKey) => {
-    if (!canEdit(rowIndex, key)) {
-      if (key === "spent" && rows[rowIndex]?.locked) {
+  const startEdit = (rowIndex: number, column: BudgetSheetColumn) => {
+    if (!canEdit(rowIndex, column)) {
+      if (column.role === "spent" && rows[rowIndex]?.locked) {
         notify("이 비목은 지출 원장에 기록이 있어 격자에서 고칠 수 없습니다. 아래 지출 원장에서 고쳐 주세요.");
       }
       return;
     }
-    setActive({ row: rowIndex, key });
-    setEditing({ row: rowIndex, key });
-    setDraft(valueOf(rowIndex, key));
+    setHeaderEdit(null);
+    setActive({ row: rowIndex, id: column.id });
+    setEditing({ row: rowIndex, id: column.id });
+    setDraft(valueOf(rowIndex, column));
   };
 
   // 새 행을 만든 뒤 그 행의 첫 칸으로 옮겨 간다 — 표가 늘어난 다음 렌더에서 시작한다.
@@ -120,31 +170,45 @@ export function BudgetSheet({
     if (pending.row < lines.length) {
       setEditing(pending);
       setActive(pending);
-      setDraft(valueOf(pending.row, pending.key));
+      const column = columnById.get(pending.id) || columns[0];
+      setDraft(column ? valueOf(pending.row, column) : "");
       setPending(null);
     }
   }, [pending, lines.length]);
 
   const commit = (cell: CellRef, raw: string) => {
     const line = lines[cell.row];
-    if (!line) return;
-    if (cell.key === "spent") {
+    const column = columnById.get(cell.id);
+    if (!line || !column) return;
+    if (column.role === "spent") {
       const amount = parseAmount(raw);
       if (onSetSpent) onSetSpent([{ lineId: line.id, amount }]);
       return;
     }
     let value = String(raw ?? "");
-    if (cell.key === "unitCost") value = parseAmount(value) ? String(parseAmount(value)) : "";
+    if (column.role === "unitPrice") value = parseAmount(value) ? String(parseAmount(value)) : "";
     else value = value.slice(0, 200);
-    const before = String((line as unknown as Record<string, unknown>)[cell.key] ?? "");
-    if (before === value) return;
-    onChange(lines.map((item, index) => (index === cell.row ? { ...item, [cell.key]: value } : item)));
+
+    if (column.role === "custom") {
+      const custom = { ...(line.custom || {}) };
+      const before = String(custom[column.id] ?? "");
+      if (before === value) return;
+      if (value) custom[column.id] = value;
+      else delete custom[column.id];
+      onChange(lines.map((item, index) => (index === cell.row ? { ...item, custom } : item)));
+      return;
+    }
+
+    const field = fieldOfRole(column.role);
+    if (!field) return;
+    if (String(line[field] ?? "") === value) return;
+    onChange(lines.map((item, index) => (index === cell.row ? { ...item, [field]: value } : item)));
   };
 
   /** Tab·Enter 가 옮겨 갈 칸. 표 끝을 넘어가면 새 행을 만든다. */
   const neighbor = (cell: CellRef, horizontal: 1 | -1, vertical: boolean): CellRef | "append" | null => {
-    const columnIndex = columns.findIndex((column) => column.key === cell.key);
-    let nextColumn = columnIndex;
+    const columnIndex = columns.findIndex((column) => column.id === cell.id);
+    let nextColumn = columnIndex < 0 ? 0 : columnIndex;
     let nextRow = cell.row;
     if (vertical) nextRow += horizontal;
     else {
@@ -159,7 +223,7 @@ export function BudgetSheet({
     }
     if (nextRow < 0) return null;
     if (nextRow >= lines.length) return "append";
-    return { row: nextRow, key: columns[nextColumn].key as EditableKey };
+    return { row: nextRow, id: columns[nextColumn].id };
   };
 
   const moveTo = (target: CellRef | "append" | null) => {
@@ -167,8 +231,8 @@ export function BudgetSheet({
     if (!target) return;
     if (target === "append") {
       onChange([...lines, emptyBudgetLine(`sheet-${Date.now()}`)]);
-      setPending({ row: lines.length, key: "category" });
-      setActive({ row: lines.length, key: "category" });
+      setPending({ row: lines.length, id: columns[0]?.id ?? "category" });
+      setActive({ row: lines.length, id: columns[0]?.id ?? "category" });
       return;
     }
     setPending(target);
@@ -200,7 +264,7 @@ export function BudgetSheet({
     const block = pasteBlockOf(text);
     if (!block) {
       // 쉼표(CSV) 표 — 머리글·따옴표를 알아보는 기존 파서로 읽어 뒤에 붙인다.
-      const parsed = parseBudgetTable(text);
+      const parsed = parseBudgetTable(text, { columns });
       if (!parsed.rows.length) {
         notify(parsed.warnings[parsed.warnings.length - 1] || "붙여넣은 표에서 예산 행을 찾지 못했습니다.");
         return;
@@ -209,13 +273,14 @@ export function BudgetSheet({
       notify(`쉼표로 나뉜 표 ${parsed.rows.length}행을 예산표 뒤에 붙였습니다.`);
       return;
     }
-    const startColumn = anchor ? Math.max(0, columns.findIndex((column) => column.key === anchor.key)) : 0;
+    const startColumn = anchor ? Math.max(0, columns.findIndex((column) => column.id === anchor.id)) : 0;
     const result = applyBlockPaste({
       lines,
       expenses,
       // 행을 지운 뒤 남은 위치에서 붙여도 표 밖으로 넘어가지 않게 한다.
       startRow: anchor ? Math.min(Math.max(0, anchor.row), lines.length) : 0,
       startColumn,
+      columns,
       block
     });
     onChange(result.lines);
@@ -285,20 +350,82 @@ export function BudgetSheet({
 
   const addRow = () => {
     onChange([...lines, emptyBudgetLine(`sheet-${Date.now()}`)]);
-    setPending({ row: lines.length, key: "category" });
+    setPending({ row: lines.length, id: columns[0]?.id ?? "category" });
   };
 
+  /* ── 머리글 이름·열 편집 ─────────────────────────────── */
+
+  const startHeaderEdit = (column: BudgetSheetColumn) => {
+    setEditing(null);
+    setHeaderEdit({ id: column.id, draft: column.label });
+  };
+
+  const commitHeader = () => {
+    const target = headerEdit;
+    if (!target) return;
+    setHeaderEdit(null);
+    const column = columnById.get(target.id);
+    if (!column) return;
+    const label = target.draft.trim().replace(/\s+/g, " ").slice(0, 24) || column.label;
+    if (label === column.label) return;
+    setColumns(columns.map((item) => (item.id === target.id ? { ...item, label } : item)));
+    notify(`머리글 ‘${column.label}’을(를) ‘${label}’(으)로 바꿨습니다. 내려받기·서류 양식에도 이 이름으로 들어갑니다.`);
+  };
+
+  const submitColumn = () => {
+    if (!adding) return;
+    const label = adding.label.trim();
+    if (!label) {
+      notify("새 열 이름을 적어 주세요. 예: 국비, 지방비, 자부담");
+      return;
+    }
+    const column = createBudgetColumn({ label, numeric: adding.numeric }, columns);
+    setColumns([...columns, column]);
+    setAdding(null);
+    notify(`‘${column.label}’ 열을 더했습니다${adding.numeric ? " (숫자 열 — 표 아래에 합계를 냅니다)" : ""}.`);
+  };
+
+  const toggleNumeric = (column: BudgetSheetColumn) => {
+    const numeric = isNumericColumn(column);
+    const next = columns.map((item) => (item.id === column.id
+      ? ({ ...item, numeric: !numeric, kind: numeric ? "text" : "number", align: numeric ? "left" : "right" } as BudgetSheetColumn)
+      : item));
+    setColumns(next);
+    notify(`‘${column.label}’ 열을 ${isNumericColumn(column) ? "글자" : "숫자"} 열로 바꿨습니다.`);
+  };
+
+  const removeColumn = (column: BudgetSheetColumn) => {
+    if (columns.length <= 1) {
+      notify("표에는 열이 최소 한 개는 있어야 합니다.");
+      return;
+    }
+    if ((column.role === "unitPrice" || column.role === "qty") && columnOfRole(columns, "budget")) {
+      notify(`${column.label} 열은 편성액(단가 × 수량) 계산에 쓰여 지울 수 없습니다. 이름은 바꿀 수 있습니다.`);
+      return;
+    }
+    const note = column.role === "budget" || column.role === "balance"
+      ? "\n이 열을 지우면 표에서 금액이 보이지 않습니다(적은 값은 지워지지 않습니다)."
+      : column.role === "spent"
+        ? "\n집행액 열을 지워도 지출 원장 기록은 그대로 남습니다."
+        : "";
+    if (!window.confirm(`‘${column.label}’ 열을 표에서 지울까요?${note}`)) return;
+    setColumns(columns.filter((item) => item.id !== column.id));
+    notify(`‘${column.label}’ 열을 표에서 지웠습니다. 적어 둔 값은 남아 있어 다시 더하면 그대로 보입니다.`);
+  };
+
+  /* ── 내려받기·복사 ─────────────────────────────────── */
+
   const exportCsv = () => {
-    const table = sheetExportRows({ lines, expenses });
+    const table = sheetExportRows({ lines, expenses, columns });
     const name = safeFileName(`${fileNamePrefix}-${new Date().toISOString().slice(0, 10)}`, "예산관리표");
     downloadTextFile(rowsToCsvText(table), `${name}.csv`, "text/csv;charset=utf-8");
-    notify("예산표를 CSV로 내려받았습니다. 엑셀에서 바로 열립니다.");
+    notify("예산표를 CSV로 내려받았습니다. 머리글은 표에서 고친 열 이름 그대로입니다.");
   };
 
   const exportXlsx = async () => {
     setBusy(true);
     try {
-      const bytes = await buildXlsxBytes({ sheetName: "예산관리표", rows: sheetExportRows({ lines, expenses }) });
+      const bytes = await buildXlsxBytes({ sheetName: "예산관리표", rows: sheetExportRows({ lines, expenses, columns }) });
       const name = safeFileName(`${fileNamePrefix}-${new Date().toISOString().slice(0, 10)}`, "예산관리표");
       downloadBytes(bytes, `${name}.xlsx`);
       notify("예산표를 엑셀 파일(.xlsx)로 내려받았습니다.");
@@ -311,12 +438,28 @@ export function BudgetSheet({
 
   const copyToSheet = async () => {
     try {
-      await navigator.clipboard.writeText(sheetToTsv({ lines, expenses }));
+      await navigator.clipboard.writeText(sheetToTsv({ lines, expenses, columns }));
       notify("예산표를 시트에 붙여넣을 수 있게 복사했습니다.");
     } catch {
       notify("복사하지 못했습니다. 브라우저가 클립보드를 막았는지 확인해 주세요.");
     }
   };
+
+  /** 합계 줄에 넣을 글자 — 숫자 열은 합계, 첫 글자 열은 '합계 · N개 비목'. */
+  const totalTextOf = (column: BudgetSheetColumn) => {
+    if (column.role === "category") return `합계 · ${totals.lineCount}개 비목`;
+    if (column.role === "budget") return totals.plan ? formatWon(totals.plan) : "";
+    if (column.role === "spent") return withLedger && totals.spent ? formatWon(totals.spent) : "";
+    if (column.role === "balance") {
+      if (!totals.plan && !totals.spent) return "";
+      return formatWon(totals.balance);
+    }
+    const total = totals.columnTotals[column.id];
+    if (total === null || total === undefined) return "";
+    return column.kind === "number" ? grouped(total) : formatWon(total);
+  };
+
+  const tableMinWidth = 38 + 40 + columns.reduce((sum, column) => sum + (Number(column.width) || 100), 0);
 
   return (
     <div className="budget-sheet" aria-label="예산 관리표">
@@ -328,11 +471,15 @@ export function BudgetSheet({
           </strong>
           <span>
             칸을 눌러 바로 고치세요. <kbd>Tab</kbd>·<kbd>Enter</kbd>로 옆·아래 칸으로 옮겨 가고, 시트에서 복사한 표는{" "}
-            <kbd>Ctrl</kbd>+<kbd>V</kbd>로 그대로 붙습니다.
+            <kbd>Ctrl</kbd>+<kbd>V</kbd>로 그대로 붙습니다. <strong>머리글을 누르면 이름을 바꿀 수 있고</strong>, 바뀐 이름·열은
+            내려받기와 서류 양식에 그대로 쓰입니다.
           </span>
         </div>
         <div className="budget-sheet-actions">
           <button className="primary-button small" type="button" onClick={addRow}>행 추가</button>
+          <button className="secondary-button small" type="button" onClick={() => setAdding(adding ? null : { label: "", numeric: false })} aria-expanded={Boolean(adding)}>
+            + 열 추가
+          </button>
           <button className="secondary-button small" type="button" onClick={() => setImporting((current) => !current)} aria-expanded={importing}>
             엑셀·시트 불러오기
           </button>
@@ -343,6 +490,42 @@ export function BudgetSheet({
         </div>
       </div>
 
+      {adding && (
+        <div className="budget-sheet-add-column" role="group" aria-label="새 열 만들기">
+          <label className="field">
+            <span>새 열 이름</span>
+            <input
+              autoFocus
+              value={adding.label}
+              maxLength={24}
+              placeholder="예: 국비, 지방비, 자부담"
+              onChange={(event) => setAdding({ ...adding, label: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitColumn();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  setAdding(null);
+                }
+              }}
+            />
+          </label>
+          <label className="pc-check-inline">
+            <input
+              type="checkbox"
+              checked={adding.numeric}
+              onChange={(event) => setAdding({ ...adding, numeric: event.target.checked })}
+            />
+            <span>숫자 열 (표 아래에 합계를 냅니다)</span>
+          </label>
+          <div className="budget-sheet-add-actions">
+            <button className="primary-button small" type="button" onClick={submitColumn}>열 추가</button>
+            <button className="ghost-light-button small" type="button" onClick={() => setAdding(null)}>취소</button>
+          </div>
+        </div>
+      )}
+
       {hint && <p className="budget-sheet-hint">{hint}</p>}
 
       {importing && (
@@ -351,6 +534,7 @@ export function BudgetSheet({
             lines={lines}
             onChange={onChange}
             notify={notify}
+            columns={columns}
             onImportRows={applyImported}
             onClose={() => setImporting(false)}
             defaultOpen
@@ -359,17 +543,84 @@ export function BudgetSheet({
       )}
 
       <div className="budget-sheet-scroll" onPaste={onSheetPaste} tabIndex={0} aria-label="예산 관리표 격자">
-        <table className="budget-sheet-table">
+        <table className="budget-sheet-table" style={{ minWidth: Math.max(960, tableMinWidth) }}>
           <colgroup>
             <col style={{ width: 38 }} />
-            {columns.map((column) => <col key={column.key} style={{ width: column.width }} />)}
+            {columns.map((column) => <col key={column.id} style={{ width: column.width }} />)}
             <col style={{ width: 40 }} />
           </colgroup>
           <thead>
             <tr>
               <th className="bs-gutter" scope="col" aria-label="행 번호" />
               {columns.map((column) => (
-                <th key={column.key} scope="col" className={`bs-kind-${column.kind} is-${column.align}`}>{column.label}</th>
+                <th
+                  key={column.id}
+                  scope="col"
+                  className={`bs-kind-${column.kind} is-${column.align} bs-col-${column.id} bs-role-${column.role}`}
+                  title={`${column.label} — ${column.role === "custom" ? "내가 더한 열" : "예산표 기본 열"}`}
+                >
+                  {headerEdit?.id === column.id ? (
+                    <input
+                      className="bs-head-input"
+                      autoFocus
+                      value={headerEdit.draft}
+                      maxLength={24}
+                      aria-label={`${column.label} 머리글 이름`}
+                      onChange={(event) => setHeaderEdit({ ...headerEdit, draft: event.target.value })}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          skipHeaderBlur.current = true;
+                          commitHeader();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          skipHeaderBlur.current = true;
+                          setHeaderEdit(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (skipHeaderBlur.current) {
+                          skipHeaderBlur.current = false;
+                          return;
+                        }
+                        commitHeader();
+                      }}
+                    />
+                  ) : (
+                    <span className="bs-head">
+                      <button
+                        className="bs-head-label"
+                        type="button"
+                        onClick={() => startHeaderEdit(column)}
+                        aria-label={`${column.label} 머리글 이름 바꾸기`}
+                      >
+                        {column.label}
+                      </button>
+                      <span className="bs-head-tools">
+                        {column.role === "custom" && (
+                          <button
+                            className="bs-head-tool"
+                            type="button"
+                            onClick={() => toggleNumeric(column)}
+                            aria-label={`${column.label} 열을 ${isNumericColumn(column) ? "글자" : "숫자"} 열로 바꾸기`}
+                            title={isNumericColumn(column) ? "글자 열로 바꾸기" : "숫자 열로 바꾸기 (합계를 냅니다)"}
+                          >
+                            {isNumericColumn(column) ? "가" : "123"}
+                          </button>
+                        )}
+                        <button
+                          className="bs-head-tool is-remove"
+                          type="button"
+                          onClick={() => removeColumn(column)}
+                          aria-label={`${column.label} 열 지우기`}
+                          title="이 열 지우기"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </span>
+                  )}
+                </th>
               ))}
               <th className="bs-actions" scope="col" aria-label="행 관리" />
             </tr>
@@ -378,7 +629,7 @@ export function BudgetSheet({
             {rows.length === 0 && (
               <tr>
                 <td className="bs-gutter">1</td>
-                <td className="budget-sheet-empty" colSpan={columns.length + 1} onClick={addRow}>
+                <td className="budget-sheet-empty" colSpan={Math.max(1, columns.length)} onClick={addRow}>
                   아직 적은 비목이 없습니다. <button className="block-link" type="button" onClick={(event) => { event.stopPropagation(); addRow(); }}>첫 행 추가</button>
                   {" "}또는 엑셀 파일·시트 표를 불러오세요.
                 </td>
@@ -389,28 +640,27 @@ export function BudgetSheet({
               <tr key={row.id || rowIndex} className={row.balance < 0 ? "is-over" : ""}>
                 <th className="bs-gutter" scope="row">{rowIndex + 1}</th>
                 {columns.map((column) => {
-                  const key = column.key as EditableKey;
-                  const isEditing = editing?.row === rowIndex && editing?.key === column.key;
-                  const editable = column.kind !== "calc" && canEdit(rowIndex, key);
-                  const cellClass = `bs-cell bs-kind-${column.kind} bs-col-${column.key} is-${column.align}${editable ? " is-editable" : ""}${row.balance < 0 && column.key === "balance" ? " is-negative" : ""}`;
+                  const isEditing = editing?.row === rowIndex && editing?.id === column.id;
+                  const editable = canEdit(rowIndex, column);
+                  const cellClass = `bs-cell bs-kind-${column.kind} bs-col-${column.id} is-${column.align}${editable ? " is-editable" : ""}${row.balance < 0 && column.role === "balance" ? " is-negative" : ""}`;
                   if (isEditing) {
                     return (
-                      <td key={column.key} className={`${cellClass} is-editing`}>
+                      <td key={column.id} className={`${cellClass} is-editing`}>
                         <input
                           className="bs-input"
                           autoFocus
-                          inputMode={column.kind === "money" || column.kind === "spent" || column.kind === "quantity" ? "numeric" : "text"}
+                          inputMode={column.kind === "text" ? "text" : "numeric"}
                           value={draft}
                           aria-label={`${rowIndex + 1}행 ${column.label}`}
                           onChange={(event) => setDraft(event.target.value)}
-                          onKeyDown={(event) => onKeyDown(event, { row: rowIndex, key })}
-                          onPaste={(event) => onCellPaste(event, { row: rowIndex, key })}
+                          onKeyDown={(event) => onKeyDown(event, { row: rowIndex, id: column.id })}
+                          onPaste={(event) => onCellPaste(event, { row: rowIndex, id: column.id })}
                           onBlur={() => {
                             if (skipBlur.current) {
                               skipBlur.current = false;
                               return;
                             }
-                            commit({ row: rowIndex, key }, draft);
+                            commit({ row: rowIndex, id: column.id }, draft);
                             setEditing(null);
                           }}
                         />
@@ -419,19 +669,19 @@ export function BudgetSheet({
                   }
                   return (
                     <td
-                      key={column.key}
+                      key={column.id}
                       className={cellClass}
                       onClick={() => {
-                        if (column.kind === "calc") {
-                          setActive({ row: rowIndex, key });
+                        if (column.role === "budget" || column.role === "balance") {
+                          setActive({ row: rowIndex, id: column.id });
                           return;
                         }
-                        startEdit(rowIndex, key);
+                        startEdit(rowIndex, column);
                       }}
                     >
-                      {column.key === "amount" && (row.amount ? formatWon(row.amount) : "")}
-                      {column.key === "balance" && (row.amount || row.spent ? formatWon(row.balance) : "")}
-                      {column.key === "spent" && (
+                      {column.role === "budget" && (row.amount ? formatWon(row.amount) : "")}
+                      {column.role === "balance" && (row.amount || row.spent ? formatWon(row.balance) : "")}
+                      {column.role === "spent" && (
                         withLedger ? (
                           <span className="bs-spent-line">
                             {row.spent ? formatWon(row.spent) : ""}
@@ -441,9 +691,18 @@ export function BudgetSheet({
                           </span>
                         ) : <span className="bs-muted">—</span>
                       )}
-                      {column.key === "unitCost" && (parseAmount(row.unitCost) ? formatWon(parseAmount(row.unitCost)) : "")}
-                      {TEXT_KEYS.includes(key) && <span className="bs-value">{String((row as unknown as Record<string, unknown>)[column.key] ?? "")}</span>}
-                      {column.key === "quantity" && <span className="bs-value">{row.quantity}</span>}
+                      {column.role === "unitPrice" && (parseAmount(row.unitCost) ? formatWon(parseAmount(row.unitCost)) : "")}
+                      {column.role === "qty" && <span className="bs-value">{row.quantity}</span>}
+                      {(column.role === "category" || column.role === "item" || column.role === "basis" || column.role === "note" || column.role === "custom") && (
+                        <span className={`bs-value${column.role === "custom" && isNumericColumn(column) ? " is-num" : ""}`}>
+                          {column.role === "custom" && isNumericColumn(column)
+                            ? (() => {
+                                const number = numericValueOf(row, column);
+                                return number === null ? String(cellValueOf(row, column) ?? "") : grouped(number);
+                              })()
+                            : String(cellValueOf(row, column) ?? "")}
+                        </span>
+                      )}
                     </td>
                   );
                 })}
@@ -463,15 +722,18 @@ export function BudgetSheet({
           <tfoot>
             <tr>
               <th className="bs-gutter" scope="row">합</th>
-              <td className="bs-total-label" colSpan={2}>합계 · {totals.lineCount}개 비목</td>
-              <td className="bs-calc is-right" />
-              <td className="bs-calc is-right" />
-              <td className="bs-calc is-right">{totals.plan ? formatWon(totals.plan) : ""}</td>
-              <td className="bs-calc is-right">{withLedger && totals.spent ? formatWon(totals.spent) : ""}</td>
-              <td className={`bs-calc is-right${totals.balance < 0 ? " is-negative" : ""}`}>{totals.plan || totals.spent ? formatWon(totals.balance) : ""}</td>
-              <td className="bs-calc is-left" colSpan={2}>
-                {totals.plan ? `집행률 ${totals.rate}%${totals.over ? ` · 초과 ${totals.over}개 비목` : ""}` : ""}
-              </td>
+              {columns.map((column) => {
+                const text = totalTextOf(column);
+                const negative = column.role === "balance" && totals.balance < 0;
+                return (
+                  <td
+                    key={column.id}
+                    className={`${column.role === "category" ? "bs-total-label" : "bs-calc"} is-${column.align}${negative ? " is-negative" : ""}${isNumericColumn(column) ? " bs-kind-num" : ""}`}
+                  >
+                    {text}
+                  </td>
+                );
+              })}
               <td className="bs-actions" />
             </tr>
           </tfoot>
@@ -479,7 +741,10 @@ export function BudgetSheet({
       </div>
 
       <div className="budget-sheet-foot">
-        <span>{sheetSummaryLine(rows)}</span>
+        <span>
+          {sheetSummaryLine(rows)}
+          {totals.plan ? ` · 집행률 ${totals.rate}%${totals.over ? ` · 초과 ${totals.over}개 비목` : ""}` : ""}
+        </span>
         <button className="ghost-light-button small" type="button" onClick={addRow} aria-label="예산 행 추가">+ 행 추가</button>
       </div>
       <p className="block-note">

@@ -383,3 +383,132 @@
     min-width: 960px;
   }
 }
+
+/* ── 머리글 이름·열 편집 ─────────────────────────────────────────
+   머리글을 누르면 이름을 바꾸고, 옆의 × 로 열을 지운다(최소 1열은 남는다). */
+
+.budget-sheet-add-column {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--stack-s);
+  padding: var(--stack-s);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-s);
+  background: var(--c-fill);
+}
+
+.budget-sheet-add-column .field {
+  min-width: 180px;
+  flex: 1 1 180px;
+}
+
+.budget-sheet-add-column .pc-check-inline {
+  padding-bottom: 8px;
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+}
+
+.budget-sheet-add-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.budget-sheet-table thead th .bs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  min-width: 0;
+}
+
+.budget-sheet-table thead th .bs-head-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  text-align: inherit;
+  cursor: text;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.budget-sheet-table thead th .bs-head-label:hover,
+.budget-sheet-table thead th .bs-head-label:focus-visible {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  outline: none;
+}
+
+.budget-sheet-table thead th .bs-head-tools {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  opacity: 0.45;
+}
+
+.budget-sheet-table thead th:hover .bs-head-tools,
+.budget-sheet-table thead th:focus-within .bs-head-tools {
+  opacity: 1;
+}
+
+.budget-sheet-table thead th .bs-head-tool {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--c-text-3);
+  cursor: pointer;
+}
+
+.budget-sheet-table thead th .bs-head-tool:hover {
+  background: var(--c-fill-strong);
+  color: var(--c-text-1);
+}
+
+.budget-sheet-table thead th .bs-head-tool.is-remove:hover {
+  background: var(--c-danger-tint);
+  color: var(--c-danger-tint-text);
+}
+
+.budget-sheet-table thead th .bs-head-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--c-focus);
+  border-radius: 3px;
+  background: var(--c-surface);
+  font: inherit;
+  font-weight: 700;
+  color: var(--c-text-1);
+}
+
+.budget-sheet-table td.bs-kind-number,
+.budget-sheet-table td.bs-kind-num,
+.budget-sheet-table .bs-value.is-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.bs-value.is-num {
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .budget-sheet-add-column {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .budget-sheet-add-column .pc-check-inline {
+    padding-bottom: 0;
+  }
+}
