@@ -379,6 +379,9 @@ const ROLE_LABEL_ALIASES = {
   note: ["비고", "메모", "참고", "적요"]
 };
 
+/** 예산 표의 금액 열 역할 — 이 중 하나가 머리글에서 맞아야 예산 표로 본다. */
+const MONEY_ROLES = new Set(["budget", "spent", "balance", "unitPrice", "qty"]);
+
 const ROLE_BY_ALIAS = (() => {
   const map = new Map();
   for (const [role, labels] of Object.entries(ROLE_LABEL_ALIASES)) {
@@ -699,10 +702,14 @@ export function patchSectionXml(xml, values, options = {}) {
       && !isFormLabelCell(rows[headerIndex + 1].cells[0].text.trim());
 
     // 전략 2a — 예산 관리표의 열 머리(사용자가 바꾼 이름·더한 열)로 표를 채운다.
-    // 양식 표의 머리글이 예산표의 머리글과 맞으면, 그 아래 빈 칸을 예산표의 행 순서대로 채운다.
+    // 양식 표의 머리글이 예산표의 머리글과 맞고 **금액 열(편성·집행·잔액·단가·수량·숫자 열)이 함께 맞을 때만**
+    // 예산 표로 본다. 라벨|값 양식의 ‘비목|내용’ 같은 두 칸 표를 예산 표로 오인해 값 칸을 덮으면 안 된다.
     if (budgetSheet) {
       const matches = matchBudgetHeader(headerRow.cells, budgetSheet.columns);
-      if (matches.length >= 2) {
+      const moneyMatch = matches.some((match) => (match.column.role === "custom"
+        ? match.column.kind === "number" || match.column.kind === "money" || match.column.numeric === true
+        : MONEY_ROLES.has(match.column.role)));
+      if (matches.length >= 2 && moneyMatch) {
         let sheetRow = 0;
         for (let rowIndex = headerIndex + 1; rowIndex < rows.length && sheetRow < budgetSheet.rows.length; rowIndex += 1) {
           const row = rows[rowIndex];

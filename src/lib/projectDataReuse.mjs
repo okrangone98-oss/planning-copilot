@@ -181,7 +181,10 @@ export function buildProjectDataText({ meta, plan, work, project } = {}) {
       const source = basisById.get(String(line.id ?? ""));
       const basis = text(source?.basis, 60) || joinParts([source?.unitCost ? `${formatWon(Number(source.unitCost) || 0)}` : "", source?.quantity ? `× ${text(source.quantity, 20)}` : ""], " ");
       const amount = line.plan ? formatWon(line.plan) : "";
-      parts.push(joinParts([text(line.item, 60) || category, basis ? `(${basis})` : "", amount], " "));
+      const itemText = text(line.item, 60);
+      if (itemText || line.plan || line.spent) {
+        parts.push(joinParts([itemText || category, basis ? `(${basis})` : "", amount], " "));
+      }
       // 사용자가 바꾼 머리글·새로 더한 열(국비·지방비·자부담 등)을 열 이름 그대로 함께 적는다.
       if (source && customColumns.length) {
         const view = { ...source, amount: line.plan, spent: line.spent, balance: line.balance, custom: source.custom || {} };
@@ -362,7 +365,11 @@ export function buildBudgetDigestText({ plan, work } = {}) {
     for (const line of row.lines || []) {
       const source = basisById.get(String(line.id ?? ""));
       const basis = text(source?.basis, 50) || joinParts([parseAmount(source?.unitCost) ? formatWon(parseAmount(source?.unitCost)) : "", source?.quantity ? `× ${text(source.quantity, 20)}` : ""], " ");
-      parts.push(joinParts([text(line.item, 50) || category, basis ? `(${basis})` : "", line.plan ? formatWon(line.plan) : ""], " "));
+      const itemText = text(line.item, 50);
+      // 비목·세목도 금액도 없는 빈 행은 글에 적지 않는다(‘미분류: 미분류’ 같은 빈 줄이 생긴다).
+      if (itemText || line.plan || line.spent) {
+        parts.push(joinParts([itemText || category, basis ? `(${basis})` : "", line.plan ? formatWon(line.plan) : ""], " "));
+      }
       if (line.item) push(line.item, joinParts([line.plan ? formatWon(line.plan) : "", basis ? `(${basis})` : ""], " "));
       // 사용자가 바꾼 머리글·새로 더한 열은 그 이름 그대로 한 줄씩 적는다 —
       // 양식의 같은 이름 칸(예: 국비·지방비, 세부내용)이 행 순서대로 값을 받는다.
