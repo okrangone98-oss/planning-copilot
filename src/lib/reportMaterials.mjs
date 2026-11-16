@@ -14,11 +14,11 @@ import { detectDelimiter } from "./budgetImport.mjs";
 import { formatWon, parseAmount } from "./grantWorkflow.mjs";
 import { normalizeSpentAt, readExpenseStatus } from "./expenseImport.mjs";
 
-export const MATERIALS_ACCEPT = ".csv,.tsv,.txt";
+export const MATERIALS_ACCEPT = ".xlsx,.csv,.tsv,.txt";
 export const PHOTO_ACCEPT = "image/*";
 
 export const MATERIALS_HINT =
-  "출석현황·지출내역을 CSV/TSV 파일이나 시트에서 복사한 표로 올리면 참석 인원·집행액을 세어 재료로 넣습니다. 첫 줄에 날짜·인원(또는 적요·금액) 같은 머리글이 있으면 정확히 읽힙니다.";
+  "출석현황·지출내역을 엑셀(.xlsx)·CSV/TSV 파일로 올리거나 시트에서 복사한 표를 붙여넣으면 참석 인원·집행액을 세어 재료로 넣습니다. 첫 줄에 날짜·인원(또는 적요·금액) 같은 머리글이 있으면 정확히 읽힙니다.";
 
 export const PHOTO_HINT =
   "활동사진은 파일 이름·촬영 날짜·활동 내용을 읽어 사진 캡션 줄을 만들어 결과보고서의 사진·증빙 칸에 넣습니다. 사진 파일 자체를 .hwpx 안에 넣지는 못하니, 내려받은 문서를 한컴오피스에서 열어 ‘입력 → 그림’으로 같은 자리에 넣어 주세요.";

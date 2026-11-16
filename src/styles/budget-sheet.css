@@ -1,0 +1,373 @@
+/* ── 예산 관리표(스프레드시트형 격자) ─────────────────────────────
+   엑셀·구글 시트처럼 얇은 선, 좁은 행 높이, 숫자는 오른쪽 정렬·고정폭 숫자.
+   표는 자기 상자 안에서만 가로로 넘긴다 — 페이지 전체가 밀리지 않게. */
+
+.budget-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-s);
+  min-width: 0;
+}
+
+.budget-sheet-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--stack-s);
+}
+
+.budget-sheet-bar-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.budget-sheet-bar-main strong {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-h3);
+  color: var(--c-text-1);
+}
+
+.budget-sheet-bar-main span {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-sub);
+  color: var(--c-text-3);
+}
+
+.budget-sheet-bar kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 4px;
+  background: var(--c-fill);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text-2);
+}
+
+.budget-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.budget-sheet-actions .small {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: var(--fs-caption);
+}
+
+.budget-sheet-hint {
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+}
+
+.budget-sheet-import {
+  padding: var(--stack-s);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+}
+
+.budget-sheet-scroll {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-s);
+  background: var(--c-surface);
+}
+
+.budget-sheet-table {
+  width: 100%;
+  min-width: 1000px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: var(--fs-sub);
+}
+
+.budget-sheet-table th,
+.budget-sheet-table td {
+  height: 34px;
+  padding: 2px 8px;
+  border-right: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: 1.35;
+  vertical-align: middle;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.budget-sheet-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 32px;
+  background: var(--c-fill);
+  border-bottom: 1px solid var(--c-line-strong);
+  font-weight: 700;
+  color: var(--c-text-2);
+}
+
+.budget-sheet-table thead th.is-right {
+  text-align: right;
+}
+
+.budget-sheet-table thead th.is-left {
+  text-align: left;
+}
+
+.budget-sheet-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--c-focus) 4%, var(--c-surface));
+}
+
+.budget-sheet-table tbody tr.is-over td.bs-balance {
+  color: var(--c-danger-tint-text);
+}
+
+.budget-sheet-table .bs-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 38px;
+  min-width: 38px;
+  padding: 0 4px;
+  background: var(--c-fill);
+  border-right: 1px solid var(--c-line-strong);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-text-3);
+  text-align: center;
+}
+
+.budget-sheet-table thead .bs-gutter {
+  z-index: 3;
+}
+
+.budget-sheet-table .bs-actions {
+  width: 40px;
+  min-width: 40px;
+  border-right: 0;
+  text-align: center;
+}
+
+.budget-sheet-table td.bs-cell {
+  cursor: cell;
+}
+
+.budget-sheet-table td.bs-cell.is-editable:hover {
+  box-shadow: inset 0 0 0 1px var(--c-focus);
+}
+
+.budget-sheet-table td.is-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-sheet-table td.is-left {
+  text-align: left;
+}
+
+.budget-sheet-table td.bs-money,
+.budget-sheet-table td.bs-calc,
+.budget-sheet-table td.bs-spent {
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-sheet-table td.bs-calc {
+  background: color-mix(in srgb, var(--c-fill) 55%, var(--c-surface));
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+
+.budget-sheet-table td.is-negative {
+  color: var(--c-danger-tint-text);
+  font-weight: 700;
+}
+
+.budget-sheet-table td.is-editing {
+  padding: 0;
+  background: var(--c-surface);
+  box-shadow: inset 0 0 0 2px var(--c-focus);
+}
+
+.budget-sheet-table .bs-input {
+  width: 100%;
+  height: 33px;
+  min-height: 33px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 0;
+  background: var(--c-surface);
+  font-family: inherit;
+  font-size: var(--fs-caption);
+  color: var(--c-text-1);
+  text-align: inherit;
+}
+
+.budget-sheet-table .bs-input:focus {
+  outline: none;
+  background: var(--c-surface);
+}
+
+.budget-sheet-table td.is-editing .bs-input {
+  font-variant-numeric: tabular-nums;
+}
+
+.bs-text {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bs-spent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: 100%;
+}
+
+.bs-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--c-info-tint);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-info-tint-text);
+}
+
+.bs-tag.is-grid {
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
+}
+
+.bs-tag.is-planned {
+  background: var(--c-warning-tint);
+  color: var(--c-warning-tint-text);
+}
+
+.bs-muted {
+  color: var(--c-text-disabled);
+}
+
+.bs-row-remove {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-s);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--c-text-3);
+}
+
+.bs-row-remove:hover {
+  background: var(--c-danger-tint);
+  color: var(--c-danger-tint-text);
+}
+
+.budget-sheet-table tfoot td,
+.budget-sheet-table tfoot th {
+  position: sticky;
+  bottom: 0;
+  height: 36px;
+  background: var(--c-fill);
+  border-top: 1px solid var(--c-line-strong);
+  border-bottom: 0;
+  font-weight: 700;
+  color: var(--c-text-1);
+}
+
+.budget-sheet-table tfoot .bs-total-label {
+  text-align: left;
+  color: var(--c-text-2);
+}
+
+.budget-sheet-table tfoot .bs-actions {
+  background: var(--c-fill);
+}
+
+.budget-sheet-empty {
+  padding: 18px 12px;
+  text-align: left;
+  white-space: normal;
+  color: var(--c-text-3);
+}
+
+.budget-sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--stack-s);
+  font-size: var(--fs-caption);
+  color: var(--c-text-3);
+}
+
+.budget-sheet-foot .small {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: var(--fs-caption);
+}
+
+/* 엑셀 시트 고르기 */
+.xlsx-sheet-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--stack-s);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-s);
+  background: var(--c-fill);
+}
+
+.xlsx-sheet-picker > span {
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.xlsx-sheet-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.budget-digest-button {
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .budget-sheet-bar {
+    flex-direction: column;
+  }
+
+  .budget-sheet-actions {
+    width: 100%;
+  }
+
+  .budget-sheet-actions .small {
+    flex: 1 1 auto;
+  }
+
+  /* 좁은 화면에서는 표가 자기 상자 안에서만 가로로 넘어간다(페이지 폭은 그대로). */
+  .budget-sheet-scroll {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .budget-sheet-table {
+    min-width: 960px;
+  }
+}

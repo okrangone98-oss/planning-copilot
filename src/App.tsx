@@ -56,7 +56,8 @@ import {
   type PhotoCaptions,
   type SpreadsheetMaterial
 } from "./lib/reportMaterials.mjs";
-import { buildProjectDataText, digestLoadedNote, mergeDigestIntoText, projectDataSignature, textSignature } from "./lib/projectDataReuse.mjs";
+import { buildBudgetDigestText, buildProjectDataText, digestLoadedNote, mergeDigestIntoText, projectDataSignature, replaceDigestSection, textSignature } from "./lib/projectDataReuse.mjs";
+import { readXlsxWorkbook, rowsToTsvText } from "./lib/xlsxTable.mjs";
 import { applyFieldValues, extractFormFields } from "./lib/kordocFormSpec.mjs";
 import {
   buildSmartTextPrompt,
@@ -1058,6 +1059,31 @@ export default function App() {
     notify(digest.missing.length ? `${next} 비어 있는 항목 ${digest.missing.length}개는 0으로 채우지 않고 비워 두었습니다.` : next);
   };
 
+  /**
+   * 예산 관리표 숫자만 2단계에 넣는다 — 작년 결과보고서·정산 양식을 올해 것으로 바꿀 때
+   * 총사업비·집행액·잔액·비목 칸을 격자 숫자로 채우는 1클릭 경로.
+   * 앞서 넣은 예산 관리표 블록은 걷어내고 최신 값으로 바꾼다(여러 번 눌러도 쌓이지 않는다).
+   */
+  const useBudgetDataForTemplate = () => {
+    const digest = buildBudgetDigestText({ plan: grantPlan, work });
+    if (!digest.text.trim() || !digest.counts.lines) {
+      notify("예산 관리표에 아직 숫자가 없습니다. ‘예산 편성’이나 사업 상세의 ‘예산·집행’에서 비목과 금액을 먼저 적어 주세요.");
+      return;
+    }
+    const merged = replaceDigestSection(templateSession.smartText, digest.text);
+    updateTemplateSession({ smartText: merged.text });
+    setSmartResult(null);
+    setSmartSelected(new Set());
+    setSmartNote("");
+    setSmartError("");
+    const head = `예산 관리표 숫자 ${digest.counts.lines}줄을 ${templateSession.schema ? "2단계에" : "준비해 두었습니다"}${merged.removed ? " (앞서 넣은 예산 블록은 새 값으로 바꿨습니다)" : ""}.`;
+    notify(
+      templateSession.schema
+        ? `${head} ‘자동으로 칸 나누기’를 눌러 총사업비·집행액·잔액 칸에 배치하세요.`
+        : `${head} 1단계에서 서류 양식을 올리면 2단계에서 이 숫자가 보입니다.`
+    );
+  };
+
   /** 불러온 뒤 사업 데이터가 바뀌었는지 — 화면을 열어 둔 채 예산·회차를 고치면 알려 준다. */
   /**
    * 2단계 재료 파일 — 올해 추진계획서(.hwpx)에서 라벨·값·예산·일정을 뽑아
@@ -1122,6 +1148,37 @@ export default function App() {
   };
 
   const pickMaterialFile = (file: File) => {
+    if (/\.xls$/i.test(file.name) && !/\.xlsx$/i.test(file.name)) {
+      notify("예전 엑셀 파일(.xls)은 읽지 못합니다. 엑셀에서 ‘다른 이름으로 저장 → .xlsx 또는 .csv’로 저장해 올려 주세요.");
+      return;
+    }
+    if (/\.xlsx$/i.test(file.name)) {
+      // 시트가 여럿이면 날짜·인원(또는 적요·금액) 머리글을 알아보는 시트를 먼저 고른다 — 어느 시트를 읽었는지도 밝힌다.
+      void (async () => {
+        try {
+          const buffer = await file.arrayBuffer();
+          let chosen = await readXlsxWorkbook(buffer, { sheetIndex: 0 });
+          if (chosen.names.length > 1) {
+            const first = parseSpreadsheetMaterial(rowsToTsvText(chosen.rows));
+            if (!first.line) {
+              for (let index = 1; index < Math.min(chosen.names.length, 8); index += 1) {
+                const sheet = await readXlsxWorkbook(buffer, { sheetIndex: index });
+                if (parseSpreadsheetMaterial(rowsToTsvText(sheet.rows)).line) {
+                  chosen = sheet;
+                  break;
+                }
+              }
+            }
+            notify(`엑셀 시트 ${chosen.names.length}개 중 ‘${chosen.name}’ 시트를 읽었습니다. 다른 시트가 맞으면 그 시트의 표를 복사해 붙여넣어 주세요.`);
+          }
+          chosen.warnings.forEach((warning) => notify(warning));
+          applyMaterialText(rowsToTsvText(chosen.rows), file.name);
+        } catch {
+          notify("엑셀 자료를 읽지 못했습니다. 엑셀에서 CSV로 저장해 올리거나 표를 복사해 붙여넣어 주세요.");
+        }
+      })();
+      return;
+    }
     void file
       .text()
       .then((text) => applyMaterialText(text, file.name))
@@ -2414,6 +2471,7 @@ export default function App() {
             onConfirmPlan={confirmPlan}
             notify={notify}
             focusTaskId={focusTaskId}
+            onSendBudgetToTemplate={() => { setSection("templateFill"); useBudgetDataForTemplate(); }}
           />
         )}
 
@@ -2985,6 +3043,9 @@ export default function App() {
               onChange={updateGrantPlan}
               onApplyPreset={applyGrantPresetToPlan}
               notify={notify}
+              work={work}
+              onUpdateWork={updateWork}
+              onSendBudgetToTemplate={() => { setSection("templateFill"); useBudgetDataForTemplate(); }}
             />
             {/* 단계 이동은 화면 하단 고정 바가 맡는다. 여기에는 되돌리는 버튼만 둔다. */}
             <div className="draft-actions grant-reset-row">
@@ -3085,6 +3146,7 @@ export default function App() {
               layout={templateLayout}
               onLayoutChange={setTemplateLayout}
               onLoadProjectData={useProjectDataForTemplate}
+              onLoadBudgetData={useBudgetDataForTemplate}
               projectDataNote={templateDigestNote}
               projectDataStale={templateDigestStale}
               planSource={planSource}

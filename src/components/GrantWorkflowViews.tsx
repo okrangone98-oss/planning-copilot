@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import type { GrantBudgetLine, GrantChecklistItem, GrantPlan, GrantPreset, ProjectData } from "../types";
-import { budgetSummary, checklistSummary, emptyBudgetLine, formatWon, groupChecklist, lineAmount, reportSummary, toText } from "../lib/grantWorkflow.mjs";
+import type { GrantChecklistItem, GrantPlan, GrantPreset, ProjectData } from "../types";
+import { budgetSummary, checklistSummary, formatWon, groupChecklist, reportSummary, toText } from "../lib/grantWorkflow.mjs";
 import { attendanceReport, expenseSummary, type ProjectWork } from "../lib/projectOperations.mjs";
 import { buildReportDocument, buildReportHwpxBytes, reportFileName, reportTemplateUrl } from "../lib/reportHwpx.mjs";
-import { BudgetImportPanel } from "./BudgetImportPanel";
+import { applyGridSpent, type GridSpentUpdate } from "../lib/budgetSheet.mjs";
+import { BudgetSheet } from "./BudgetSheet";
 
 type GrantViewProps = {
   plan: GrantPlan;
@@ -19,20 +20,6 @@ export type EvidenceRollup = {
   missing: number;
   amount: number;
 };
-
-const CATEGORY_SUGGESTIONS = ["인건비", "운영비", "사업비", "홍보비", "여비", "일반수용비", "시설·장비비", "기타"];
-
-/**
- * 단가 입력칸을 벗어날 때 1,100,000 처럼 읽기 쉬운 숫자로 바꾼다.
- * "25만원" 같은 손글씨 표기는 뜻이 달라질 수 있으므로 그대로 둔다.
- */
-function formatAmountInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed || /만|천/.test(trimmed)) return value;
-  const digits = trimmed.replace(/[^\d]/g, "");
-  if (!digits) return value;
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
 
 function NumberField({
   label,
@@ -54,39 +41,6 @@ function NumberField({
       <span>{label}</span>
       <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} inputMode={type === "text" ? "numeric" : undefined} />
     </label>
-  );
-}
-
-/** 단가 입력칸: 쉬는 동안은 "250,000"처럼 콤마로, 입력 중에는 친 그대로 둔다. */
-function AmountInput({
-  value,
-  onChange,
-  ariaLabel,
-  placeholder = "250,000"
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  ariaLabel: string;
-  placeholder?: string;
-}) {
-  const [focused, setFocused] = useState(false);
-  const display = focused ? value : formatAmountInput(value);
-  return (
-    <input
-      value={display}
-      placeholder={placeholder}
-      inputMode="numeric"
-      aria-label={ariaLabel}
-      onFocus={() => {
-        setFocused(true);
-        if (display !== value) onChange(display);
-      }}
-      onChange={(event) => onChange(event.target.value)}
-      onBlur={(event) => {
-        setFocused(false);
-        onChange(formatAmountInput(event.target.value));
-      }}
-    />
   );
 }
 
@@ -143,39 +97,32 @@ export function GrantBudgetView({
   presets,
   hasWork,
   notify,
-  project
+  project,
+  work,
+  onUpdateWork,
+  onSendBudgetToTemplate
 }: GrantViewProps & {
   presets: GrantPreset[];
   hasWork: boolean;
   onApplyPreset: (presetId: string) => void;
   project: ProjectData;
+  /** 지출 원장 — 넘기면 관리표의 집행액·잔액이 원장과 연결된다. */
+  work?: ProjectWork;
+  onUpdateWork?: (next: ProjectWork) => void;
+  /** 예산 관리표 숫자를 서류 양식 채우기 2단계로 보낸다. */
+  onSendBudgetToTemplate?: () => void;
 }) {
   const summary = useMemo(() => budgetSummary(plan), [plan]);
   const [selectedPreset, setSelectedPreset] = useState(plan.presetId || presets[0]?.id || "");
-  // 모바일 아코디언: 기본은 요약 1줄, 연 행만 상세 입력을 보여 준다. 새로 추가한 행은 펼친 채로 시작한다.
-  const [openRows, setOpenRows] = useState<string[]>([]);
-  const rowKey = (line: GrantBudgetLine, index: number) => line.id || `row-${index}`;
-  const isRowOpen = (line: GrantBudgetLine, index: number) => openRows.includes(rowKey(line, index));
-  const toggleRow = (line: GrantBudgetLine, index: number) => {
-    const key = rowKey(line, index);
-    setOpenRows((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
-  };
 
-  const updateLine = (index: number, patch: Partial<GrantBudgetLine>) => {
-    const next = plan.budgetLines.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line));
-    onChange({ budgetLines: next });
-  };
-
-  const removeLine = (index: number) => {
-    const key = rowKey(plan.budgetLines[index], index);
-    setOpenRows((current) => current.filter((item) => item !== key));
-    onChange({ budgetLines: plan.budgetLines.filter((_, lineIndex) => lineIndex !== index) });
-  };
-
-  const addLine = () => {
-    const line = emptyBudgetLine(`line-${Date.now()}`);
-    onChange({ budgetLines: [...plan.budgetLines, line] });
-    setOpenRows((current) => [...current, line.id]);
+  /** 격자에서 고친 집행액을 지출 원장에 반영한다(예산·집행 탭과 같은 규칙). */
+  const setSpent = (updates: GridSpentUpdate[]) => {
+    if (!onUpdateWork) return;
+    const current = work || ({ expenses: [] } as unknown as ProjectWork);
+    const result = applyGridSpent({ work: current, updates, now: new Date() });
+    if (result.work !== current) onUpdateWork(result.work);
+    if (result.skipped.length) notify(result.skipped[0].reason);
+    else if (result.changed) notify(`집행액 ${result.changed}건을 지출 원장에 반영했습니다.`);
   };
 
   const apply = () => {
@@ -253,141 +200,29 @@ export function GrantBudgetView({
         <p className="grant-warning">입력한 비율 합이 {summary.funding.rateSum}%입니다. 합이 100%가 아니면 자부담을 잔액으로 계산합니다.</p>
       )}
 
-      <BudgetImportPanel
-        lines={plan.budgetLines}
-        onChange={(budgetLines) => onChange({ budgetLines })}
-        notify={notify}
-      />
-
       <section className="grant-block">
         <div className="grant-block-head">
           <div>
             <strong>비목별 예산 편성표</strong>
-            <span>단가는 숫자로, 수량은 "8" 또는 "8회"로 적어도 됩니다. 금액은 자동 계산됩니다.</span>
+            <span>
+              엑셀·구글 시트처럼 칸을 눌러 고칩니다. 편성액은 단가 × 수량으로 계산되고, 집행액·잔액은 지출 원장과 이어집니다.
+              엑셀 파일(.xlsx)을 올리거나 시트에서 복사한 표를 붙여넣어도 됩니다.
+            </span>
           </div>
-          <button className="secondary-button" type="button" onClick={addLine}>항목 추가</button>
+          {onSendBudgetToTemplate && (
+            <button className="secondary-button" type="button" onClick={onSendBudgetToTemplate}>
+              서류 양식에 숫자 넣기
+            </button>
+          )}
         </div>
-        {plan.budgetLines.length ? (
-          <>
-            <datalist id="grant-category-list">
-              {CATEGORY_SUGGESTIONS.map((category) => <option key={category} value={category} />)}
-            </datalist>
-            {/* 데스크톱·태블릿: 한눈에 비교하는 표 */}
-            <div className="budget-desktop table-wrap grant-table-wrap">
-              <table className="grant-table">
-                <thead>
-                  <tr>
-                    <th>비목</th>
-                    <th>세목</th>
-                    <th>단가</th>
-                    <th>수량</th>
-                    <th>금액</th>
-                    <th>산출근거</th>
-                    <th>비고</th>
-                    <th aria-label="삭제" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.budgetLines.map((line, index) => (
-                    <tr key={line.id || index}>
-                      <td data-label="비목">
-                        <input list="grant-category-list" value={line.category} placeholder="인건비" aria-label={`${index + 1}행 비목`} onChange={(event) => updateLine(index, { category: event.target.value })} />
-                      </td>
-                      <td data-label="세목">
-                        <input value={line.item} placeholder="외래강사비" aria-label={`${index + 1}행 세목`} onChange={(event) => updateLine(index, { item: event.target.value })} />
-                      </td>
-                      <td data-label="단가">
-                        <AmountInput
-                          value={line.unitCost}
-                          ariaLabel={`${index + 1}행 단가`}
-                          onChange={(unitCost) => updateLine(index, { unitCost })}
-                        />
-                      </td>
-                      <td data-label="수량">
-                        <input value={line.quantity} placeholder="8회" aria-label={`${index + 1}행 수량`} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
-                      </td>
-                      <td className="grant-amount" data-label="금액">{formatWon(lineAmount(line))}</td>
-                      <td data-label="산출근거">
-                        <input value={line.basis} placeholder="250,000원 × 8회" aria-label={`${index + 1}행 산출근거`} onChange={(event) => updateLine(index, { basis: event.target.value })} />
-                      </td>
-                      <td data-label="비고">
-                        <input value={line.note} placeholder="메모" aria-label={`${index + 1}행 비고`} onChange={(event) => updateLine(index, { note: event.target.value })} />
-                      </td>
-                      <td className="grant-row-actions" data-label="">
-                        <button className="ghost-light-button grant-row-remove" type="button" onClick={() => removeLine(index)} aria-label={`${index + 1}행 ${line.item || "항목"} 삭제`}>삭제</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* 모바일·좁은 화면: 비목·세목·금액 요약 1줄 + 탭해서 상세 입력 */}
-            <ul className="budget-accordion" aria-label="비목별 예산 편성표 요약">
-              {plan.budgetLines.map((line, index) => {
-                const open = isRowOpen(line, index);
-                return (
-                  <li className={`budget-acc-item ${open ? "is-open" : ""}`} key={line.id || index}>
-                    <button
-                      className="budget-acc-head"
-                      type="button"
-                      aria-expanded={open}
-                      onClick={() => toggleRow(line, index)}
-                    >
-                      <span className="budget-acc-main">
-                        <strong>{line.category || "비목 미입력"}</strong>
-                        <span>{line.item || "세목 미입력"}</span>
-                      </span>
-                      <span className="budget-acc-amount">{formatWon(lineAmount(line))}</span>
-                      <span className="budget-acc-caret" aria-hidden="true" />
-                    </button>
-                    {open && (
-                      <div className="budget-acc-body">
-                        <label className="budget-acc-field">
-                          <span>비목</span>
-                          <input list="grant-category-list" value={line.category} placeholder="인건비" aria-label={`${index + 1}행 비목(모바일)`} onChange={(event) => updateLine(index, { category: event.target.value })} />
-                        </label>
-                        <label className="budget-acc-field">
-                          <span>세목</span>
-                          <input value={line.item} placeholder="외래강사비" aria-label={`${index + 1}행 세목(모바일)`} onChange={(event) => updateLine(index, { item: event.target.value })} />
-                        </label>
-                        <label className="budget-acc-field">
-                          <span>단가</span>
-                          <AmountInput
-                            value={line.unitCost}
-                            ariaLabel={`${index + 1}행 단가(모바일)`}
-                            onChange={(unitCost) => updateLine(index, { unitCost })}
-                          />
-                        </label>
-                        <label className="budget-acc-field">
-                          <span>수량</span>
-                          <input value={line.quantity} placeholder="8회" aria-label={`${index + 1}행 수량(모바일)`} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
-                        </label>
-                        <label className="budget-acc-field wide">
-                          <span>산출근거</span>
-                          <input value={line.basis} placeholder="250,000원 × 8회" aria-label={`${index + 1}행 산출근거(모바일)`} onChange={(event) => updateLine(index, { basis: event.target.value })} />
-                        </label>
-                        <label className="budget-acc-field wide">
-                          <span>비고</span>
-                          <input value={line.note} placeholder="메모" aria-label={`${index + 1}행 비고(모바일)`} onChange={(event) => updateLine(index, { note: event.target.value })} />
-                        </label>
-                        <div className="budget-acc-foot">
-                          <span>금액 {formatWon(lineAmount(line))}</span>
-                          <button className="ghost-light-button grant-row-remove" type="button" onClick={() => removeLine(index)} aria-label={`${index + 1}행 ${line.item || "항목"} 삭제`}>삭제</button>
-                        </div>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        ) : (
-          <div className="office-empty">
-            <strong>편성된 비목이 없습니다.</strong>
-            <span>위에서 프리셋을 적용하거나 항목 추가로 직접 편성표를 만드세요.</span>
-          </div>
-        )}
+        <BudgetSheet
+          lines={plan.budgetLines}
+          onChange={(budgetLines) => onChange({ budgetLines })}
+          notify={notify}
+          expenses={work ? work.expenses : undefined}
+          onSetSpent={onUpdateWork ? setSpent : undefined}
+          fileNamePrefix={`${project.projectName || plan.programName || "예산"}관리표`}
+        />
         {summary.byCategory.length > 0 && (
           <div className="grant-category-summary">
             {summary.byCategory.map((entry) => (

@@ -15,7 +15,8 @@ import {
 } from "../lib/projectOperations.mjs";
 import { expensesToTsv } from "../lib/expenseImport.mjs";
 import type { ExpenseInput } from "../lib/expenseImport.mjs";
-import { BudgetImportPanel } from "./BudgetImportPanel";
+import { applyGridSpent, type GridSpentUpdate } from "../lib/budgetSheet.mjs";
+import { BudgetSheet } from "./BudgetSheet";
 import { ExpenseImportPanel } from "./ExpenseImportPanel";
 
 type ExpenseDraft = {
@@ -111,7 +112,8 @@ export function ProjectBudgetTab({
   onUpdateWork,
   notify,
   onNavigate,
-  onOpenTab
+  onOpenTab,
+  onSendBudgetToTemplate
 }: {
   meta: ProjectMeta;
   plan: GrantPlan;
@@ -121,11 +123,11 @@ export function ProjectBudgetTab({
   notify: (message: string) => void;
   onNavigate: (section: SectionId) => void;
   onOpenTab?: (tab: "overview" | "tasks" | "sessions" | "budget") => void;
+  /** 예산 관리표 숫자를 서류 양식 채우기 2단계로 보낸다. */
+  onSendBudgetToTemplate?: () => void;
 }) {
-  const summary = budgetSummary(plan);
-  const funding = summary.funding;
+  const funding = budgetSummary(plan).funding;
   const ledger = useMemo(() => expenseSummary(work, plan), [work, plan]);
-  const maxCategory = summary.byCategory.reduce((max, item) => Math.max(max, item.total), 0);
   const [filter, setFilter] = useState<LedgerFilter>("all");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -239,6 +241,14 @@ export function ProjectBudgetTab({
     }
   };
 
+  /** 격자에서 고친 집행액 — 원장 기록이 없는 비목만 '예산 관리표에서 입력' 한 건으로 반영한다. */
+  const setGridSpent = (updates: GridSpentUpdate[]) => {
+    const result = applyGridSpent({ work, updates, now: new Date() });
+    if (result.work !== work) onUpdateWork(result.work);
+    if (result.skipped.length) notify(result.skipped[0].reason);
+    else if (result.changed) notify(`집행액 ${result.changed}건을 지출 원장에 반영했습니다.`);
+  };
+
   const copyTsv = async () => {
     try {
       await navigator.clipboard.writeText(expensesToTsv(expenses, plan.budgetLines));
@@ -346,7 +356,7 @@ export function ProjectBudgetTab({
       )}
 
       <div className="block-head">
-        <h3>비목별 계획 · 집행 · 잔액</h3>
+        <h3>예산 관리표</h3>
         <span className="block-count">지출 {ledger.expenseCount}건 · 비목 {ledger.lineCount}개</span>
       </div>
 
@@ -356,99 +366,29 @@ export function ProjectBudgetTab({
         </p>
       )}
 
-      {ledger.rows.length === 0 ? (
-        <div className="office-empty">
-          <strong>아직 예산 비목도, 지출도 없습니다.</strong>
-          <span>아래 ‘계획 비목 편집’에서 비목을 채우거나 구글 시트·CSV를 붙여넣으면 계획액이 잡힙니다. 지출은 원장에 한 건씩 적거나 시트에서 한 번에 가져올 수 있습니다.</span>
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table className="stacked-table pc-ledger-table">
-            <thead>
-              <tr>
-                <th>비목</th>
-                <th>계획액</th>
-                <th>집행액</th>
-                <th>잔액</th>
-                <th>집행률</th>
-                <th>알림</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ledger.rows.map((row) => (
-                <tr key={row.category} className={row.over ? "is-over" : ""}>
-                  <td data-label="비목">
-                    <strong>{row.category}</strong>
-                    <small className="pc-cell-note">지출 {row.count}건{row.planned ? ` · 계획만 ${formatWon(row.planned)}` : ""}</small>
-                  </td>
-                  <td data-label="계획액">{formatWon(row.plan)}</td>
-                  <td data-label="집행액">
-                    <strong>{formatWon(row.spent)}</strong>
-                    <small className="pc-cell-note">완료 {formatWon(row.paid)} · 예정 {formatWon(row.pending)}</small>
-                  </td>
-                  <td data-label="잔액" className={row.balance < 0 ? "is-negative" : ""}>{formatWon(row.balance)}</td>
-                  <td data-label="집행률">
-                    <span className="pc-rate">{row.plan ? `${row.rate}%` : "—"}</span>
-                    <span className="pc-rate-bar" role="presentation">
-                      <i
-                        className={row.over ? "is-over" : ""}
-                        style={{ width: `${Math.min(100, row.plan ? Math.round((row.spent / row.plan) * 100) : row.spent ? 100 : 0)}%` }}
-                      />
-                    </span>
-                  </td>
-                  <td data-label="알림">
-                    {row.over ? (
-                      <span className="pc-state-chip is-blocked">초과 {formatWon(row.spent - row.plan)}</span>
-                    ) : row.plan === 0 ? (
-                      <span className="pc-state-chip is-new">계획 없음</span>
-                    ) : (
-                      <span className="pc-state-chip is-kept">여유</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td data-label="합계">합계</td>
-                <td data-label="계획액">{formatWon(ledger.total.plan)}</td>
-                <td data-label="집행액">{formatWon(ledger.total.spent)}</td>
-                <td data-label="잔액" className={ledger.total.balance < 0 ? "is-negative" : ""}>{formatWon(ledger.total.balance)}</td>
-                <td data-label="집행률">{ledger.total.plan ? `${ledger.total.rate}%` : "—"}</td>
-                <td data-label="알림">{ledger.total.over ? "초과" : "—"}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
+      <BudgetSheet
+        lines={plan.budgetLines}
+        onChange={onChangeLines}
+        notify={notify}
+        expenses={expenses}
+        onSetSpent={setGridSpent}
+        fileNamePrefix={`${meta.name || "사업"} 예산관리표`}
+      />
 
       <p className="block-note">
         집행액 = 집행 완료 + 지출 예정입니다. 계획만 세운 지출{ledger.plannedOnly ? ` ${formatWon(ledger.plannedOnly)}` : ""}은 잔액에서 빼지 않고 참고로만 셉니다.
         {ledger.unassignedCount > 0 ? ` 비목을 찾지 못한 지출 ${ledger.unassignedCount}건은 ‘비목 미지정’으로 묶어 합계에는 넣었습니다.` : ""}
       </p>
 
-      {ledger.rows.some((row) => row.lines.length > 0) && (
-        <details className="pc-line-detail">
-          <summary>세목별로 보기</summary>
-          <ul>
-            {ledger.rows.map((row) => (
-              row.lines.length > 0 && (
-                <li key={row.category}>
-                  <strong>{row.category}</strong>
-                  <ul>
-                    {row.lines.map((line) => (
-                      <li key={line.id} className={line.over ? "is-over" : ""}>
-                        <span>{line.item || "세목 없음"}</span>
-                        <span>계획 {formatWon(line.plan)} · 집행 {formatWon(line.spent)} · 잔액 {formatWon(line.balance)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              )
-            ))}
-          </ul>
-        </details>
-      )}
+      <div className="pc-note-with-link">
+        <button className="block-link" type="button" onClick={() => onNavigate("grantBudget")}>예산 편성 화면에서 편집</button>
+        {onSendBudgetToTemplate && (
+          <button className="block-link" type="button" onClick={onSendBudgetToTemplate}>서류 양식에 숫자 넣기</button>
+        )}
+        {onOpenTab && (
+          <button className="block-link" type="button" onClick={() => onOpenTab("sessions")}>회차·인원 열기</button>
+        )}
+      </div>
 
       <div className="block-head">
         <h3>지출 원장</h3>
@@ -588,77 +528,6 @@ export function ProjectBudgetTab({
         <button className="block-link" type="button" onClick={() => onNavigate("grantChecklist")}>정산 증빙 화면에서 누락 보기</button>
       </div>
 
-      <details className="pc-plan-editor">
-        <summary>
-          <span>계획 비목 편집</span>
-          <small>비목 {summary.lineCount}개 · 계획액 {formatWon(summary.total)} · 예산 편성 화면과 같은 데이터</small>
-        </summary>
-        <div className="pc-plan-editor-body">
-          <div className="pc-stat-row" aria-label="재원 구성">
-            <div className="pc-stat"><span>국비</span><strong>{formatWon(funding.subsidy)}</strong></div>
-            <div className="pc-stat"><span>지방비</span><strong>{formatWon(funding.local)}</strong></div>
-            <div className="pc-stat"><span>자부담</span><strong>{formatWon(funding.self)}</strong></div>
-          </div>
-          {summary.byCategory.length > 0 && (
-            <ul className="pc-budget-bars">
-              {summary.byCategory.map((item) => (
-                <li key={item.category}>
-                  <div className="pc-budget-bar-head">
-                    <strong>{item.category}</strong>
-                    <span>{formatWon(item.total)} · {item.share}%</span>
-                  </div>
-                  <div className="pc-budget-bar" role="presentation">
-                    <i style={{ width: `${maxCategory ? Math.round((item.total / maxCategory) * 100) : 0}%` }} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          <BudgetImportPanel lines={plan.budgetLines} onChange={onChangeLines} notify={notify} />
-          {summary.rows.length > 0 && (
-            <div className="table-wrap">
-              <table className="stacked-table pc-budget-table">
-                <thead>
-                  <tr>
-                    <th>비목</th>
-                    <th>세목</th>
-                    <th>단가</th>
-                    <th>수량</th>
-                    <th>금액</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.rows.slice(0, 20).map((row) => (
-                    <tr key={row.id}>
-                      <td data-label="비목">{row.category || "미분류"}</td>
-                      <td data-label="세목">{row.item || "—"}</td>
-                      <td data-label="단가">{formatWon(Number(row.unitCost) || 0)}</td>
-                      <td data-label="수량">{row.quantity || "—"}</td>
-                      <td data-label="금액"><strong>{formatWon(row.amount)}</strong></td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={4} data-label="합계">합계</td>
-                    <td data-label="합계 금액"><strong>{formatWon(summary.total)}</strong></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-          {summary.rows.length > 20 && <p className="block-note">전체 {summary.rows.length}개 중 20개만 보여 줍니다. 전체 표는 예산 편성 화면에서 보세요.</p>}
-          <p className="block-note">
-            {meta.name} · 계획액은 예산 편성의 비목 합계 하나입니다. 여기서 고친 비목은 예산 편성 화면과 결과보고에 바로 반영됩니다.
-          </p>
-          <div className="pc-note-with-link">
-            <button className="block-link" type="button" onClick={() => onNavigate("grantBudget")}>예산 편성 화면에서 편집</button>
-            {onOpenTab && (
-              <button className="block-link" type="button" onClick={() => onOpenTab("sessions")}>회차·인원 열기</button>
-            )}
-          </div>
-        </div>
-      </details>
     </div>
   );
 }
