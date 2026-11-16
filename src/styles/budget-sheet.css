@@ -128,7 +128,7 @@
   background: color-mix(in srgb, var(--c-focus) 4%, var(--c-surface));
 }
 
-.budget-sheet-table tbody tr.is-over td.bs-balance {
+.budget-sheet-table tbody tr.is-over td.bs-col-balance {
   color: var(--c-danger-tint-text);
 }
 
@@ -160,6 +160,7 @@
 }
 
 .budget-sheet-table td.bs-cell {
+  display: table-cell;
   cursor: cell;
 }
 
@@ -176,13 +177,13 @@
   text-align: left;
 }
 
-.budget-sheet-table td.bs-money,
-.budget-sheet-table td.bs-calc,
-.budget-sheet-table td.bs-spent {
+.budget-sheet-table td.bs-kind-money,
+.budget-sheet-table td.bs-kind-calc,
+.budget-sheet-table td.bs-kind-spent {
   font-variant-numeric: tabular-nums;
 }
 
-.budget-sheet-table td.bs-calc {
+.budget-sheet-table td.bs-kind-calc {
   background: color-mix(in srgb, var(--c-fill) 55%, var(--c-surface));
   color: var(--c-text-2);
   font-weight: 600;
@@ -222,14 +223,14 @@
   font-variant-numeric: tabular-nums;
 }
 
-.bs-text {
+.bs-value {
   display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.bs-spent {
+.bs-spent-line {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
