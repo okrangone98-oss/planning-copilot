@@ -1,6 +1,8 @@
 // 국고보조사업 예산·정산·결과보고 실무 로직.
 // 브라우저와 node 테스트에서 함께 쓰이므로 mjs로 두고, 타입은 grantWorkflow.d.mts에서 정의한다.
 
+import { DEFAULT_BUDGET_COLUMNS, columnsForStorage } from "./budgetColumns.mjs";
+
 export const GRANT_SCHEMA_VERSION = 1;
 
 const MAX_TEXT = 2000;
@@ -9,6 +11,7 @@ const MAX_LINES = 300;
 const MAX_CHECKLIST = 400;
 const MAX_SECTIONS = 60;
 const MAX_AMOUNT = 1_000_000_000_000;
+const MAX_CUSTOM_CELLS = 30;
 
 const SCHEDULE_FIELDS = ["applyDeadline", "projectStart", "projectEnd", "settlementDeadline", "reportDeadline", "memo"];
 
@@ -25,6 +28,7 @@ export function createEmptyGrantPlan() {
     localRate: "20",
     selfRate: "10",
     budgetLines: [],
+    budgetColumns: DEFAULT_BUDGET_COLUMNS.map((column) => ({ ...column })),
     checklist: [],
     reportSections: [],
     schedule: {
@@ -336,7 +340,19 @@ export function grantProgress(plan) {
 }
 
 export function emptyBudgetLine(id = "") {
-  return { id, category: "", item: "", unitCost: "", quantity: "", basis: "", note: "" };
+  return { id, category: "", item: "", unitCost: "", quantity: "", basis: "", note: "", custom: {} };
+}
+
+/** 사용자 열의 칸 값 — 열 id → 글자. 모르는 모양은 버리고 길이만 제한해 둔다. */
+function sanitizeCustomCells(custom) {
+  if (!custom || typeof custom !== "object" || Array.isArray(custom)) return {};
+  const cells = {};
+  for (const [rawKey, rawValue] of Object.entries(custom).slice(0, MAX_CUSTOM_CELLS)) {
+    const id = toText(rawKey, 40);
+    const value = toText(rawValue, 200);
+    if (id && value) cells[id] = value;
+  }
+  return cells;
 }
 
 /** 저장된 값은 허용 목록으로만 복원한다. 알 수 없는 필드(키·토큰 등)는 남기지 않는다. */
@@ -353,7 +369,8 @@ export function sanitizeGrantPlan(saved) {
       unitCost: toText(line?.unitCost, 40),
       quantity: toText(line?.quantity, 20),
       basis: toText(line?.basis, MAX_SHORT),
-      note: toText(line?.note, MAX_SHORT)
+      note: toText(line?.note, MAX_SHORT),
+      custom: sanitizeCustomCells(line?.custom)
     }))
     .filter((line) => line.category || line.item || line.unitCost || line.quantity);
 
@@ -392,6 +409,7 @@ export function sanitizeGrantPlan(saved) {
     localRate: toDigits(value.localRate, 3) || base.localRate,
     selfRate: toDigits(value.selfRate, 3) || base.selfRate,
     budgetLines,
+    budgetColumns: columnsForStorage(value.budgetColumns),
     checklist,
     reportSections,
     schedule: SCHEDULE_FIELDS.reduce((schedule, field) => {

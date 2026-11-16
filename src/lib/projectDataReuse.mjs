@@ -11,6 +11,7 @@
 
 import { budgetSummary, formatWon, parseAmount } from "./grantWorkflow.mjs";
 import { attendanceReport, expenseSummary, sessionSummary } from "./projectOperations.mjs";
+import { cellValueOf, isCustomizedColumn, isNumericColumn, normalizeBudgetColumns } from "./budgetColumns.mjs";
 
 const MAX_VALUE = 700;
 const MAX_TEXT = 12000;
@@ -67,6 +68,30 @@ function sumKnown(values) {
 
 function joinParts(parts, separator = " · ") {
   return parts.map((part) => String(part ?? "").trim()).filter(Boolean).join(separator);
+}
+
+/**
+ * 사용자가 이름을 바꿨거나 새로 더한 열 중, 행마다 값을 적을 열.
+ * 집행액·잔액은 합계 풀의 라벨과 같아지므로 행마다 따로 적지 않는다(합계 칸이 엉뚱한 값을 받는다).
+ */
+function rowColumnLines(columns) {
+  return (Array.isArray(columns) ? columns : []).filter((column) => isCustomizedColumn(column)
+    && column.role !== "spent" && column.role !== "balance");
+}
+
+/** 열의 값을 글 한 줄에 넣을 꼴로 — 숫자 열은 원/숫자로, 글자 열은 그대로. */
+function columnValueText(column, raw) {
+  if (raw === null || raw === undefined) return "";
+  const grouped = (number) => Math.round(number).toLocaleString("ko-KR");
+  if (typeof raw === "number") return column.kind === "number" ? grouped(raw) : formatWon(raw);
+  const value = String(raw).trim();
+  if (!value) return "";
+  if (column.role === "unitPrice") return parseAmount(value) ? formatWon(parseAmount(value)) : value;
+  if (isNumericColumn(column) && /^[\d,.\s원]+$/.test(value)) {
+    const number = Number(value.replace(/[^\d.-]/g, ""));
+    if (Number.isFinite(number)) return column.kind === "number" ? grouped(number) : formatWon(Math.round(number));
+  }
+  return value;
 }
 
 /* ────────────────────────── 글 만들기 ────────────────────────── */
@@ -146,15 +171,25 @@ export function buildProjectDataText({ meta, plan, work, project } = {}) {
   /* ④ 소요 예산 — 예산 편성 + 지출 원장(집행·잔액)을 비목마다 한 줄로 */
   const section4 = "소요 예산";
   const basisById = new Map((Array.isArray(plan?.budgetLines) ? plan.budgetLines : []).map((line) => [String(line?.id ?? ""), line]));
+  const customColumns = rowColumnLines(normalizeBudgetColumns(plan?.budgetColumns));
   const hasExpense = ledger.expenseCount > 0;
   for (const row of ledger.rows || []) {
     const category = text(row.category, 40) || "비목 미지정";
     const parts = [];
+    const extras = [];
     for (const line of row.lines || []) {
       const source = basisById.get(String(line.id ?? ""));
       const basis = text(source?.basis, 60) || joinParts([source?.unitCost ? `${formatWon(Number(source.unitCost) || 0)}` : "", source?.quantity ? `× ${text(source.quantity, 20)}` : ""], " ");
       const amount = line.plan ? formatWon(line.plan) : "";
       parts.push(joinParts([text(line.item, 60) || category, basis ? `(${basis})` : "", amount], " "));
+      // 사용자가 바꾼 머리글·새로 더한 열(국비·지방비·자부담 등)을 열 이름 그대로 함께 적는다.
+      if (source && customColumns.length) {
+        const view = { ...source, amount: line.plan, spent: line.spent, balance: line.balance, custom: source.custom || {} };
+        for (const column of customColumns) {
+          const value = columnValueText(column, cellValueOf(view, column));
+          if (value) extras.push(`${column.label} ${value}`);
+        }
+      }
     }
     if (!parts.length && row.count > 0) parts.push(`비목을 지정하지 않은 지출 ${row.count}건`);
     if (!parts.length && row.plan > 0) parts.push("세목 없이 편성한 예산");
@@ -162,7 +197,7 @@ export function buildProjectDataText({ meta, plan, work, project } = {}) {
       hasExpense && row.spent ? `집행 ${formatWon(row.spent)}` : "",
       row.plan ? `잔액 ${formatWon(row.balance)}` : ""
     ]);
-    const value = joinParts([parts.join(" / "), trail]);
+    const value = joinParts([parts.join(" / "), extras.join(" · "), trail]);
     if (value) push(section4, category, value);
   }
   if (!(ledger.rows || []).length) missing.push("소요 예산");
@@ -319,6 +354,8 @@ export function buildBudgetDigestText({ plan, work } = {}) {
 
   // 비목·세목 줄 — 양식의 비목별 금액 칸이 라벨로 찾을 수 있게 적는다.
   const basisById = new Map((Array.isArray(plan?.budgetLines) ? plan.budgetLines : []).map((line) => [String(line?.id ?? ""), line]));
+  const columns = normalizeBudgetColumns(plan?.budgetColumns);
+  const customColumns = rowColumnLines(columns);
   for (const row of ledger.rows || []) {
     const category = text(row.category, 40) || "비목 미지정";
     const parts = [];
@@ -327,6 +364,15 @@ export function buildBudgetDigestText({ plan, work } = {}) {
       const basis = text(source?.basis, 50) || joinParts([parseAmount(source?.unitCost) ? formatWon(parseAmount(source?.unitCost)) : "", source?.quantity ? `× ${text(source.quantity, 20)}` : ""], " ");
       parts.push(joinParts([text(line.item, 50) || category, basis ? `(${basis})` : "", line.plan ? formatWon(line.plan) : ""], " "));
       if (line.item) push(line.item, joinParts([line.plan ? formatWon(line.plan) : "", basis ? `(${basis})` : ""], " "));
+      // 사용자가 바꾼 머리글·새로 더한 열은 그 이름 그대로 한 줄씩 적는다 —
+      // 양식의 같은 이름 칸(예: 국비·지방비, 세부내용)이 행 순서대로 값을 받는다.
+      if (source && customColumns.length) {
+        const view = { ...source, amount: line.plan, spent: line.spent, balance: line.balance, custom: source.custom || {} };
+        for (const column of customColumns) {
+          const value = columnValueText(column, cellValueOf(view, column));
+          if (value) push(column.label, value);
+        }
+      }
     }
     if (!parts.length && row.plan > 0) parts.push("세목 없이 편성한 예산 " + formatWon(row.plan));
     const trail = joinParts([

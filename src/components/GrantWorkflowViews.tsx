@@ -204,6 +204,8 @@ export function GrantBudgetView({
         <BudgetSheet
           lines={plan.budgetLines}
           onChange={(budgetLines) => onChange({ budgetLines })}
+          columns={plan.budgetColumns}
+          onChangeColumns={(budgetColumns) => onChange({ budgetColumns })}
           notify={notify}
           expenses={work ? work.expenses : undefined}
           onSetSpent={onUpdateWork ? setSpent : undefined}

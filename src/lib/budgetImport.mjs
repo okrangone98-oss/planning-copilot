@@ -24,11 +24,36 @@ const TOTAL_WORDS = ["합계", "총계", "소계", "총합", "계"];
 /** 예산 행에 남길 칸 — 표에서 읽은 집행액 같은 곁가지 값이 저장 데이터로 새지 않게 한다. */
 export const BUDGET_LINE_FIELDS = ["category", "item", "unitCost", "quantity", "basis", "note"];
 
-/** 예산 행에서 예산표 칸만 골라낸다. */
+/** 역할 → 예산 행 필드. 역할이 없으면 빈 글자. */
+export function fieldOfRole(role) {
+  const map = {
+    category: "category",
+    item: "item",
+    unitPrice: "unitCost",
+    qty: "quantity",
+    budget: "amount",
+    spent: "spent",
+    basis: "basis",
+    note: "note"
+  };
+  return map[role] || "";
+}
+
+/** 예산 행에서 예산표 칸만 골라낸다(사용자 열의 칸 값 포함). */
 export function pickBudgetFields(line) {
   const source = line && typeof line === "object" ? line : {};
   const picked = {};
   for (const field of BUDGET_LINE_FIELDS) picked[field] = cellText(source[field]);
+  const custom = source.custom && typeof source.custom === "object" && !Array.isArray(source.custom) ? source.custom : null;
+  if (custom) {
+    const cells = {};
+    for (const [key, value] of Object.entries(custom)) {
+      const id = cellText(key).slice(0, 40);
+      const text = cellText(value);
+      if (id && text) cells[id] = text;
+    }
+    if (Object.keys(cells).length) picked.custom = cells;
+  }
   return picked;
 }
 
@@ -104,15 +129,37 @@ function isSeparatorRow(cells) {
   return filled.length > 0 && filled.every((cell) => /^:?-{2,}:?$/.test(cell.replace(/\s/g, "")));
 }
 
-/** 첫 줄이 머리글이면 열 이름으로 자리를 찾는다. 못 찾으면 null. */
-export function mapHeaderRow(cells) {
+/**
+ * 첫 줄이 머리글이면 열 이름으로 자리를 찾는다. 못 찾으면 null.
+ * columns 를 넘기면 사업이 쓰는 열 이름(바꾼 머리글·사용자 열)을 먼저 맞춘다 —
+ * 표 머리글이 표와 다른 이름이어도 사용자의 뜻을 따른다.
+ * @param {string[]} cells 머리글 줄
+ * @param {Array<{id:string, role:string, label:string}>|null} columns 사업의 표 열 정의
+ */
+export function mapHeaderRow(cells, columns = null) {
   const mapping = {};
   let hits = 0;
+  const cols = Array.isArray(columns) ? columns.filter((column) => column && column.label) : [];
+  const allowed = cols.length
+    ? new Set([...cols.map((column) => (column.role === "custom" ? `custom:${column.id}` : fieldOfRole(column.role))).filter(Boolean), "spent", "amount"])
+    : null;
   cells.forEach((cell, index) => {
     const key = normalizeHeader(cell);
     if (!key) return;
+    // ① 사용자가 붙인 열 이름을 먼저 — 같은 이름의 기본 별칭보다 사용자의 열을 따른다.
+    const own = cols.find((column) => normalizeHeader(column.label) === key);
+    if (own) {
+      const target = own.role === "custom" ? `custom:${own.id}` : fieldOfRole(own.role);
+      if (target && mapping[target] === undefined) {
+        mapping[target] = index;
+        hits += 1;
+      }
+      return;
+    }
+    // ② 흔한 표기(비목·세목·단가…)는 그 역할의 열이 있을 때만 받는다.
     for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
       if (mapping[field] !== undefined) continue;
+      if (allowed && !allowed.has(field)) continue;
       if (aliases.some((alias) => normalizeHeader(alias) === key)) {
         mapping[field] = index;
         hits += 1;
@@ -121,11 +168,24 @@ export function mapHeaderRow(cells) {
     }
   });
   // 비목·세목·단가·수량 가운데 2개 이상을 알아봐야 머리글로 인정한다(우연한 일치 방지).
+  // 사용자 열 이름을 알아봤으면 그것만으로도 머리글로 인정한다(국비·지방비만 있는 표).
   const needed = ["category", "item", "unitCost", "quantity"].filter((field) => mapping[field] !== undefined);
-  return needed.length >= 2 && hits >= 2 ? mapping : null;
+  const customHits = Object.keys(mapping).filter((key) => key.startsWith("custom:")).length;
+  return (needed.length >= 2 || (needed.length >= 1 && customHits >= 1) || customHits >= 2) && hits >= 2 ? mapping : null;
 }
 
-function positionalMapping(cellCount) {
+function positionalMapping(cellCount, columns = null) {
+  const cols = Array.isArray(columns) ? columns.filter((column) => column?.label) : [];
+  // 사용자가 정한 열 순서대로 읽는다 — 내려받은 표나 같은 표를 다시 붙일 때 자리가 어긋나지 않게.
+  if (cols.length) {
+    const mapping = {};
+    cols.forEach((column, index) => {
+      if (index >= cellCount) return;
+      const target = column.role === "custom" ? `custom:${column.id}` : fieldOfRole(column.role);
+      if (target && mapping[target] === undefined) mapping[target] = index;
+    });
+    return mapping;
+  }
   const mapping = { category: 0, item: 1, unitCost: 2, quantity: 3, basis: 4, note: 5 };
   // 금액 열이 섞여 들어온 7열 표(비목·세목·단가·수량·금액·산출근거·비고)도 흔하다.
   if (cellCount >= 7) {
@@ -165,6 +225,7 @@ function isTotalRow(cells) {
  */
 export function parseBudgetTable(text, options = {}) {
   const maxRows = Number(options.maxRows) > 0 ? Number(options.maxRows) : MAX_ROWS;
+  const columns = Array.isArray(options.columns) && options.columns.length ? options.columns : null;
   const raw = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const delimiter = options.delimiter || detectDelimiter(raw);
   const warnings = [];
@@ -185,14 +246,14 @@ export function parseBudgetTable(text, options = {}) {
     if (cells.every((cell) => !cell)) return;
 
     if (!mapping && lineIndex === 0) {
-      const header = mapHeaderRow(cells);
+      const header = mapHeaderRow(cells, columns);
       if (header) {
         mapping = header;
         hadHeader = true;
         return;
       }
     }
-    if (!mapping) mapping = positionalMapping(cells.length);
+    if (!mapping) mapping = positionalMapping(cells.length, columns);
 
     if (isTotalRow(cells)) {
       warnings.push(`${lineIndex + 1}번째 줄은 합계 행으로 보고 건너뛰었습니다.`);
@@ -238,6 +299,14 @@ export function parseBudgetTable(text, options = {}) {
       basis,
       note
     };
+    // 사용자 열의 칸 값 — 열 id 로 남긴다.
+    const customCells = {};
+    for (const [key, index] of Object.entries(mapping)) {
+      if (!key.startsWith("custom:") || index === undefined) continue;
+      const value = pick(cells, index);
+      if (value) customCells[key.slice("custom:".length)] = value;
+    }
+    if (Object.keys(customCells).length) parsedLine.custom = customCells;
     // 집행액은 예산표 칸이 아니라 원장 몫이다 — 표에 함께 실려 오면 따로 세어 둔다.
     const spent = parseAmount(spentRaw);
     if (spentRaw && !spent) {
@@ -254,7 +323,11 @@ export function parseBudgetTable(text, options = {}) {
   });
 
   if (!rows.length) warnings.push("예산 행을 찾지 못했습니다. 첫 줄에 비목·세목·단가·수량 같은 머리글을 넣거나, 시트에서 표 전체를 복사해 붙여넣어 주세요.");
-  if (!hadHeader && rows.length) warnings.push("머리글이 없어 비목 → 세목 → 단가 → 수량 → 산출근거 → 비고 순서로 읽었습니다.");
+  if (!hadHeader && rows.length) {
+    warnings.push(columns
+      ? `머리글이 없어 표에 있는 열 순서(${columns.map((column) => column.label).join(" → ")})대로 읽었습니다.`
+      : "머리글이 없어 비목 → 세목 → 단가 → 수량 → 산출근거 → 비고 순서로 읽었습니다.");
+  }
 
   return { rows, hadHeader, delimiter, warnings, totalAmount, spentTotal, lineCount: rows.length };
 }

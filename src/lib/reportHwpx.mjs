@@ -7,6 +7,8 @@
 
 import { budgetSummary, formatWon } from "./grantWorkflow.mjs";
 import { attendanceReport, expenseSummary } from "./projectOperations.mjs";
+import { budgetDocumentTable } from "./budgetSheet.mjs";
+import { DEFAULT_BUDGET_COLUMNS, isCustomizedColumn, normalizeBudgetColumns } from "./budgetColumns.mjs";
 import { escapeXmlText } from "./browserHwpxFiller.mjs";
 import { isPackageListEntry, isPreviewTextEntry, planPreviewPatch, stripPreviewImageReferences, writePreviewText } from "./hwpxPreview.mjs";
 
@@ -20,6 +22,83 @@ export function reportTemplateUrl(baseUri) {
   } catch {
     return `hwpx/${REPORT_TEMPLATE_FILE}`;
   }
+}
+
+/* ────────────────────────── 예산 표 ────────────────────────── */
+
+/**
+ * 기본 열일 때의 예산 표 — 결과보고에 자주 쓰는 다섯 칸(비목·세목·산출근거·계획·집행)으로 줄여 적는다.
+ * 사용자가 열 이름이나 열을 고쳤으면(buildSheetBudgetTable) 표를 그대로 옮긴다.
+ */
+function buildLegacyBudgetTable({ plan, ledger, hasExpense }) {
+  const basisById = new Map((Array.isArray(plan?.budgetLines) ? plan.budgetLines : []).map((line) => [String(line?.id ?? ""), text(line?.basis, 80)]));
+  const budgetRows = [];
+  let breakdownPlan = 0;
+  let breakdownSpent = 0;
+  for (const bucket of ledger.rows || []) {
+    for (const line of bucket.lines || []) {
+      breakdownPlan += Math.round(Number(line.plan) || 0);
+      breakdownSpent += Math.round(Number(line.spent) || 0);
+      budgetRows.push([
+        text(bucket.category, 40),
+        text(line.item, 60),
+        text(line.basis, 80) || basisById.get(String(line.id ?? "")) || (line.plan ? `${formatWon(line.plan)} 편성` : ""),
+        line.plan ? numberCell(line.plan) : "",
+        hasExpense ? numberCell(line.spent || 0) : ""
+      ]);
+    }
+    // 비목을 지정하지 않았거나 비목이 사라진 지출은 bucket.lines 가 비어 있다.
+    // 합계에는 들어 있으니 세부내역에도 한 줄로 적어, 표의 합과 집계 합이 어긋나지 않게 한다.
+    if (!(bucket.lines || []).length && (bucket.count > 0 || bucket.plan > 0)) {
+      breakdownPlan += Math.round(Number(bucket.plan) || 0);
+      breakdownSpent += Math.round(Number(bucket.spent) || 0);
+      budgetRows.push([
+        text(bucket.category, 40) || "비목 미지정",
+        bucket.count > 0 ? `비목을 지정하지 않은 지출 ${bucket.count}건` : "세목 없이 편성한 예산",
+        bucket.count > 0 ? "지출 원장에서 비목을 골라 주세요" : "세목을 적으면 여기에 나뉘어 적힙니다",
+        bucket.plan ? numberCell(bucket.plan) : "",
+        hasExpense ? numberCell(bucket.spent || 0) : ""
+      ]);
+    }
+  }
+  return {
+    table: budgetRows.length
+      ? {
+          headers: hasExpense ? ["비목", "세목", "산출 근거", "계획(원)", "집행(원)"] : ["비목", "세목", "산출 근거", "계획(원)"],
+          rows: budgetRows,
+          total: hasExpense
+            ? ["합계", "", "", numberCell(ledger.total.plan), numberCell(ledger.total.spent)]
+            : ["합계", "", "", numberCell(ledger.total.plan)]
+        }
+      : null,
+    breakdownPlan,
+    breakdownSpent
+  };
+}
+
+/** 사용자가 바꾼 예산 관리표(머리글·열·값)를 그대로 옮긴 표. */
+function buildSheetBudgetTable({ plan, work }) {
+  const sheetTable = budgetDocumentTable({ plan, work });
+  const budgetRows = sheetTable.rows.map((row) => row.map((cell, index) => (sheetTable.numeric[index] ? numberCell(cell) : cell)));
+  const budgetTotal = sheetTable.total.map((cell, index) => (sheetTable.numeric[index] ? numberCell(cell) : cell));
+  const sumOfColumn = (role) => {
+    const index = sheetTable.columns.findIndex((column) => column.role === role);
+    if (index < 0) return null;
+    return budgetRows.reduce((sum, row) => sum + (Number(String(row[index] ?? "").replace(/[^\d.-]/g, "")) || 0), 0);
+  };
+  return {
+    table: budgetRows.length ? { headers: sheetTable.headers, rows: budgetRows, total: budgetTotal } : null,
+    breakdownPlan: sumOfColumn("budget"),
+    breakdownSpent: sumOfColumn("spent")
+  };
+}
+
+function budgetTableOf({ plan, work, ledger, hasExpense }) {
+  const columns = normalizeBudgetColumns(plan?.budgetColumns);
+  const customized = columns.some((column) => isCustomizedColumn(column)) || columns.length !== DEFAULT_BUDGET_COLUMNS.length;
+  return customized
+    ? buildSheetBudgetTable({ plan, work })
+    : buildLegacyBudgetTable({ plan, ledger, hasExpense });
 }
 
 /* ────────────────────────── 문서 내용 ────────────────────────── */
@@ -126,52 +205,15 @@ export function buildReportDocument({ plan, project, work, generatedAt } = {}) {
   }
 
   const hasExpense = ledger.expenseCount > 0;
-  const basisById = new Map((Array.isArray(plan?.budgetLines) ? plan.budgetLines : []).map((line) => [String(line?.id ?? ""), text(line?.basis, 80)]));
-  const budgetRows = [];
-  let breakdownPlan = 0;
-  let breakdownSpent = 0;
-  for (const bucket of ledger.rows || []) {
-    for (const line of bucket.lines || []) {
-      breakdownPlan += Math.round(Number(line.plan) || 0);
-      breakdownSpent += Math.round(Number(line.spent) || 0);
-      budgetRows.push([
-        text(bucket.category, 40),
-        text(line.item, 60),
-        text(line.basis, 80) || basisById.get(String(line.id ?? "")) || (line.plan ? `${formatWon(line.plan)} 편성` : ""),
-        line.plan ? numberCell(line.plan) : "",
-        hasExpense ? numberCell(line.spent || 0) : ""
-      ]);
-    }
-    // 비목을 지정하지 않았거나 비목이 사라진 지출은 bucket.lines 가 비어 있다.
-    // 합계에는 들어 있으니 세부내역에도 한 줄로 적어, 표의 합과 집계 합이 어긋나지 않게 한다.
-    if (!(bucket.lines || []).length && (bucket.count > 0 || bucket.plan > 0)) {
-      breakdownPlan += Math.round(Number(bucket.plan) || 0);
-      breakdownSpent += Math.round(Number(bucket.spent) || 0);
-      budgetRows.push([
-        text(bucket.category, 40) || "비목 미지정",
-        bucket.count > 0 ? `비목을 지정하지 않은 지출 ${bucket.count}건` : "세목 없이 편성한 예산",
-        bucket.count > 0 ? "지출 원장에서 비목을 골라 주세요" : "세목을 적으면 여기에 나뉘어 적힙니다",
-        bucket.plan ? numberCell(bucket.plan) : "",
-        hasExpense ? numberCell(bucket.spent || 0) : ""
-      ]);
-    }
-  }
+  // 예산 표는 사용자의 예산 관리표를 따른다 — 머리글 이름을 바꾸거나 열을 더했으면 그 표를 그대로 옮긴다.
+  const { table: budgetTable, breakdownPlan, breakdownSpent } = budgetTableOf({ plan, work, ledger, hasExpense });
   const warnings = [];
-  if (hasExpense && breakdownSpent !== Math.round(ledger.total.spent)) {
+  if (hasExpense && breakdownSpent !== null && breakdownSpent !== Math.round(ledger.total.spent)) {
     warnings.push(`예산 세부내역 집행 합 ${formatWon(breakdownSpent)}이(가) 전체 집행 ${formatWon(ledger.total.spent)}와 다릅니다. 비목별 지출과 합계를 대조해 주세요.`);
   }
-  if (Math.round(ledger.total.plan) && breakdownPlan !== Math.round(ledger.total.plan)) {
+  if (Math.round(ledger.total.plan) && breakdownPlan !== null && breakdownPlan !== Math.round(ledger.total.plan)) {
     warnings.push(`예산 세부내역 계획 합 ${formatWon(breakdownPlan)}이(가) 편성 총액 ${formatWon(ledger.total.plan)}와 다릅니다. 예산 편성을 확인해 주세요.`);
   }
-  const budgetTable = budgetRows.length
-    ? {
-        headers: hasExpense ? ["비목", "세목", "산출 근거", "계획(원)", "집행(원)"] : ["비목", "세목", "산출 근거", "계획(원)"],
-        rows: budgetRows,
-        total: hasExpense
-          ? ["합계", "", "", numberCell(ledger.total.plan), numberCell(ledger.total.spent)]
-          : ["합계", "", "", numberCell(budget.total)]
-      }
-    : null;
 
   const stamp = generatedAt ? new Date(generatedAt) : new Date();
   const stampText = Number.isNaN(stamp.getTime())

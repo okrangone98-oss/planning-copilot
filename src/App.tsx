@@ -57,6 +57,7 @@ import {
   type SpreadsheetMaterial
 } from "./lib/reportMaterials.mjs";
 import { buildBudgetDigestText, buildProjectDataText, digestLoadedNote, mergeDigestIntoText, projectDataSignature, replaceDigestSection, textSignature } from "./lib/projectDataReuse.mjs";
+import { budgetDocumentTable } from "./lib/budgetSheet.mjs";
 import { readXlsxWorkbook, rowsToTsvText } from "./lib/xlsxTable.mjs";
 import { applyFieldValues, extractFormFields } from "./lib/kordocFormSpec.mjs";
 import {
@@ -1364,6 +1365,22 @@ export default function App() {
     [templateSession.schema]
   );
 
+  /**
+   * 서류 양식의 예산 표에 넣을 값 — 사용자의 예산 관리표(바뀐 머리글·더한 열 포함)를 그대로 옮긴다.
+   * 양식의 표 머리글이 이 열 이름과 맞으면 행 순서대로 칸을 채운다.
+   */
+  const templateBudgetSheet = useMemo(() => {
+    const table = budgetDocumentTable({ plan: grantPlan, work });
+    if (!table.rows.length) return null;
+    // 양식 칸에 들어갈 글자 — 숫자 열은 쉼표를 넣어 사람이 읽기 좋게 적는다.
+    const rows = table.rows.map((row) => row.map((cell, index) => {
+      if (!table.numeric[index]) return cell;
+      const number = Number(String(cell).replace(/[^\d.-]/g, ""));
+      return cell && Number.isFinite(number) ? number.toLocaleString("ko-KR") : cell;
+    }));
+    return { columns: table.columns, rows };
+  }, [grantPlan, work]);
+
   /* ── 전년도 결과보고서 양식 이양 ───────────────────────── */
 
   const currentYear = new Date().getFullYear();
@@ -2467,6 +2484,7 @@ export default function App() {
             onRename={(name) => updateProject({ projectName: name })}
             onUpdateWork={updateWork}
             onChangeGrantLines={(lines) => updateGrantPlan({ budgetLines: lines })}
+            onChangeGrantColumns={(budgetColumns) => updateGrantPlan({ budgetColumns })}
             onNavigate={setSection}
             onConfirmPlan={confirmPlan}
             notify={notify}
@@ -3143,6 +3161,7 @@ export default function App() {
               carryoverById={carryoverClassified?.byId}
               carryoverOverwrites={carryoverOverwrites}
               textRewrites={textRewrites}
+              budgetSheet={templateBudgetSheet}
               layout={templateLayout}
               onLayoutChange={setTemplateLayout}
               onLoadProjectData={useProjectDataForTemplate}

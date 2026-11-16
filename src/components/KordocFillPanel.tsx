@@ -88,6 +88,7 @@ export function KordocFillPanel({
   carryoverOverwrites = null,
   carryoverPreflight = null,
   textRewrites = null,
+  budgetSheet = null,
   compact = false
 }: {
   fields: FormField[];
@@ -114,6 +115,11 @@ export function KordocFillPanel({
   textRewrites?: Array<{ from: string; to: string; label?: string; fieldId?: string }> | null;
   /** 사전 점검에 넘길 이양 정보(잔존 점검) */
   carryoverPreflight?: { plan?: CarryoverPlan | null; leftover?: CarryoverLeftover | null } | null;
+  /**
+   * 예산 관리표의 서류용 표 — 열 머리글과 행 값. 넘기면 양식의 예산 표 머리글을 이 열 이름으로 맞춰
+   * 행 순서대로 칸을 채운다(사용자가 바꾼 머리글·더한 열도 그대로 쓴다).
+   */
+  budgetSheet?: { columns: Array<{ id: string; role: string; label: string }>; rows: string[][] } | null;
   /** 3단계 간단 화면 — 값 표와 내려받기만 남기고 개발자용 설정을 접어 둔다 */
   compact?: boolean;
 }) {
@@ -209,7 +215,8 @@ export function KordocFillPanel({
         bytes: base64ToBytes(fileBase64),
         values: fill.values,
         overwrites: carryoverOverwrites || undefined,
-        rewrites: textRewrites && textRewrites.length ? textRewrites : undefined
+        rewrites: textRewrites && textRewrites.length ? textRewrites : undefined,
+        budgetSheet: budgetSheet && budgetSheet.rows.length ? budgetSheet : undefined
       });
       setBrowserResult(result);
       if (!result.filled.length) {

@@ -169,6 +169,7 @@ export function TemplateFillView({
   carryoverById = null,
   carryoverOverwrites = null,
   textRewrites = null,
+  budgetSheet = null,
   layout = "full",
   onLayoutChange,
   aiDraftTargets = [],
@@ -256,6 +257,8 @@ export function TemplateFillView({
   carryoverOverwrites?: Record<string, string[]> | null;
   /** 문서 제목처럼 라벨 없이 글자 전체를 갈아끼우는 칸 */
   textRewrites?: Array<{ from: string; to: string; label?: string; fieldId?: string }> | null;
+  /** 예산 관리표를 양식의 예산 표에 넣을 때 쓰는 열 머리글·행 값 */
+  budgetSheet?: { columns: Array<{ id: string; role: string; label: string }>; rows: string[][] } | null;
   /** carryover = 작년 결과보고서 → 올해 것으로 바꾸기 3단계 화면 */
   layout?: "full" | "carryover";
   onLayoutChange?: (layout: "full" | "carryover") => void;
@@ -552,6 +555,7 @@ export function TemplateFillView({
               carryoverOverwrites={carryoverEnabled ? carryoverOverwrites : null}
               carryoverPreflight={carryoverEnabled && carryoverLeftover ? { leftover: carryoverLeftover } : null}
               textRewrites={textRewrites}
+              budgetSheet={budgetSheet}
             />
           </section>
         )}
@@ -969,6 +973,7 @@ export function TemplateFillView({
           carryoverOverwrites={carryoverEnabled ? carryoverOverwrites : null}
           textRewrites={textRewrites}
           carryoverPreflight={carryoverEnabled && carryoverLeftover ? { leftover: carryoverLeftover } : null}
+          budgetSheet={budgetSheet}
         />
       )}
 

@@ -13,12 +13,20 @@
 
 ## 2. 열과 계산
 
-`비목 · 세목 · 단가 · 수량 · 편성액 · 집행액 · 잔액 · 산출근거 · 비고`
+기본 열: `비목 · 세목 · 단가 · 수량 · 편성액 · 집행액 · 잔액 · 산출근거 · 비고`
 
 - **편성액 = 단가 × 수량**, **잔액 = 편성액 − 집행액** — 계산 칸이라 직접 고치지 않습니다.
 - 합계 줄은 맨 아래에 고정되어 `편성 · 집행 · 잔액 · 집행률`과 초과 비목 수를 보여 줍니다.
 - 머리글은 스크롤해도 위에 붙어 있고, 좁은 화면에서는 **표만** 자기 상자 안에서 가로로 넘어갑니다(페이지 폭은 그대로).
 - 숫자 칸은 `tabular-nums`로 오른쪽 정렬, 행 높이 34px의 얇은 선 표입니다.
+
+### 2-1. 머리글 이름·열 바꾸기 (사업별로 저장)
+
+- **머리글을 누르면** 그 자리에서 이름을 고칩니다(`Enter`·다른 곳 클릭 = 저장, `Esc` = 취소). 예: `세목 → 세부사업명`, `산출근거 → 산출내역`.
+- **`+ 열 추가`** — 이름과 `숫자 열` 여부를 정해 열을 더합니다(예: `국비·지방비·자부담`). 숫자 열은 표 아래 합계 줄에 열 합계가 더해집니다.
+- **머리글의 `×`** — 열을 지웁니다. 단가·수량은 편성액(단가 × 수량) 계산의 근거라 지울 수 없고(이름은 바꿀 수 있음), 편성액·집행액·잔액은 확인을 받은 뒤 지웁니다. **열은 최소 한 개**는 남습니다.
+- 사용자 열은 머리글의 `123`/`가` 단추로 숫자 ↔ 글자를 바꿀 수 있습니다.
+- 바뀐 열 정의(`grantPlan.budgetColumns`)와 사용자 열의 칸 값(`budgetLine.custom[열 id]`)은 **사업마다** 저장됩니다. 열을 지워도 적어 둔 값은 남고, 다시 더하면 그대로 보입니다.
 
 ## 3. 입력 방법
 
@@ -40,17 +48,19 @@
 
 ## 5. 서류로 흘러가는 길
 
-1. 격자에서 고친 값은 `grantPlan.budgetLines`와 지출 원장(`work.expenses`)에 저장됩니다 — 화면마다 다른 사본을 두지 않습니다.
-2. `buildBudgetDigestText`(`src/lib/projectDataReuse.mjs`)가 `총사업비 · 편성 총액 · 집행액 · 잔액 · 집행률`과 비목·세목별 금액을 `라벨: 값` 줄로 만듭니다.
+1. 격자에서 고친 값은 `grantPlan.budgetLines`·`grantPlan.budgetColumns`와 지출 원장(`work.expenses`)에 저장됩니다 — 화면마다 다른 사본을 두지 않습니다.
+2. `buildBudgetDigestText`(`src/lib/projectDataReuse.mjs`)가 `총사업비 · 편성 총액 · 집행액 · 잔액 · 집행률`과 비목·세목별 금액을 `라벨: 값` 줄로 만듭니다. **이름을 바꿨거나 새로 더한 열은 그 머리글 이름으로 행마다 한 줄씩**(`국비: 1,400,000`, `산출내역: 250,000원 × 8회`) 더 적어, 양식의 같은 이름 칸이 행 순서대로 값을 받게 합니다. 이름을 그대로 둔 기본 열은 예전과 같은 줄만 적습니다.
 3. 2단계의 **예산 관리표 숫자만 불러오기**가 그 글을 붙여넣기 칸에 넣고(여러 번 눌러도 `■ 예산 관리표` 구역은 하나만 남음), **자동으로 칸 나누기**가 양식의 해당 라벨 칸에 배치합니다.
-4. 결과보고 `.hwpx`(`reportHwpx.mjs`)의 요약 표·예산 표와 `projectDataReuse.buildProjectDataText`의 `집행 현황` 줄도 같은 계산 함수(`budgetSummary`·`expenseSummary`)를 씁니다.
+4. `.hwpx` 양식 채우기(`browserHwpxFiller.patchHwpxBytes`)는 `budgetSheet`(열 머리글 + 행 값)를 함께 받아, **양식 예산 표의 머리글을 사용자의 열 이름과 맞춰 행 순서대로 칸을 채웁니다**. 양식이 다른 말을 쓰면(`산출내역`·`계획액`·`지출액` 등) 역할로 맞춥니다. 이미 적힌 칸은 덮지 않습니다.
+5. 결과보고 `.hwpx`(`reportHwpx.mjs`)의 예산 표는 열을 손대지 않았으면 결과보고용 다섯 칸(`비목·세목·산출 근거·계획(원)·집행(원)`)을, 이름·열을 바꿨으면 **사용자의 표를 그대로**(바뀐 머리글·더한 열 포함) 옮깁니다. 요약 표·`집행 현황` 줄은 같은 계산 함수(`budgetSummary`·`expenseSummary`)를 씁니다.
 
 ## 6. 구현 지도
 
 | 파일 | 역할 |
 | --- | --- |
 | `src/lib/xlsxTable.mjs` | jszip만으로 `.xlsx` 읽기/쓰기 (시트 이름·공유 문자열·빈 칸·수식 값, CSV BOM) |
-| `src/lib/budgetSheet.mjs` | 격자 행·합계, 붙여넣기, 집행액 → 원장 반영, 내려받기 표 |
+| `src/lib/budgetSheet.mjs` | 격자 행·합계(열 합계 포함), 붙여넣기, 집행액 → 원장 반영, 내려받기 표, 서류용 예산 표 |
+| `src/lib/budgetColumns.mjs` | 열 정의(역할·머리글 이름·순서), 열 추가/지우기, 합계 |
 | `src/components/BudgetSheet.tsx` | 격자 화면(편집·키보드·붙여넣기·툴바) |
 | `src/components/BudgetImportPanel.tsx` | 파일·시트·붙여넣기 가져오기와 미리보기 |
 | `src/lib/budgetImport.mjs` | 표 읽기(머리글 별칭, 편성액·집행액 열) |
@@ -64,6 +74,8 @@ npm test                                   # 전체
 node --test scripts/agent-office/test/xlsx-table.test.mjs
 node --test scripts/agent-office/test/budget-sheet.test.mjs
 node --test scripts/agent-office/test/budget-hwpx-flow.test.mjs
+node --test scripts/agent-office/test/budget-sheet-columns.test.mjs
 ```
 
 `budget-hwpx-flow.test.mjs`는 격자에서 적은 집행액이 결과보고 문서 모델의 예산 표·요약 줄과 2단계 붙여넣기 글에 같은 숫자로 들어가는지, 양식 칸에 배치되는지 확인합니다.
+`budget-sheet-columns.test.mjs`는 머리글 이름 바꾸기, 열 추가/지우기, 사용자 숫자 열 합계, 사업별 저장, 바뀐 머리글의 내려받기·붙여넣기·불러오기, 글·결과보고 `.hwpx`·양식 채우기로의 연동을 확인합니다.

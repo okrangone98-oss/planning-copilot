@@ -363,6 +363,61 @@ export function fillableValueState(text) {
   return { fillable: false, placeholder: "" };
 }
 
+/**
+ * 예산 관리표를 양식에 넣을 때 쓰는 열 이름 별칭 — 사용자가 이름을 바꿔도, 양식이 다른 말을 써도
+ * 같은 역할의 열을 찾을 수 있게 한다. 양식 쪽 머리글을 역할로 읽는 데 쓴다.
+ */
+const ROLE_LABEL_ALIASES = {
+  category: ["비목", "비목명", "구분", "항목", "분류", "재원", "예산비목"],
+  item: ["세목", "세목명", "내역", "내용", "품목", "품명", "세부내용", "세부사업명", "지출내역", "사업내용"],
+  unitPrice: ["단가", "단가액", "단위단가", "단가원"],
+  qty: ["수량", "횟수", "회수"],
+  budget: ["편성액", "계획액", "예산액", "계상액", "예산편성액", "금액", "합계금액"],
+  spent: ["집행액", "집행금액", "집행", "지출액", "실집행액", "실행액"],
+  balance: ["잔액", "잔액원", "남은액"],
+  basis: ["산출근거", "산출내역", "산출기초", "계산근거", "산출", "산출내용"],
+  note: ["비고", "메모", "참고", "적요"]
+};
+
+const ROLE_BY_ALIAS = (() => {
+  const map = new Map();
+  for (const [role, labels] of Object.entries(ROLE_LABEL_ALIASES)) {
+    for (const label of labels) map.set(normalizeFormLabel(label), role);
+  }
+  return map;
+})();
+
+/**
+ * 양식 표의 머리글 줄과 예산 관리표의 열을 맞춘다.
+ * - 먼저 사용자가 붙인 이름 그대로(정규화) 같은 열을 찾고,
+ * - 없으면 양식 머리글을 역할(비목·세목·산출내역·국비 같은 열)로 읽어 그 역할의 열을 찾는다.
+ * @param {Array<{text:string, colAddr:number}>} cells 머리글 줄의 칸들
+ * @param {Array<{id:string, role:string, label:string}>} columns 예산 관리표의 열
+ * @returns {Array<{colAddr:number, index:number, column:object}>}
+ */
+export function matchBudgetHeader(cells, columns) {
+  const list = Array.isArray(columns) ? columns.filter((column) => column && column.label) : [];
+  const used = new Set();
+  const matches = [];
+  for (const cell of Array.isArray(cells) ? cells : []) {
+    const label = String(cell?.text ?? "").trim();
+    if (!label) continue;
+    const key = normalizeFormLabel(label);
+    if (!key) continue;
+    const mark = (column) => (column.role === "custom" ? column.id : column.role);
+    let index = list.findIndex((column) => !used.has(mark(column)) && normalizeFormLabel(column.label) === key);
+    if (index < 0) {
+      const role = ROLE_BY_ALIAS.get(key);
+      if (role) index = list.findIndex((column) => !used.has(mark(column)) && column.role === role);
+    }
+    if (index < 0) continue;
+    const column = list[index];
+    used.add(mark(column));
+    matches.push({ colAddr: cell.colAddr, index, column });
+  }
+  return matches;
+}
+
 function matchKey(labelText, cursors) {
   if (!cursors.size) return undefined;
   return findMatchingFieldKey(labelText, Array.from(cursors.keys()));
@@ -587,6 +642,11 @@ export function patchSectionXml(xml, values, options = {}) {
   const skipped = [];
   /** 표 전략에서 라벨 칸으로 판정한 칸 — 인라인(서명 블록) 전략이 같은 칸을 다시 쓰지 않게 한다. */
   const labelCellNodes = new Set();
+  /** 예산 관리표 열로 이미 채운 칸 — 라벨 전략이 같은 칸을 다른 값으로 덮지 않게 한다. */
+  const budgetCellNodes = new Set();
+  const budgetSheet = options.budgetSheet && Array.isArray(options.budgetSheet.rows) && Array.isArray(options.budgetSheet.columns)
+    ? options.budgetSheet
+    : null;
 
   /**
    * 라벨 옆 칸이 값 자리가 아니라 표 제목 띠·레이아웃 여백인가.
@@ -638,6 +698,51 @@ export function patchSectionXml(xml, values, options = {}) {
     const headerDataTable = firstRowAllLabels && rows[headerIndex + 1] && rows[headerIndex + 1].cells.length > 0
       && !isFormLabelCell(rows[headerIndex + 1].cells[0].text.trim());
 
+    // 전략 2a — 예산 관리표의 열 머리(사용자가 바꾼 이름·더한 열)로 표를 채운다.
+    // 양식 표의 머리글이 예산표의 머리글과 맞으면, 그 아래 빈 칸을 예산표의 행 순서대로 채운다.
+    if (budgetSheet) {
+      const matches = matchBudgetHeader(headerRow.cells, budgetSheet.columns);
+      if (matches.length >= 2) {
+        let sheetRow = 0;
+        for (let rowIndex = headerIndex + 1; rowIndex < rows.length && sheetRow < budgetSheet.rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          if (isBandRowNode(table, row)) continue;
+          const rowValues = budgetSheet.rows[sheetRow] || [];
+          // 합계 줄은 값으로 덮지 않는다 — 양식이 이미 가진 합계식을 지우게 된다.
+          if (row.cells.some((cell) => /^\s*(합\s*계|총\s*계|소\s*계)\s*$/.test(cell.text))) break;
+          for (const match of matches) {
+            const cell = row.cells.find((item) => item.colAddr === match.colAddr);
+            if (!cell || budgetCellNodes.has(cell.node)) continue;
+            const value = String(rowValues[match.index] ?? "").trim();
+            if (!value) continue;
+            const current = cell.text.trim();
+            if (current === value) {
+              budgetCellNodes.add(cell.node);
+              continue;
+            }
+            const state = fillableValueState(current);
+            const key = normalizeFormLabel(match.column.label);
+            const canOverwrite = !state.fillable && mayOverwrite(key, current);
+            if (!state.fillable && !canOverwrite) {
+              skipped.push({ label: match.column.label, key, reason: "칸에 이미 값이 있어 그대로 두었습니다", current, where: `${table.index + 1}번 표 · ${rowIndex + 1}행 ${match.colAddr + 1}열` });
+              continue;
+            }
+            if (!planCellWrite(cell, value, splices)) continue;
+            budgetCellNodes.add(cell.node);
+            filled.push({
+              key: match.column.label,
+              label: match.column.label,
+              value,
+              replaced: state.fillable ? undefined : current,
+              where: `${table.index + 1}번 표 · ${rowIndex + 1}행 ${match.colAddr + 1}열`,
+              kind: "budget"
+            });
+          }
+          sheetRow += 1;
+        }
+      }
+    }
+
     // 전략 2 — 열 머리 아래 데이터 행 (명부형). 배열 값은 행마다 하나씩, 홑값은 첫 데이터 행만.
     if (headerDataTable) {
       for (const headerCell of headerRow.cells) {
@@ -647,7 +752,7 @@ export function patchSectionXml(xml, values, options = {}) {
         const cursor = cursors.get(key);
         for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
           const cell = rows[rowIndex].cells.find((item) => item.colAddr === headerCell.colAddr);
-          if (!cell) continue;
+          if (!cell || budgetCellNodes.has(cell.node)) continue;
           const cellState = fillableValueState(cell.text);
           // 전년도 값이 적힌 칸 — 이양 계획이 같은 글자로 짚은 칸만 갈아끼운다.
           if (!cellState.fillable && !mayOverwrite(key, cell.text)) continue;
@@ -681,6 +786,7 @@ export function patchSectionXml(xml, values, options = {}) {
         if (!key) continue;
         const valueCell = cells.find((cell) => cell !== labelCell && cell.colAddr === labelCell.colAddr + labelCell.colSpan);
         const nextCell = cells.find((cell) => cell !== labelCell && cell.colAddr === labelCell.colAddr + labelCell.colSpan + (valueCell ? valueCell.colSpan : 1));
+        if (valueCell && budgetCellNodes.has(valueCell.node)) continue;
         const valueText = valueCell ? valueCell.text : "";
         // 하위 라벨("성명" → "한자") 옆 칸이나 병합 행 머리 오른쪽 열 머리는 값 자리가 아니다.
         if (valueCell && isInlineSignatureBlock(valueCell.text)) continue;
@@ -790,7 +896,7 @@ function applySplices(source, splices) {
  * 미리보기(Preview/)는 원본을 그대로 두면 채운 본문과 어긋나므로 새로 맞춘다 — 글자는 채운 본문에서 다시 뽑고,
  * 옛 그림(PrvImage)은 넣지 않는다(hwpxPreview.mjs).
  */
-export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrites } = {}) {
+export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrites, budgetSheet } = {}) {
   const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (!input.length) throw new Error("채울 .hwpx 파일이 없습니다. 양식 파일을 올리거나 연습 양식을 불러와 주세요.");
   const JSZip = jszip || (await import("jszip")).default;
@@ -806,7 +912,7 @@ export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrite
   const edited = new Map();
   for (const name of targets) {
     const xml = await zip.file(name).async("text");
-    const result = patchSectionXml(xml, values, { cursors, overwrites, rewrites });
+    const result = patchSectionXml(xml, values, { cursors, overwrites, rewrites, budgetSheet });
     filled.push(...result.filled.map((item) => ({ ...item, section: name })));
     skipped.push(...result.skipped.map((item) => ({ ...item, section: name })));
     if (result.changed) edited.set(name, result.xml);

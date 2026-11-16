@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { GrantBudgetLine, GrantPlan, SectionId } from "../types";
+import type { BudgetSheetColumn, GrantBudgetLine, GrantPlan, SectionId } from "../types";
 import type { ProjectMeta } from "../lib/projectWorkspace.mjs";
 import { budgetSummary, formatWon } from "../lib/grantWorkflow.mjs";
 import {
@@ -109,6 +109,7 @@ export function ProjectBudgetTab({
   plan,
   work,
   onChangeLines,
+  onChangeColumns,
   onUpdateWork,
   notify,
   onNavigate,
@@ -119,6 +120,8 @@ export function ProjectBudgetTab({
   plan: GrantPlan;
   work: ProjectWork;
   onChangeLines: (lines: GrantBudgetLine[]) => void;
+  /** 머리글 이름·열 추가/삭제를 사업에 저장한다. */
+  onChangeColumns: (columns: BudgetSheetColumn[]) => void;
   onUpdateWork: (next: ProjectWork) => void;
   notify: (message: string) => void;
   onNavigate: (section: SectionId) => void;
@@ -364,6 +367,8 @@ export function ProjectBudgetTab({
       <BudgetSheet
         lines={plan.budgetLines}
         onChange={onChangeLines}
+        columns={plan.budgetColumns}
+        onChangeColumns={onChangeColumns}
         notify={notify}
         expenses={expenses}
         onSetSpent={setGridSpent}
