@@ -261,7 +261,9 @@ export function normalizeModelName(value, fallback) {
 
 export function sanitizeModelSettings(saved, defaults) {
   const value = saved && typeof saved === "object" ? saved : {};
-  const provider = MODEL_PROVIDERS.has(value.provider) ? value.provider : "simulation";
+  // 저장된 경로가 없거나 모르는 값이면 ‘앱의 기본 경로’로 돌아간다(예전처럼 템플릿 모드로 고정하지 않는다).
+  const fallbackProvider = MODEL_PROVIDERS.has(defaults?.provider) ? defaults.provider : "simulation";
+  const provider = MODEL_PROVIDERS.has(value.provider) ? value.provider : fallbackProvider;
   const settings = {
     provider,
     ollamaBaseUrl: normalizeLoopbackBaseUrl(value.ollamaBaseUrl) || defaults.ollamaBaseUrl,

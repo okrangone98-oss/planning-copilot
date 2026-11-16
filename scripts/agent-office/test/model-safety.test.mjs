@@ -95,6 +95,30 @@ test("model settings split into primary and advanced without gaps or overlaps", 
   assert.match(providerAvailabilityNote("team-free-proxy"), /접속 코드 필요/);
 });
 
+test("저장된 설정이 없으면 앱의 기본 경로(내 전용 중계)로 시작한다", async () => {
+  const { sanitizeModelSettings } = await import("../../../src/lib/modelSafety.mjs");
+  const defaults = {
+    provider: "team-free-proxy",
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    ollamaModel: "llama3.1",
+    proxyRoute: "auto",
+    proxyModel: "",
+    openrouterModel: "openrouter/free",
+    groqModel: "openai/gpt-oss-120b",
+    geminiModel: "gemini-2.5-flash",
+    exaoneModel: "k-exaone_v2.5",
+    githubModel: "openai/gpt-4.1-mini",
+    amdModel: "Gemma-4-31B-IT",
+    customModel: "",
+    customBaseUrl: ""
+  };
+  // 첫 방문(저장값 없음)에서도 기본 경로가 유지된다 — 예전에는 템플릿 모드로 고정됐다.
+  assert.equal(sanitizeModelSettings({}, defaults).provider, "team-free-proxy");
+  assert.equal(sanitizeModelSettings({ provider: "없는-경로" }, defaults).provider, "team-free-proxy");
+  // 저장된 경로가 유효하면 그 값을 지킨다.
+  assert.equal(sanitizeModelSettings({ provider: "ollama" }, defaults).provider, "ollama");
+});
+
 test("내 전용 중계는 접속 코드를 요구하고, 상위 경로만 고른다", async () => {
   const { PROXY_ROUTES, PROXY_ROUTE_LABELS, normalizeProxyRoute, providerConfig, providerNeedsExternalAck, providerRequiresKey, validateApiKey } =
     await import("../../../src/lib/modelSafety.mjs");
