@@ -359,7 +359,7 @@ export function BudgetSheet({
             <tr>
               <th className="bs-gutter" scope="col" aria-label="행 번호" />
               {columns.map((column) => (
-                <th key={column.key} scope="col" className={`bs-${column.kind} is-${column.align}`}>{column.label}</th>
+                <th key={column.key} scope="col" className={`bs-kind-${column.kind} is-${column.align}`}>{column.label}</th>
               ))}
               <th className="bs-actions" scope="col" aria-label="행 관리" />
             </tr>
@@ -382,7 +382,7 @@ export function BudgetSheet({
                   const key = column.key as EditableKey;
                   const isEditing = editing?.row === rowIndex && editing?.key === column.key;
                   const editable = column.kind !== "calc" && canEdit(rowIndex, key);
-                  const cellClass = `bs-cell bs-${column.kind} is-${column.align}${editable ? " is-editable" : ""}${row.balance < 0 && column.key === "balance" ? " is-negative" : ""}`;
+                  const cellClass = `bs-cell bs-kind-${column.kind} bs-col-${column.key} is-${column.align}${editable ? " is-editable" : ""}${row.balance < 0 && column.key === "balance" ? " is-negative" : ""}`;
                   if (isEditing) {
                     return (
                       <td key={column.key} className={`${cellClass} is-editing`}>
@@ -423,7 +423,7 @@ export function BudgetSheet({
                       {column.key === "balance" && (row.amount || row.spent ? formatWon(row.balance) : "")}
                       {column.key === "spent" && (
                         withLedger ? (
-                          <span className="bs-spent">
+                          <span className="bs-spent-line">
                             {row.spent ? formatWon(row.spent) : ""}
                             {row.locked && <span className="bs-tag" title={`지출 원장 ${row.expenseCount}건에서 가져옴`}>원장</span>}
                             {!row.locked && row.spent > 0 && <span className="bs-tag is-grid" title={GRID_SPENT_LABEL}>입력</span>}
@@ -432,8 +432,8 @@ export function BudgetSheet({
                         ) : <span className="bs-muted">—</span>
                       )}
                       {column.key === "unitCost" && (parseAmount(row.unitCost) ? formatWon(parseAmount(row.unitCost)) : "")}
-                      {TEXT_KEYS.includes(key) && <span className="bs-text">{String((row as unknown as Record<string, unknown>)[column.key] ?? "")}</span>}
-                      {column.key === "quantity" && <span className="bs-text">{row.quantity}</span>}
+                      {TEXT_KEYS.includes(key) && <span className="bs-value">{String((row as unknown as Record<string, unknown>)[column.key] ?? "")}</span>}
+                      {column.key === "quantity" && <span className="bs-value">{row.quantity}</span>}
                     </td>
                   );
                 })}
