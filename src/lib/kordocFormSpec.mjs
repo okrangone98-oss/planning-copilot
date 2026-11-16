@@ -840,6 +840,8 @@ export function buildKordocFillValues({ fields, values }) {
 }
 
 function whereOf(field) {
+  // 문서 제목은 표 칸에 들어 있어도 ‘표 2행 1열’이 아니라 제목 자리다 — 사람이 찾을 수 있게 그렇게 적는다.
+  if (field.rewrite && field.label === "문서 제목") return "문서 제목(연도 머리글)";
   if (field.tableId) return `${field.sectionTitle || "표"} · ${field.rowIndex + 1}행 ${field.columnIndex + 1}열`;
   if (field.slotId) return `${field.sectionTitle || "본문"} · 문단`;
   return field.sectionTitle || "";
