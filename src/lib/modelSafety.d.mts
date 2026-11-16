@@ -5,6 +5,7 @@ export function isLoopbackOllamaUrl(value: string): boolean;
 export function isRemoteOllamaModel(value: unknown): boolean;
 
 export type RemoteProviderId =
+  | "team-free-proxy"
   | "openrouter-free"
   | "groq-free"
   | "gemini-openai"
@@ -19,6 +20,8 @@ export type RemoteProviderConfig = {
   defaultModel: string;
   models: string[];
   keyPattern: RegExp;
+  /** 키를 넣지 않아도 되는 경로면 false (공용 무료 AI 중계) */
+  requiresKey?: boolean;
   keyLabel: string;
   cors: "allowed" | "blocked" | "custom";
   corsNote: string;
@@ -32,6 +35,11 @@ export const ADVANCED_MODEL_PROVIDERS: string[];
 
 export function isAdvancedModelProvider(provider: string): boolean;
 export function providerAvailabilityNote(provider: string): string;
+export const PROXY_ROUTES: string[];
+export const PROXY_ROUTE_LABELS: Record<string, string>;
+export function normalizeProxyRoute(value: unknown): string;
+export function providerRequiresKey(provider: string): boolean;
+export function providerNeedsExternalAck(provider: string): boolean;
 
 export function isRemoteProvider(provider: string): boolean;
 export function providerConfig(provider: string): RemoteProviderConfig | null;

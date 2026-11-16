@@ -139,6 +139,13 @@ export function summarizeStorage(entries, quotaBytes = STORAGE_QUOTA_BYTES) {
 }
 
 const ROUTE_META = {
+  "team-free-proxy": {
+    label: "공용 무료 AI(Cloudflare 중계)",
+    scope: "external",
+    costKind: "free-tier",
+    costNote: "무료 경로만 연결한 중계를 쓰므로 0원입니다. 한도를 넘으면 요청이 실패하고 과금되지 않습니다.",
+    sendNote: "가린 프롬프트가 이 앱의 Cloudflare 중계를 거쳐 무료 AI 제공자에게 전달됩니다. 키는 브라우저에 두지 않습니다."
+  },
   simulation: {
     label: "템플릿 모드(규칙 기반)",
     scope: "none",

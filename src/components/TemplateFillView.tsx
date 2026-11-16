@@ -28,12 +28,14 @@ import {
   type PhotoCaptions,
   type SpreadsheetMaterial
 } from "../lib/reportMaterials.mjs";
+import { AiDraftPanel } from "./AiDraftPanel";
 import { HwpxExportPanel } from "./HwpxExportPanel";
 import { SmartTextPanel } from "./SmartTextPanel";
 import { KordocFillPanel } from "./KordocFillPanel";
 import type { FormField } from "../lib/kordocFormSpec.mjs";
 import { isLegalDocumentSchema } from "../lib/kordocFormSpec.mjs";
 import type { SmartMapResult } from "../lib/smartTextMapper.mjs";
+import type { AiDraftResult } from "../lib/carryoverAiDraft.mjs";
 import { FIELD_TYPE_LABEL } from "../lib/smartTextMapper.mjs";
 
 const KIND_LABEL: Record<string, string> = {
@@ -167,7 +169,19 @@ export function TemplateFillView({
   carryoverOverwrites = null,
   textRewrites = null,
   layout = "full",
-  onLayoutChange
+  onLayoutChange,
+  aiDraftTargets = [],
+  aiDraftResult = null,
+  aiDraftSelected = new Set<string>(),
+  aiDraftBusy = false,
+  aiDraftNote = "",
+  aiDraftError = "",
+  onAiDraft,
+  onAiDraftToggle,
+  onAiDraftToggleAll,
+  onAiDraftEdit,
+  onAiDraftApply,
+  onAiDraftClear
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -242,6 +256,19 @@ export function TemplateFillView({
   /** carryover = 작년 결과보고서 → 올해 것으로 바꾸기 3단계 화면 */
   layout?: "full" | "carryover";
   onLayoutChange?: (layout: "full" | "carryover") => void;
+  /** 3단계 AI 초안 — 남은 칸 목록·결과·선택은 앱(App)이 들고, 화면은 보여 주기만 한다. */
+  aiDraftTargets?: Array<{ fieldId: string }>;
+  aiDraftResult?: AiDraftResult | null;
+  aiDraftSelected?: Set<string>;
+  aiDraftBusy?: boolean;
+  aiDraftNote?: string;
+  aiDraftError?: string;
+  onAiDraft?: () => void;
+  onAiDraftToggle?: (fieldId: string, checked: boolean) => void;
+  onAiDraftToggleAll?: (checked: boolean) => void;
+  onAiDraftEdit?: (fieldId: string, value: string) => void;
+  onAiDraftApply?: () => void;
+  onAiDraftClear?: () => void;
 }) {
   const [pasteText, setPasteText] = useState("");
   const [showStructure, setShowStructure] = useState(false);
@@ -487,6 +514,23 @@ export function TemplateFillView({
                 </small>
               </div>
             </div>
+            {onAiDraft && (
+              <AiDraftPanel
+                targetCount={aiDraftTargets.length}
+                providerLabel={providerLabel}
+                busy={aiDraftBusy}
+                error={aiDraftError}
+                note={aiDraftNote}
+                result={aiDraftResult}
+                selected={aiDraftSelected}
+                onDraft={onAiDraft}
+                onToggle={(fieldId, checked) => onAiDraftToggle?.(fieldId, checked)}
+                onToggleAll={(checked) => onAiDraftToggleAll?.(checked)}
+                onEdit={(fieldId, value) => onAiDraftEdit?.(fieldId, value)}
+                onApply={() => onAiDraftApply?.()}
+                onClear={() => onAiDraftClear?.()}
+              />
+            )}
             <KordocFillPanel
               compact
               fields={fields}

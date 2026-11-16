@@ -75,7 +75,26 @@ import {
 } from "./lib/practiceTemplate.mjs";
 import { absorbModelResponse, buildDraftPolishPrompt, buildModelPrompt } from "./lib/prompts";
 import { currentModelName, listOllamaModels, modelLabel, modelProviderOptions, modelSafetyNote, runModelPrompt } from "./lib/modelRouter";
-import { providerConfig, remoteModelField, validateApiKey, ADVANCED_MODEL_PROVIDERS, PRIMARY_MODEL_PROVIDERS, isAdvancedModelProvider, providerAvailabilityNote } from "./lib/modelSafety.mjs";
+import {
+  providerConfig,
+  remoteModelField,
+  validateApiKey,
+  providerNeedsExternalAck,
+  normalizeProxyRoute,
+  PROXY_ROUTES,
+  PROXY_ROUTE_LABELS,
+  ADVANCED_MODEL_PROVIDERS,
+  PRIMARY_MODEL_PROVIDERS,
+  isAdvancedModelProvider,
+  providerAvailabilityNote
+} from "./lib/modelSafety.mjs";
+import {
+  buildLeftoverDraftPrompt,
+  collectDraftValues,
+  parseLeftoverDraftResponse,
+  selectLeftoverTargets
+} from "./lib/carryoverAiDraft.mjs";
+import type { AiDraftResult } from "./lib/carryoverAiDraft.mjs";
 import { buildWorkspaceDiagnostics, formatStorageSize } from "./lib/workspaceDiagnostics.mjs";
 import { WORKSPACE_LINKS } from "./lib/davidWorkbrainExport.mjs";
 import { applyPreset as applyGrantPreset, budgetSummary, createEmptyGrantPlan, formatWon, hasGrantWork, sanitizeGrantPlan } from "./lib/grantWorkflow.mjs";
@@ -466,6 +485,12 @@ export default function App() {
   const [smartBusy, setSmartBusy] = useState(false);
   const [smartNote, setSmartNote] = useState("");
   const [smartError, setSmartError] = useState("");
+  // 3단계 AI 초안 — 제안은 메모리에만 두고, 체크한 칸만 양식 값으로 들어간다.
+  const [aiDraftResult, setAiDraftResult] = useState<AiDraftResult | null>(null);
+  const [aiDraftSelected, setAiDraftSelected] = useState<Set<string>>(() => new Set());
+  const [aiDraftBusy, setAiDraftBusy] = useState(false);
+  const [aiDraftNote, setAiDraftNote] = useState("");
+  const [aiDraftError, setAiDraftError] = useState("");
   // 개인정보 마스킹은 기본 켜짐. 끄면 그 선택을 기억하되, 켜라는 안내는 화면에 남긴다.
   const [piiMaskEnabled, setPiiMaskEnabled] = useState(() => loadPiiMaskPreference());
   // API 키는 이 탭의 메모리에만 둔다. localStorage·백업·아카이브 어디에도 저장하지 않는다.
@@ -1169,7 +1194,7 @@ export default function App() {
         notify(keyCheck.message);
         return;
       }
-      if (!remoteAck) {
+      if (providerNeedsExternalAck(modelSettings.provider) && !remoteAck) {
         setTemplateError("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
         notify("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
         return;
@@ -1271,6 +1296,7 @@ export default function App() {
     setTemplateError("");
     setCarryoverUserChoice(null);
     setCarryoverAutoState(null);
+    resetAiDraftState();
     notify("읽은 양식을 지웠습니다.");
   };
 
@@ -1386,6 +1412,17 @@ export default function App() {
     [templateFields, templateSession.fieldValues]
   );
 
+  /** 3단계 AI 초안 — 작년 값이 남은 칸과 빈 칸만 골라 보낸다(문서 전체를 보내지 않는다). */
+  const aiDraftTargets = useMemo(
+    () =>
+      selectLeftoverTargets({
+        fields: templateFields,
+        values: templateSession.fieldValues,
+        leftover: carryoverLeftover
+      }),
+    [templateFields, templateSession.fieldValues, carryoverLeftover]
+  );
+
   const readFileBase64 = (file: File) =>
     new Promise<string>((resolve) => {
       const reader = new FileReader();
@@ -1467,8 +1504,9 @@ export default function App() {
 
     const remoteConfig = providerConfig(modelSettings.provider);
     if (remoteConfig) {
+      const needsAck = providerNeedsExternalAck(modelSettings.provider);
       const keyCheck = validateApiKey(modelSettings.provider, apiKeys[modelSettings.provider] || "");
-      if (!keyCheck.ok || !remoteAck) {
+      if (!keyCheck.ok || (needsAck && !remoteAck)) {
         applySmartRows(ruleResult, ruleNote);
         setSmartError(keyCheck.ok ? "모델 설정에서 외부 전송 확인을 먼저 체크해 주세요. 지금은 규칙으로 나눴습니다." : keyCheck.message);
         return;
@@ -1551,6 +1589,124 @@ export default function App() {
     updateProject({ draftOutput: [project.draftOutput, text].filter(Boolean).join("\n\n") });
     setSection("draft");
     notify("배치하지 못한 글을 초안 조립에 붙였습니다.");
+  };
+
+  /* ── 3단계 AI 초안 — 남은 칸만 보내고, 체크한 값만 양식에 넣는다 ───────── */
+
+  const resetAiDraftState = () => {
+    setAiDraftResult(null);
+    setAiDraftSelected(new Set());
+    setAiDraftNote("");
+    setAiDraftError("");
+  };
+
+  const runLeftoverAiDraft = async () => {
+    if (aiDraftBusy) return;
+    if (!templateSession.schema) {
+      notify("먼저 작년 결과보고서 양식을 올려 주세요.");
+      return;
+    }
+    const targets = aiDraftTargets;
+    if (!targets.length) {
+      notify("AI로 채울 남은 칸이 없습니다. 1~2단계를 먼저 마치면 여기에 나타납니다.");
+      return;
+    }
+    if (modelSettings.provider === "simulation") {
+      setAiDraftError("지금은 템플릿 모드입니다. 모델·보안 설정에서 ‘공용 무료 AI(키 불필요)’를 고르면 키 없이 바로 초안을 받을 수 있습니다.");
+      return;
+    }
+    const remoteConfig = providerConfig(modelSettings.provider);
+    if (remoteConfig) {
+      const keyCheck = validateApiKey(modelSettings.provider, apiKeys[modelSettings.provider] || "");
+      if (!keyCheck.ok) {
+        setAiDraftError(keyCheck.message);
+        return;
+      }
+      if (providerNeedsExternalAck(modelSettings.provider) && !remoteAck) {
+        setAiDraftError("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
+        return;
+      }
+    }
+
+    setAiDraftError("");
+    setAiDraftNote("");
+    setAiDraftBusy(true);
+    try {
+      // 보내는 것은 남은 칸 이름표 + 올해 자료 요약뿐이다. 가리기는 호출 직전에 앱이 먼저 한다.
+      const prompt = maskForExternal(
+        buildLeftoverDraftPrompt({
+          targets,
+          fields: templateFields,
+          values: templateSession.fieldValues,
+          planLines: planSource?.lines || [],
+          materialLine: materialResult?.line || "",
+          smartText: templateSession.smartText,
+          currentYear,
+          sourceYear: carryoverDetection?.sourceYear ?? null
+        }),
+        "AI 남은 칸 초안"
+      );
+      const result = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
+      if (!result.ok) {
+        setAiDraftError(result.error || "AI 호출에 실패했습니다. 잠시 뒤 다시 실행하거나 칸 값을 직접 적어 주세요.");
+        return;
+      }
+      const parsed = parseLeftoverDraftResponse(result.output, {
+        targets,
+        currentYear,
+        sourceYear: carryoverDetection?.sourceYear ?? null
+      });
+      if (!parsed.rows.length) {
+        setAiDraftError("AI 응답에서 채울 값을 찾지 못했습니다. 올해 자료를 더 넣거나 칸 값을 직접 적어 주세요.");
+        return;
+      }
+      setAiDraftResult({ ...parsed, upstream: result.upstream || "" });
+      setAiDraftSelected(new Set(parsed.rows.map((row) => row.fieldId)));
+      const skipped = [
+        parsed.counts.masked ? `가림 표시가 남은 ${parsed.counts.masked}건은 넣지 않았습니다` : "",
+        parsed.counts.rejected ? `형식이 맞지 않은 ${parsed.counts.rejected}건은 뺐습니다` : ""
+      ].filter(Boolean).join(" · ");
+      setAiDraftNote(
+        `${modelLabel(modelSettings.provider)}${result.upstream ? ` · ${result.upstream}` : ""} 초안 ${parsed.rows.length}칸을 받았습니다. 아직 양식에는 넣지 않았습니다 — 값을 보고 ‘체크한 칸 양식에 넣기’를 누르세요.${skipped ? ` (${skipped})` : ""}`
+      );
+      notify(`AI 초안 ${parsed.rows.length}칸을 받았습니다. 확인한 칸만 양식에 넣으세요.`);
+    } catch (error) {
+      setAiDraftError(error instanceof Error ? error.message : "AI 초안을 받지 못했습니다.");
+    } finally {
+      setAiDraftBusy(false);
+    }
+  };
+
+  const toggleAiDraft = (fieldId: string, checked: boolean) => {
+    setAiDraftSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(fieldId);
+      else next.delete(fieldId);
+      return next;
+    });
+  };
+
+  const toggleAllAiDrafts = (checked: boolean) => {
+    setAiDraftSelected(new Set(checked ? (aiDraftResult?.rows || []).map((row) => row.fieldId) : []));
+  };
+
+  const editAiDraftValue = (fieldId: string, value: string) => {
+    setAiDraftResult((current) =>
+      current ? { ...current, rows: current.rows.map((row) => (row.fieldId === fieldId ? { ...row, value } : row)) } : current
+    );
+  };
+
+  const applyAiDraftSelection = () => {
+    if (!aiDraftResult) return;
+    const { values, count } = collectDraftValues(aiDraftResult.rows, aiDraftSelected);
+    if (!count) {
+      notify("양식에 넣을 칸을 하나 이상 체크해 주세요.");
+      return;
+    }
+    updateTemplateSession({ fieldValues: { ...templateSession.fieldValues, ...values } });
+    setAiDraftNote(`${count}칸에 AI 초안을 넣었습니다. 아래 표에서 고칠 수 있습니다 — 내려받기 전에 숫자와 연도를 확인하세요.`);
+    setAiDraftSelected(new Set());
+    notify(`AI 초안 ${count}칸을 양식에 넣었습니다.`);
   };
 
   const runNoticeAnalysis = () => {
@@ -1721,7 +1877,7 @@ export default function App() {
         setSection("modelSettings");
         return;
       }
-      if (!remoteAck) {
+      if (providerNeedsExternalAck(modelSettings.provider) && !remoteAck) {
         notify("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
         setSection("modelSettings");
         return;
@@ -1904,7 +2060,7 @@ export default function App() {
         notify(keyCheck.message);
         return;
       }
-      if (!remoteAck) {
+      if (providerNeedsExternalAck(modelSettings.provider) && !remoteAck) {
         notify("모델 설정에서 외부 전송 확인을 먼저 체크해 주세요.");
         setSection("modelSettings");
         return;
@@ -1914,7 +2070,8 @@ export default function App() {
     try {
       const result = await runModelPrompt(maskForExternal(prompt, "모델 실행"), modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
       setModelTestResult(result);
-      notify(result.ok ? `${modelLabel(result.provider)} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
+      const answeredBy = result.upstream ? ` (${result.upstream} 경로가 답함)` : "";
+      notify(result.ok ? `${modelLabel(result.provider)}${answeredBy} 응답을 받았습니다.` : `모델 실행 실패: ${result.error || "확인 필요"}`);
       return result;
     } finally {
       setModelBusy(false);
@@ -2294,7 +2451,7 @@ export default function App() {
         )}
 
         {section === "modelSettings" && (
-          <Panel title="AI 연결은 직접 고르고, 키는 이 탭에만 둡니다" description="기본값은 안전한 템플릿 모드입니다. 브라우저에서 바로 호출되는 무료 경로 3종만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
+          <Panel title="AI 연결은 직접 고르고, 키는 이 탭에만 둡니다" description="기본값은 키를 넣지 않고 바로 쓰는 공용 무료 AI(Cloudflare 중계)입니다. 브라우저에서 바로 호출되는 무료 경로만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. 직접 발급한 API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
             <div className="model-status-bar">
               <strong>현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
@@ -2381,7 +2538,7 @@ export default function App() {
               <div className="model-section-head">
                 <div>
                   <strong>바로 쓸 수 있는 경로</strong>
-                  <span>템플릿 모드는 키 없이 동작합니다. 아래 무료 3종은 브라우저에서 바로 호출되는 것을 2026-11-15에 확인했습니다.</span>
+                  <span>공용 무료 AI는 키 없이 바로 됩니다(이 앱의 Cloudflare 중계). 템플릿 모드도 키 없이 동작하고, 아래 무료 3종은 브라우저에서 바로 호출되는 것을 2026-11-15에 확인했습니다.</span>
                 </div>
                 <span className="model-section-count">{primaryModelOptions.length}개</span>
               </div>
@@ -2440,7 +2597,17 @@ export default function App() {
               <button className="primary-button" type="button" onClick={() => runSelectedModel(modelTestPrompt)} disabled={modelBusy}>{modelBusy ? "실행 중" : "선택 모델 테스트"}</button>
               <button className="secondary-button" type="button" onClick={() => { if (project.modelPrompt) runSelectedModel(project.modelPrompt); else notify("AI 질문 탭에 프롬프트가 없습니다."); }}>AI 질문으로 실행</button>
             </div>
-            {modelTestResult && <textarea className="draft-output office-report-output" rows={16} value={modelTestResult.ok ? modelTestResult.output : modelTestResult.error || "실패"} readOnly />}
+            {modelTestResult && (
+              <>
+                {modelTestResult.ok && (modelTestResult.upstream || modelTestResult.provider) && (
+                  <p className="model-test-upstream">
+                    이 응답을 만든 경로: {modelLabel(modelTestResult.provider)}
+                    {modelTestResult.upstream ? ` · 중계가 넘긴 곳 ${modelTestResult.upstream}` : ""}
+                  </p>
+                )}
+                <textarea className="draft-output office-report-output" rows={16} value={modelTestResult.ok ? modelTestResult.output : modelTestResult.error || "실패"} readOnly />
+              </>
+            )}
 
             {/* 색 팔레트는 화면을 보는 감각을 바꾸는 설정이므로 사이드바가 아니라 여기에 둔다. */}
             <section className="model-section" aria-label="화면 색 팔레트">
@@ -2906,6 +3073,18 @@ export default function App() {
               onCarryoverToggle={setCarryoverUserChoice}
               carryoverPlanCounts={carryoverPlan.counts}
               carryoverLeftover={carryoverLeftover}
+              aiDraftTargets={aiDraftTargets}
+              aiDraftResult={aiDraftResult}
+              aiDraftSelected={aiDraftSelected}
+              aiDraftBusy={aiDraftBusy}
+              aiDraftNote={aiDraftNote}
+              aiDraftError={aiDraftError}
+              onAiDraft={() => { void runLeftoverAiDraft(); }}
+              onAiDraftToggle={toggleAiDraft}
+              onAiDraftToggleAll={toggleAllAiDrafts}
+              onAiDraftEdit={editAiDraftValue}
+              onAiDraftApply={applyAiDraftSelection}
+              onAiDraftClear={resetAiDraftState}
               piiGuard={(
                 <PiiGuardNotice
                   text={templatePromptPreview}
@@ -3197,6 +3376,48 @@ function RemoteKeyBlock({
   const config = providerConfig(provider);
   const field = remoteModelField(provider);
   if (!config) return null;
+
+  // 공용 무료 AI 중계 — 키를 넣지 않는다. 어느 무료 경로로 넘길지만 고른다.
+  if (provider === "team-free-proxy") {
+    return (
+      <div className="remote-key-block">
+        <div className="remote-key-head">
+          <strong>{config.label} 연결</strong>
+          <span>{config.corsNote}</span>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>무료 경로(중계가 넘길 곳)</span>
+            <select
+              value={normalizeProxyRoute(settings.proxyRoute)}
+              onChange={(event) => onSettingsChange({ proxyRoute: event.target.value })}
+            >
+              {PROXY_ROUTES.map((route) => (
+                <option key={route} value={route}>{PROXY_ROUTE_LABELS[route]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>모델 이름(비우면 중계가 고름)</span>
+            <input
+              value={String(settings.proxyModel ?? "")}
+              placeholder="예: 비워 두세요 — 자동"
+              spellCheck={false}
+              onChange={(event) => onSettingsChange({ proxyModel: event.target.value })}
+            />
+          </label>
+        </div>
+        <p className="remote-key-note">
+          키를 넣지 않습니다. 상위 무료 경로(OpenRouter·Gemini·AMD)의 키는 중계 서버에만 있고 브라우저로 오지 않습니다.
+          개인정보 마스킹이 켜져 있으면 이름·연락처는 [성명_1]·[연락처_1]로 가린 뒤 나갑니다.
+        </p>
+        <div className="draft-actions">
+          <button className="ghost-light-button" type="button" onClick={() => onSettingsChange({ provider: "simulation" })}>키 없이 완전히 로컬로(템플릿 모드)</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="remote-key-block">
       <div className="remote-key-head">
