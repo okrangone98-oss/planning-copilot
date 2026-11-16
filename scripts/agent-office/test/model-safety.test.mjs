@@ -135,8 +135,11 @@ test("내 전용 중계는 접속 코드를 요구하고, 상위 경로만 고�
   assert.equal(validateApiKey("team-free-proxy", "").ok, false);
   assert.equal(validateApiKey("team-free-proxy", undefined).ok, false);
   assert.match(validateApiKey("team-free-proxy", "").message, /접속 코드/);
-  assert.equal(validateApiKey("team-free-proxy", "short").ok, false);
+  // 사용자가 기억하기 쉬운 짧은 숫자 코드도 그대로 받는다(길이는 사용자가 정한다).
+  assert.equal(validateApiKey("team-free-proxy", "3869").ok, true);
   assert.equal(validateApiKey("team-free-proxy", "my-code-2026").ok, true);
+  assert.equal(validateApiKey("team-free-proxy", "코드 있어요").ok, false, "공백이 들어간 코드는 거부");
+  assert.equal(validateApiKey("team-free-proxy", "x".repeat(65)).ok, false);
   assert.equal(providerRequiresKey("team-free-proxy"), true);
   // 자료가 밖으로 나가는 경로는 중계도 외부 전송 확인을 받는다.
   assert.equal(providerNeedsExternalAck("team-free-proxy"), true);
