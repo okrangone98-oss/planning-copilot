@@ -350,9 +350,10 @@ export function buildBudgetDigestText({ plan, work } = {}) {
  * 붙여넣기 글에서 예전 예산 관리표 블록을 걷어내고 새 블록을 넣는다.
  *  - 사용자가 쓴 다른 글은 그대로 둔다.
  *  - "■ 예산 관리표" 로 시작하는 구역만 지운다(여러 번 눌러도 쌓이지 않게).
+ *  - position:"start" 면 예산 블록을 글 맨 앞에 둔다 — 양식 칸 배치에서 격자 숫자가 먼저 잡히게(합계 칸).
  * @returns {{text:string, removed:number, changed:boolean}}
  */
-export function replaceDigestSection(existing, block) {
+export function replaceDigestSection(existing, block, { position = "end" } = {}) {
   const current = String(existing ?? "");
   const next = String(block ?? "").trim();
   if (!next) return { text: current, removed: 0, changed: false };
@@ -371,7 +372,7 @@ export function replaceDigestSection(existing, block) {
     if (!dropping) kept.push(line);
   }
   const head = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  const text = head ? `${head}\n\n${next}` : next;
+  const text = head ? (position === "start" ? `${next}\n\n${head}` : `${head}\n\n${next}`) : next;
   return { text, removed, changed: text !== current };
 }
 

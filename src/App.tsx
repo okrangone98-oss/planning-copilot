@@ -1070,13 +1070,13 @@ export default function App() {
       notify("예산 관리표에 아직 숫자가 없습니다. ‘예산 편성’이나 사업 상세의 ‘예산·집행’에서 비목과 금액을 먼저 적어 주세요.");
       return;
     }
-    const merged = replaceDigestSection(templateSession.smartText, digest.text);
+    const merged = replaceDigestSection(templateSession.smartText, digest.text, { position: "start" });
     updateTemplateSession({ smartText: merged.text });
     setSmartResult(null);
     setSmartSelected(new Set());
     setSmartNote("");
     setSmartError("");
-    const head = `예산 관리표 숫자 ${digest.counts.lines}줄을 ${templateSession.schema ? "2단계에" : "준비해 두었습니다"}${merged.removed ? " (앞서 넣은 예산 블록은 새 값으로 바꿨습니다)" : ""}.`;
+    const head = `예산 관리표 숫자 ${digest.counts.lines}줄을 ${templateSession.schema ? "2단계에 넣었습니다" : "준비해 두었습니다"}${merged.removed ? " (앞서 넣은 예산 블록은 새 값으로 바꿨습니다)" : ""}.`;
     notify(
       templateSession.schema
         ? `${head} ‘자동으로 칸 나누기’를 눌러 총사업비·집행액·잔액 칸에 배치하세요.`

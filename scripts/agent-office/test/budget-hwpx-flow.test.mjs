@@ -109,6 +109,22 @@ test("블록을 다시 넣어도 예산 관리표 구역은 쌓이지 않고 최
   assert.equal(same.changed, false);
 });
 
+test("글 맨 앞에 넣으면 양식의 합계 칸이 격자 숫자를 먼저 받는다", () => {
+  const plan = makePlan();
+  const work = workWithGridSpent(plan);
+  const digest = buildBudgetDigestText({ plan, work });
+  const userText = "사업명: 2027 양양 관광두레 플러스\n총사업비: 4,800만원 (작년 값 그대로)";
+  const merged = replaceDigestSection(userText, digest.text, { position: "start" });
+  assert.ok(merged.text.startsWith(BUDGET_DIGEST_TITLE), "예산 블록이 맨 앞에 온다");
+  assert.match(merged.text, /총사업비: 4,800만원 \(작년 값 그대로\)$/, "사용자가 쓴 글은 뒤에 그대로 남는다");
+
+  const schema = parseSampleTemplate({ text: PRACTICE_TEMPLATE_TEXT, blocks: [], fileName: "연습양식.md", format: "markdown" });
+  const fields = extractFormFields(schema);
+  const mapped = mapFreeTextToFields({ fields, text: merged.text });
+  const total = mapped.rows.find((row) => row.label === "총사업비");
+  assert.match(total?.proposed ?? "", /2,200,000원/, "합계 칸은 격자 숫자로 채워진다");
+});
+
 test("결과보고 .hwpx 문서 모델의 예산 표에 격자 숫자가 그대로 들어간다", () => {
   const plan = makePlan();
   const work = workWithGridSpent(plan);

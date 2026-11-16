@@ -76,7 +76,11 @@ export function buildBudgetDigestText(input?: {
   missing: string[];
 };
 
-export function replaceDigestSection(existing: unknown, block: unknown): {
+export function replaceDigestSection(
+  existing: unknown,
+  block: unknown,
+  options?: { position?: "start" | "end" }
+): {
   text: string;
   removed: number;
   changed: boolean;
