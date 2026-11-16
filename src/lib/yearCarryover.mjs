@@ -323,6 +323,96 @@ export function carryoverOverwriteMap({ planRows = [], values = {} } = {}) {
   return map;
 }
 
+/**
+ * 문서 제목처럼 글자 전체를 갈아끼우는 칸의 갈아끼우기 목록.
+ * 원본에 적힌 제목 글자(from)와 올해 제목(to)을 함께 넘겨, .hwpx에서 그 글자와
+ * 정확히 같은 문단·칸만 바꾸게 한다(다른 곳은 건드리지 않는다).
+ * @returns {Array<{fieldId: string, label: string, from: string, to: string}>}
+ */
+export function buildTextRewrites({ fields = [], values = {} } = {}) {
+  const rows = [];
+  for (const field of Array.isArray(fields) ? fields : []) {
+    if (!field || !field.rewrite) continue;
+    const next = String(values?.[field.id] ?? "").trim();
+    const current = String(field.value ?? "").trim();
+    // 찾을 원문은 줄 전체 글자(blockText), 바꿀 글자는 앞부분(prefix)을 그대로 두고 값만 바꾼 글자.
+    const from = String(field.blockText || current).trim();
+    const prefix = String(field.prefix ?? "");
+    const to = `${prefix}${next}`;
+    if (!next || !from || to === from) continue;
+    rows.push({ fieldId: field.id, label: String(field.label ?? "문서 제목"), from, to });
+  }
+  return rows;
+}
+
+/**
+ * 이양 모드에서 자동으로 체크해 둔 칸의 최소 확신도.
+ * 결과보고서의 이미 적힌 값을 덮어쓰는 일이라, 점수가 낮은 배치는 체크하지 않고
+ * 사람이 값을 보고 직접 체크하게 둔다(잘못된 숫자가 조용히 들어가는 것이 가장 나쁘다).
+ */
+export const CARRYOVER_MIN_SCORE = 0.7;
+
+/**
+ * 이양 모드의 자동 배치에 안전장치를 건다 — 확신이 낮은 칸은 체크를 풀어 둔다.
+ * AI 가 고른 칸(score 1)은 그대로 둔다.
+ */
+export function applyCarryoverGuard(result, { minScore = CARRYOVER_MIN_SCORE } = {}) {
+  if (!result || !Array.isArray(result.rows)) return result;
+  const rows = result.rows.map((row) => {
+    if (!row || !row.checked) return row;
+    const score = Number(row.score);
+    if (!Number.isFinite(score) || score >= minScore) return row;
+    return {
+      ...row,
+      checked: false,
+      lowConfidence: true,
+      reasons: unique([...(row.reasons || []), "자동 배치 확신이 낮아 체크를 풀었습니다 — 값을 보고 직접 체크하세요"])
+    };
+  });
+  return { ...result, rows };
+}
+
+/** 제목에서 연도만 올해로 바꿀 때 쓰는 글자 */
+export function swapTitleYear(value, currentYear) {
+  const text = String(value ?? "");
+  const thisYear = Number(currentYear) || new Date().getFullYear();
+  return text.replace(/(?<!\d)(20\d{2})(?!\d)/g, (match) => (Number(match) < thisYear ? String(thisYear) : match));
+}
+
+/**
+ * 문서 제목의 올해 제안 — ‘2025년 … 결과보고서’를 올해 제목으로 바꿔 둔다.
+ * 계획서에 사업명이 있으면 그 이름으로, 없으면 연도만 바꾼 제목으로 제안한다.
+ * 값은 3단계 검토 표에서 그대로 고칠 수 있다.
+ * @returns {{fieldId: string, previous: string, proposal: string, yearOnly: string, basis: "plan"|"year"}[]}
+ */
+export function proposeDocumentTitle({ fields = [], planLines = [], currentYear } = {}) {
+  const thisYear = Number(currentYear) || new Date().getFullYear();
+  const planName = (Array.isArray(planLines) ? planLines : [])
+    .filter((line) => line && line.kind === "label" && /^사업명$/.test(normalizeFormLabel(line.label)))
+    .map((line) => String(line.value ?? "").trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)[0] || "";
+  const rows = [];
+  for (const field of Array.isArray(fields) ? fields : []) {
+    if (!field || !field.rewrite) continue;
+    const previous = String(field.value ?? "").trim();
+    if (!previous) continue;
+    const years = previous.match(/(?<!\d)(20\d{2})(?!\d)/g) || [];
+    if (!years.some((year) => Number(year) < thisYear)) continue;
+    const yearOnly = swapTitleYear(previous, thisYear);
+    const tail = /^(?:20\d{2}\s*년?\s*)(.*?)(\s*(?:결과\s*보고서|보고서|정산\s*내역))$/.exec(previous);
+    const proposal = planName && tail ? `${thisYear}년 ${planName}${tail[2]}` : yearOnly;
+    rows.push({
+      fieldId: field.id,
+      previous,
+      proposal,
+      yearOnly,
+      basis: planName && tail ? "plan" : "year"
+    });
+  }
+  return rows;
+}
+
 /** 화면 요약 문장 */
 export function carryoverSummary({ detection = null, plan = null, leftover = null, replaced = 0 } = {}) {
   const year = detection?.sourceYear ? `${detection.sourceYear}년` : "전년도";

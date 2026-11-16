@@ -164,7 +164,10 @@ export function TemplateFillView({
   carryoverPlanCounts,
   carryoverLeftover,
   carryoverById = null,
-  carryoverOverwrites = null
+  carryoverOverwrites = null,
+  textRewrites = null,
+  layout = "full",
+  onLayoutChange
 }: {
   schema: TemplateSchema | null;
   profile: TemplateProfile;
@@ -234,6 +237,11 @@ export function TemplateFillView({
   /** 양식 이양 배지·덮어쓰기 목록 — 3·4단계 패널로 넘긴다 */
   carryoverById?: Record<string, { status: string; label: string; previous: string; next: string; strength: string; reason: string }> | null;
   carryoverOverwrites?: Record<string, string[]> | null;
+  /** 문서 제목처럼 라벨 없이 글자 전체를 갈아끼우는 칸 */
+  textRewrites?: Array<{ from: string; to: string; label?: string; fieldId?: string }> | null;
+  /** carryover = 작년 결과보고서 → 올해 것으로 바꾸기 3단계 화면 */
+  layout?: "full" | "carryover";
+  onLayoutChange?: (layout: "full" | "carryover") => void;
 }) {
   const [pasteText, setPasteText] = useState("");
   const [showStructure, setShowStructure] = useState(false);
@@ -259,6 +267,249 @@ export function TemplateFillView({
     ),
     [smartResult]
   );
+
+  /* ── 3단계 간단 화면 — 작년 결과보고서 → 올해 것으로 바꾸기 ───────── */
+  if (layout === "carryover") {
+    const carryoverCounts = carryoverPlanCounts || { total: 0, strong: 0, weak: 0 };
+    const replaced = Object.values(carryoverById || {}).filter((item) => item.status === "replaced").length;
+    const leftoverCount = carryoverLeftover?.counts?.total || 0;
+    const step2Ready = Boolean(planSource?.ok || materialResult?.line || smartText.trim());
+    return (
+      <div className="carryover-flow">
+        <header className="carryover-flow-head">
+          <h2>3단계만 하면 됩니다</h2>
+          <button className="ghost-light-button" type="button" onClick={() => onLayoutChange?.("full")}>
+            전체 화면 보기
+          </button>
+        </header>
+
+        <ol className="carryover-steps" aria-label="작업 순서">
+          <li className={schema ? "is-done" : "is-todo"}>
+            <span aria-hidden="true">{schema ? "✓" : "1"}</span>
+            <strong>작년 결과보고서 올리기</strong>
+            <small title={schema?.fileName || ""}>
+              {schema
+                ? (schema.fileName || "읽음").length > 20
+                  ? `${(schema.fileName || "읽음").slice(0, 18)}…`
+                  : schema.fileName || "읽음"
+                : ".hwpx 파일"}
+            </small>
+          </li>
+          <li className={step2Ready ? "is-done" : schema ? "is-todo" : ""}>
+            <span aria-hidden="true">{step2Ready ? "✓" : "2"}</span>
+            <strong>올해 자료 넣기</strong>
+            <small>{step2Ready ? "계획서·자료 넣음" : "계획서 · 정산 · 메모"}</small>
+          </li>
+          <li className={filledCount ? "is-done" : step2Ready ? "is-todo" : ""}>
+            <span aria-hidden="true">{filledCount ? "✓" : "3"}</span>
+            <strong>바뀐 항목 확인 · 내려받기</strong>
+            <small>{filledCount ? `${filledCount}칸 바꿈` : ".hwpx 받기"}</small>
+          </li>
+        </ol>
+
+        <section className={`carryover-step ${schema ? "is-done" : ""}`} aria-label="1단계 작년 결과보고서 올리기">
+          <div className="carryover-step-head">
+            <span className="carryover-step-no">1</span>
+            <div>
+              <strong>작년 결과보고서(.hwpx)를 올려 주세요</strong>
+              <small>작년에 낸 결과보고서 파일 그대로입니다. 표가 아니라 문단에 적힌 사업명·기간·실적도 읽습니다.</small>
+            </div>
+          </div>
+          <div className="file-drop">
+            <label className="file-pick">
+              {schema ? "다른 파일로 바꾸기" : "작년 결과보고서 선택"}
+              <input
+                type="file"
+                accept={SAMPLE_ACCEPT}
+                aria-label="작년 결과보고서 파일 올리기"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) onPickFile(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            <span className="file-name">{schema?.fileName ? `읽은 파일: ${schema.fileName}` : "아직 고른 파일이 없습니다"}</span>
+            {schema && (
+              <button className="ghost-light-button" type="button" onClick={onClear}>읽은 양식 지우기</button>
+            )}
+          </div>
+          {schema && (
+            <p className="carryover-status" role="status">
+              <strong>{schema.title || "작년 결과보고서"}</strong>
+              <span>
+                칸 {fields.length}개(본문 {fields.filter((field) => field.origin === "text").length}개)를 읽었습니다.
+                {carryoverDetection?.reason ? ` ${carryoverDetection.reason}` : ""}
+              </span>
+              {carryoverEnabled && carryoverCounts.total > 0 && (
+                <span className="carryover-counts">
+                  이양 대상 <strong>{carryoverCounts.total}칸</strong>
+                  {carryoverDetection?.sourceYear ? ` · ${carryoverDetection.sourceYear}년 값` : ""}
+                  {leftoverCount ? ` · 아직 그대로 ${leftoverCount}칸` : ""}
+                </span>
+              )}
+            </p>
+          )}
+          {schema && onCarryoverToggle && (
+            <label className="carryover-toggle is-compact">
+              <input
+                type="checkbox"
+                checked={carryoverEnabled}
+                onChange={(event) => onCarryoverToggle(event.target.checked)}
+              />
+              <span>
+                <strong>작년 값을 올해 것으로 갈아끼우기</strong>
+                <small>{CARRYOVER_MODE_HINT}</small>
+              </span>
+            </label>
+          )}
+          {!schema && (
+            <div className="practice-template-row">
+              <button className="secondary-button" type="button" onClick={onLoadPractice} disabled={practiceLoading}>
+                {practiceLoading ? "연습 양식 불러오는 중" : "올릴 파일이 없으면 연습 양식으로 해 보기"}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {schema && (
+          <section className="carryover-step" aria-label="2단계 올해 자료 넣기">
+            <div className="carryover-step-head">
+              <span className="carryover-step-no">2</span>
+              <div>
+                <strong>올해 자료를 넣어 주세요</strong>
+                <small>세 가지 중 있는 것만 넣으면 됩니다. 올린 자료는 이 브라우저 안에서만 읽습니다.</small>
+              </div>
+            </div>
+            <div className="material-rows">
+              <div className="material-row">
+                <div className="material-row-head">
+                  <strong>올해 추진계획서 (.hwpx)</strong>
+                  <label className="file-pick">
+                    {planSourceBusy ? "읽는 중" : "계획서 파일 선택"}
+                    <input
+                      type="file"
+                      accept={PLAN_SOURCE_ACCEPT}
+                      disabled={planSourceBusy}
+                      aria-label="올해 추진계획서 올리기"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) onPickPlanSource?.(file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                <small>사업명·기간·예산·일정을 읽습니다. 결재란·주소·연락처와 뒤에 붙은 계약서·동의서는 빼고 읽습니다.</small>
+                {planSource?.ok && (
+                  <p className="material-result" role="status">
+                    <span className="template-badge is-ready">항목 {planSource.counts.total}줄</span>
+                    사업명·기간·예산·일정을 넣었습니다
+                    {planSource.counts.appendix ? " (붙임 서식 제외)" : ""}
+                    <small className="material-note">계획서 숫자는 계획값입니다 — 실적(참석 인원·집행액)은 정산 자료 값을 씁니다.</small>
+                  </p>
+                )}
+                {planSource?.notes?.length ? (
+                  <ul className="template-warnings">
+                    {planSource.notes.map((note) => <li key={note}>{note}</li>)}
+                  </ul>
+                ) : null}
+              </div>
+
+              <div className="material-row">
+                <div className="material-row-head">
+                  <strong>정산 엑셀·출석 자료 (CSV)</strong>
+                  <label className="file-pick">
+                    자료 파일 선택
+                    <input
+                      type="file"
+                      accept={MATERIALS_ACCEPT}
+                      aria-label="정산·출석 자료 올리기"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) onPickMaterialFile?.(file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                <small>엑셀에서 ‘CSV로 저장’한 파일을 올리면 참석 인원·집행액을 세어 넣습니다.</small>
+                {materialResult?.line && (
+                  <p className="material-result" role="status">
+                    <span className="template-badge is-ready">{materialResult.kind === "attendance" ? "출석" : "지출"} {materialResult.rows}행</span>
+                    {materialResult.line}
+                  </p>
+                )}
+                {onApplyMaterialText && (
+                  <details className="setup-details material-paste">
+                    <summary>파일 없이 표를 붙여넣기</summary>
+                    <MaterialPasteBox onApply={(text) => onApplyMaterialText(text, "붙여넣은 표")} />
+                  </details>
+                )}
+              </div>
+            </div>
+
+            <SmartTextPanel
+              fields={fields}
+              text={smartText}
+              onTextChange={onSmartTextChange}
+              result={smartResult}
+              selected={smartSelected}
+              busy={smartBusy}
+              note={smartNote}
+              error={smartError}
+              providerLabel={providerLabel}
+              onMap={onSmartMap}
+              onApply={onSmartApply}
+              onToggle={onSmartToggle}
+              onToggleAll={onSmartToggleAll}
+              clear={onSmartClear}
+              onSendLeftoversToDraft={onSmartLeftoversToDraft}
+              onLoadProjectData={onLoadProjectData}
+              projectDataNote={projectDataNote}
+              projectDataStale={projectDataStale}
+              compact
+            />
+          </section>
+        )}
+
+        {schema && (
+          <section className="carryover-step" aria-label="3단계 검토와 내려받기">
+            <div className="carryover-step-head">
+              <span className="carryover-step-no">3</span>
+              <div>
+                <strong>바뀐 항목만 확인하고 .hwpx를 내려받으세요</strong>
+                <small>
+                  {replaced
+                    ? `${replaced}칸이 올해 값으로 바뀌었습니다.`
+                    : "아직 바뀐 칸이 없습니다 — 2단계 자료를 넣으면 자동으로 채워집니다."}
+                  {leftoverCount ? ` ${leftoverCount}칸은 작년 값이 남아 있어 표시해 두었습니다.` : ""}
+                </small>
+              </div>
+            </div>
+            <KordocFillPanel
+              compact
+              fields={fields}
+              values={fillValues}
+              fileName={schema.fileName}
+              fileBase64={fileBase64}
+              markdown={result}
+              notify={notify}
+              onValueChange={onFillValueChange}
+              autoFieldIds={autoFieldIds}
+              lowConfidenceIds={lowConfidenceIds}
+              leftovers={smartResult?.leftovers || []}
+              schema={schema}
+              carryoverById={carryoverEnabled ? carryoverById : null}
+              carryoverOverwrites={carryoverEnabled ? carryoverOverwrites : null}
+              carryoverPreflight={carryoverEnabled && carryoverLeftover ? { leftover: carryoverLeftover } : null}
+              textRewrites={textRewrites}
+            />
+          </section>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="template-layout">
@@ -667,6 +918,7 @@ export function TemplateFillView({
           schema={schema}
           carryoverById={carryoverEnabled ? carryoverById : null}
           carryoverOverwrites={carryoverEnabled ? carryoverOverwrites : null}
+          textRewrites={textRewrites}
           carryoverPreflight={carryoverEnabled && carryoverLeftover ? { leftover: carryoverLeftover } : null}
         />
       )}

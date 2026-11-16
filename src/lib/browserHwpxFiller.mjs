@@ -282,6 +282,22 @@ function collectBodyParagraphs(root) {
   return paragraphs;
 }
 
+/** 문서 안 모든 문단 — 표 칸·한 칸짜리 틀 안의 문단까지. 문서 제목 갈아끼우기에 쓴다. */
+function collectAllParagraphs(root) {
+  const paragraphs = [];
+  const walk = (node) => {
+    for (const child of elementsOf(node)) {
+      if (child.local === "p") {
+        if (!paragraphs.includes(child)) paragraphs.push(child);
+      }
+      // 표를 품은 문단도 안으로 들어간다 — 표 칸 안 문단까지 찾으려면 여기서 멈추면 안 된다.
+      walk(child);
+    }
+  };
+  walk(root);
+  return paragraphs;
+}
+
 /* ────────────────────────── 전년도 값 교체(양식 이양) ────────────────────────── */
 
 /**
@@ -716,6 +732,36 @@ export function patchSectionXml(xml, values, options = {}) {
     if (edits.length) applyTextEdits(paragraph, edits, splices);
   }
 
+  /* 전략 4 — 글자 전체를 갈아끼우는 문단·칸 (문서 제목)
+   * 라벨이 없는 자리라 라벨 키로는 찾을 수 없다. 원본 글자와 정확히 같은 문단만 바꿔
+   * 다른 문단이나 사람이 고쳐 둔 글을 건드리지 않는다. */
+  const rewrites = Array.isArray(options.rewrites) ? options.rewrites : [];
+  if (rewrites.length) {
+    const targets = collectAllParagraphs(root);
+    const rewritten = new Set();
+    for (const rewrite of rewrites) {
+      const from = String(rewrite?.from ?? "").trim();
+      const to = String(rewrite?.to ?? "").trim();
+      if (!from || !to || from === to) continue;
+      for (const paragraph of targets) {
+        if (rewritten.has(paragraph)) continue;
+        const text = visibleTextOf(source, textRuns(paragraph));
+        if (text !== from) continue;
+        if (!planParagraphWrite(paragraph, to, splices)) continue;
+        rewritten.add(paragraph);
+        filled.push({
+          key: String(rewrite.label ?? "문서 제목"),
+          label: String(rewrite.label ?? "문서 제목"),
+          value: to,
+          replaced: from,
+          where: "문서 제목 문단",
+          kind: "text"
+        });
+        break;
+      }
+    }
+  }
+
   const changed = splices.length > 0;
   return { xml: changed ? applySplices(source, splices) : source, filled, skipped, changed };
 }
@@ -741,7 +787,7 @@ function applySplices(source, splices) {
  * .hwpx 바이트 전체를 값으로 채워 새 .hwpx 바이트를 만든다.
  * ZIP 안의 섹션 XML만 바뀌고 나머지 엔트리는 그대로다. mimetype 은 압축하지 않고 맨 앞에 둔다(HWPX 규칙).
  */
-export async function patchHwpxBytes({ bytes, values, jszip, overwrites } = {}) {
+export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrites } = {}) {
   const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (!input.length) throw new Error("채울 .hwpx 파일이 없습니다. 양식 파일을 올리거나 연습 양식을 불러와 주세요.");
   const JSZip = jszip || (await import("jszip")).default;
@@ -757,7 +803,7 @@ export async function patchHwpxBytes({ bytes, values, jszip, overwrites } = {}) 
   const edited = new Map();
   for (const name of targets) {
     const xml = await zip.file(name).async("text");
-    const result = patchSectionXml(xml, values, { cursors, overwrites });
+    const result = patchSectionXml(xml, values, { cursors, overwrites, rewrites });
     filled.push(...result.filled.map((item) => ({ ...item, section: name })));
     skipped.push(...result.skipped.map((item) => ({ ...item, section: name })));
     if (result.changed) edited.set(name, result.xml);

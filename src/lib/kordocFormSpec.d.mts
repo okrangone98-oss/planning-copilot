@@ -33,6 +33,8 @@ export type FormField = {
   columnIndex?: number;
   slotId?: string;
   origin: "table" | "text" | "placeholder" | "inline";
+  /** 문서 제목처럼 글자 전체를 갈아끼우는 칸 — 라벨 키가 아니라 원문 글자로 찾는다 */
+  rewrite?: boolean;
   duplicate?: boolean;
   context: string;
 };

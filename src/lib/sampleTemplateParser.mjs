@@ -4,7 +4,7 @@
 // kordoc 본체(HWP5 OLE2·OCR·병합 셀 복원)는 Node/로컬 런타임이 필요하므로 1단계(웹 단독)에서는 쓰지 않는다.
 
 // 인라인 서명 블록(‘성명: … 생년월일: …’) 판정은 양식 규격 모듈과 같은 기준을 쓴다.
-import { isInlineSignatureBlock } from "./kordocFormSpec.mjs";
+import { isBlankValueCell, isFormLabelCell, isInlineSignatureBlock, scanInlineFieldSegments } from "./kordocFormSpec.mjs";
 
 export const HWP_BINARY_GUIDANCE =
   "구형 .hwp(바이너리) 파일은 브라우저에서 구조를 직접 읽을 수 없습니다. 한글에서 ‘파일 → 다른 이름으로 저장’으로 HWPX로 저장하거나 DOCX·PDF로 변환해 올려 주세요. 로컬 kordoc 연동은 다음 단계에서 붙일 수 있습니다.";
@@ -517,6 +517,21 @@ export function extractHwpxBlocks(xml) {
       continue;
     }
 
+    // 문단 안 줄바꿈·탭 — 한글에서 Shift+Enter 로 줄을 바꾼 자리다.
+    // 화면에서도 줄이 바뀌므로 문단을 여기서 끊어 읽는다(결과보고서의 ‘가.사 업 명: …’ 줄들이 한 문단에 뭉쳐 있던 원인).
+    if (local === "linebreak" || local === "tab") {
+      const frame = currentFrame();
+      if (local === "linebreak") {
+        if (frame && frame.cell) frame.cell.text += " ";
+        else if (paragraphDepth > 0) flushParagraph();
+      } else if (frame && frame.cell) {
+        frame.cell.text += " ";
+      } else if (paragraphDepth > 0) {
+        paragraphBuffer += " ";
+      }
+      continue;
+    }
+
     if (selfClosing) continue;
 
     if (local === "t") {
@@ -713,6 +728,102 @@ export function detectSlotKind(text, blockType) {
   return null;
 }
 
+/* ────────────────────────── 표 밖 본문 문단의 값 ────────────────────────── */
+
+/** 한 줄에 라벨이 몇 개까지 들어갈 수 있는가 — 인라인 서명 블록이 아닌 일반 본문 */
+const LABELLED_PARTS_MAX = 4;
+/** 문서 제목으로 볼 최대 길이 */
+const TITLE_LINE_MAX = 90;
+/** 문서 제목에 들어가는 말 — 결과보고서·계획서·정산내역 같은 문서 이름 */
+const TITLE_WORD_RE = /(결과\s*보고|보고서|계획서|추진\s*계획|사업\s*계획|정산\s*내역|성과\s*보고|결과\s*보고서)/;
+/** 라벨 앞에 올 수 있는 것 — 항목 번호·글머리표와 공백뿐 */
+const LABEL_LEAD_RE = /^[\s(（]*(?:[①-⑳]|\(?\d{1,3}[).]|[가-힣a-zA-Z][).]|[•◦○●■□▣＊*\-–]\s*)?[\s)）]*$/;
+/** 한 줄짜리 ‘라벨: 값’ — 라벨에 괄호·가운뎃점이 섞여도 읽는다(‘총 참여 인원(누적): 658명’). */
+const LABELLED_LINE_RE = /^\s*(?:[①-⑳]|\(?\d{1,3}[).]|[가-힣a-zA-Z][).]|[-–•◦○●■□*※]\s*)?\s*([가-힣A-Za-z][가-힣A-Za-z0-9\s()（）·]{0,23}?)\s*[:：]\s*(\S.*)$/;
+
+/**
+ * 표가 아닌 본문 문단에 적힌 ‘라벨: 값’을 라벨·값으로 나눈다.
+ * 결과보고서는 사업명·기간·운영회차 같은 핵심 값을 표가 아니라 문단에 적는다
+ * (예: `가.사 업 명: 2025 의기양양 활동가 양성 사업`, `1)총 운영회차: 34회`).
+ *
+ * 나누는 방식은 두 가지다.
+ *  - inline: 줄 안에서 라벨 위치를 정확히 짚을 수 있으면 값 글자만 바꾼다(라벨 글자·글자 모양 유지).
+ *  - affix: ‘총 참여 인원(누적): 658명’처럼 라벨에 괄호가 섞여 위치를 짚기 어려우면
+ *           줄 첫머리(prefix)는 그대로 두고 값만 갈아끼우도록 통째로 바꾼다.
+ * @returns {Array<{label: string, fillLabel: string, value: string, prefix: string, inline: boolean}>}
+ */
+export function labelledParagraphParts(text) {
+  const line = String(text ?? "").trim();
+  if (!line || line.length > 240) return [];
+  if (GUIDE_PATTERN.test(line)) return [];
+  if (isInlineSignatureBlock(line)) return [];
+  if (!/[:：]/.test(line)) return [];
+
+  // 라벨 앞에는 항목 번호·글머리표나 ‘총’ 같은 짧은 수식어만 올 수 있다 — 문장이 앞서면 라벨이 아니다.
+  const leadOk = (start) => {
+    const lead = line.slice(0, start);
+    if (LABEL_LEAD_RE.test(lead)) return true;
+    return lead.length <= 10 && !/[:：]/.test(lead) && /^[\s\p{L}\p{N}()（）·•\-–]+$/u.test(lead);
+  };
+  // ① 줄 안에서 라벨 위치를 짚을 수 있는 경우 — 값 글자만 바꿀 수 있다.
+  const usable = scanInlineFieldSegments(line)
+    .map((segment) => ({ segment, labelText: String(segment.extLabel || segment.label || "").trim() }))
+    .filter(({ segment, labelText }) => {
+      const value = String(segment.value ?? "").trim();
+      if (!value || isBlankValueCell(value)) return false;
+      if (/^(?:[①-⑳]|\(?\d{1,3}[).]|[가-힣][).])\s*\S/.test(value)) return false;
+      if (!labelText || !isFormLabelCell(labelText)) return false;
+      return leadOk(segment.extStart ?? segment.start);
+    });
+  if (usable.length >= 2) {
+    // 한 줄에 라벨이 둘 이상 — 서명 블록이 아닌 양식 줄(‘기간: … 장소: …’)은 라벨마다 값 자리를 따로 바꾼다.
+    return usable.slice(0, LABELLED_PARTS_MAX).map(({ segment, labelText }) => ({
+      label: labelText,
+      fillLabel: String(segment.label || labelText).trim(),
+      value: String(segment.value ?? "").trim().slice(0, 200),
+      prefix: line.slice(0, segment.valueStart),
+      inline: true
+    }));
+  }
+  if (usable.length === 1) {
+    const { segment, labelText } = usable[0];
+    return [{
+      label: labelText,
+      fillLabel: String(segment.label || labelText).trim(),
+      value: String(segment.value ?? "").trim().slice(0, 200),
+      prefix: line.slice(0, segment.valueStart),
+      inline: true
+    }];
+  }
+
+  // ② 짚기 어려운 라벨(괄호·가운뎃점) — 줄 첫머리 라벨과 값만 나눠 두고 통째로 갈아끼운다.
+  const match = LABELLED_LINE_RE.exec(line);
+  if (!match) return [];
+  const label = match[1].trim();
+  const value = match[2].trim();
+  if (!label || !value || isBlankValueCell(value)) return [];
+  if (!isFormLabelCell(label)) return [];
+  if (/^(?:[①-⑳]|\(?\d{1,3}[).]|[가-힣][).])\s*\S/.test(value)) return [];
+  const valueStart = line.length - value.length;
+  return [{ label, fillLabel: label, value: value.slice(0, 200), prefix: line.slice(0, valueStart), inline: false }];
+}
+
+/**
+ * 문서 제목·연도 머리글 문단인가 — `2025년 의기양양 활동가 양성 사업 결과보고서` 처럼
+ * 연도가 박혀 있는 짧은 문서 이름. 양식 이양에서 이 연도를 올해 것으로 바꿔 쓴다.
+ * @returns {string} 제목이면 그 글자, 아니면 빈 문자열
+ */
+export function detectDocumentTitleText(text) {
+  const line = String(text ?? "").trim();
+  if (line.length < 6 || line.length > TITLE_LINE_MAX) return "";
+  if (/[:：]/.test(line)) return "";
+  if (/^(?:※|◦|•|-|\()/.test(line)) return "";
+  if (!/(?:^|[^\d])(20\d{2})(?!\d)/.test(line)) return "";
+  if (!TITLE_WORD_RE.test(line)) return "";
+  if (/(습니다|입니다|합니다|하세요|바랍니다)$/.test(line)) return "";
+  return line;
+}
+
 function compactLevels(sections) {
   const rawLevels = Array.from(new Set(sections.map((section) => section.rawLevel))).sort((a, b) => a - b);
   const levelMap = new Map(rawLevels.map((level, index) => [level, index + 1]));
@@ -728,7 +839,7 @@ function compactLevels(sections) {
 }
 
 function emptyCounts() {
-  return { sections: 0, tables: 0, slots: 0, emptyCells: 0, blanks: 0, guides: 0 };
+  return { sections: 0, tables: 0, slots: 0, emptyCells: 0, blanks: 0, guides: 0, labelled: 0, titles: 0 };
 }
 
 export function emptyTemplateSchema(fileName = "") {
@@ -766,11 +877,39 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
   let emptyCells = 0;
   let blankCount = 0;
   let guideCount = 0;
+  let labelledCount = 0;
+  let titleSlot = null;
+  let titleCell = null;
   let lineNumber = 0;
+
+  /** 한 줄에서 읽은 ‘라벨: 값’을 본문 슬롯으로 담는다. */
+  const pushLabelledSlots = (text, sectionTitle) => {
+    const labelled = labelledParagraphParts(text);
+    for (const part of labelled) {
+      if (textSlots.length >= MAX_TEXT_SLOTS) break;
+      textSlots.push({
+        id: `w${textSlots.length + 1}`,
+        // inline — 값 글자만 바꿀 수 있는 라벨, labelled-text — 라벨 위치를 짚기 어려워 줄 전체를 바꾸는 라벨
+        kind: part.inline ? "labelled" : "labelled-text",
+        label: part.label,
+        fillLabel: part.fillLabel,
+        value: part.value,
+        prefix: part.prefix,
+        sectionId: currentSection ? currentSection.id : null,
+        sectionTitle,
+        preview: clampText(text, 140),
+        source: "text"
+      });
+      labelledCount += 1;
+    }
+    return labelled.length;
+  };
 
   for (const block of sourceBlocks) {
     lineNumber += 1;
     if (block.type === "heading") {
+      // 굵은 글씨로 적힌 ‘사 업 명: …’ 줄은 구역 제목이 아니라 값이 적힌 칸이다.
+      if (pushLabelledSlots(block.title, currentSection ? currentSection.title : "")) continue;
       if (sections.length >= MAX_SECTIONS) continue;
       const section = {
         id: `s${sections.length + 1}`,
@@ -812,6 +951,27 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
           if (!String(row[column] ?? "").trim()) table.emptyCells += 1;
         }
       }
+      // 표 칸에 박힌 문서 제목(결과보고서 표지·한 칸짜리 틀)도 양식 이양 대상이다.
+      if (!titleCell) {
+        for (let rowIndex = 0; rowIndex < tableRows.length && !titleCell; rowIndex += 1) {
+          const row = tableRows[rowIndex] || [];
+          for (let column = 0; column < row.length; column += 1) {
+            const cellText = String(row[column] ?? "").trim();
+            if (!cellText) continue;
+            const title = detectDocumentTitleText(cellText);
+            if (!title) continue;
+            titleCell = {
+              tableId: table.id,
+              rowIndex,
+              columnIndex: column,
+              value: title,
+              sectionId: table.sectionId,
+              sectionTitle: table.caption
+            };
+            break;
+          }
+        }
+      }
       emptyCells += table.emptyCells;
       tables.push(table);
       continue;
@@ -819,7 +979,23 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
 
     const blockType = block.type === "list" ? "list" : "paragraph";
     const kind = detectSlotKind(block.text, blockType);
-    if (!kind) continue;
+    if (!kind) {
+      // 표가 아닌 본문 문단 — 결과보고서의 사업명·기간·운영회차와 문서 제목이 여기에 적힌다.
+      if (pushLabelledSlots(block.text, currentSection ? currentSection.title : "")) continue;
+      const title = detectDocumentTitleText(block.text);
+      if (title && !titleSlot) {
+        titleSlot = {
+          kind: "title",
+          label: "문서 제목",
+          value: title,
+          sectionId: currentSection ? currentSection.id : null,
+          sectionTitle: currentSection ? currentSection.title : "",
+          preview: clampText(title, 140),
+          source: "text"
+        };
+      }
+      continue;
+    }
     if (kind === "guide") guideCount += 1;
     if (kind === "blank") blankCount += 1;
     if (textSlots.length >= MAX_TEXT_SLOTS) continue;
@@ -856,6 +1032,19 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
     }
   }
 
+  // 문서 제목 — 본문·표 칸에서 찾은 연도 제목을 먼저 쓰고, 없으면 첫 짧은 문단을 쓴다.
+  const titled = titleSlot || (titleCell
+    ? { kind: "title", label: "문서 제목", value: titleCell.value, sectionId: titleCell.sectionId, sectionTitle: titleCell.sectionTitle, preview: clampText(titleCell.value, 140), source: "table", tableId: titleCell.tableId, rowIndex: titleCell.rowIndex, columnIndex: titleCell.columnIndex }
+    : null);
+  if (titled) {
+    // 제목 슬롯은 한 번만 둔다 — 본문 제목은 본문 슬롯으로, 표 칸 제목은 칸 위치를 들고 있는 슬롯으로.
+    if (titled.source === "table") {
+      if (cellSlots.length < MAX_CELL_SLOTS) cellSlots.push({ ...titled, id: `c${cellSlots.length + 1}` });
+    } else if (textSlots.length < MAX_TEXT_SLOTS) {
+      textSlots.push({ ...titled, id: `w${textSlots.length + 1}` });
+    }
+  }
+
   const slots = [...textSlots, ...cellSlots];
   const counts = {
     sections: sections.length,
@@ -863,7 +1052,9 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
     slots: slots.length,
     emptyCells,
     blanks: blankCount,
-    guides: guideCount
+    guides: guideCount,
+    labelled: labelledCount,
+    titles: titled ? 1 : 0
   };
 
   if (!sections.length) {
@@ -891,6 +1082,7 @@ export function parseSampleTemplate({ text = "", blocks, fileName = "", format }
   );
   const leadTitle = lead ? cleanHeadingTitle(lead.text).slice(0, 80) : "";
   schema.title =
+    (titled ? String(titled.value).slice(0, 80) : "") ||
     (leadTitle && leadTitle.length <= 60 && !/[.?!]$/.test(leadTitle) ? leadTitle : "") ||
     (sections.find((section) => section.level === 1) || sections[0])?.title ||
     String(fileName || "").replace(/\.[^.]+$/, "") ||
@@ -913,6 +1105,8 @@ export function summarizeSchema(schema) {
     emptyCells: counts.emptyCells || 0,
     blanks: counts.blanks || 0,
     guides: counts.guides || 0,
+    labelled: counts.labelled || 0,
+    titles: counts.titles || 0,
     title: schema?.title || "",
     formats: schema?.format || ""
   };

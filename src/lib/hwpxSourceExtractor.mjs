@@ -29,6 +29,50 @@ export const PLAN_SOURCE_EMPTY_HINT =
 /** 계획서 안의 안내문 — 재료로 옮기면 칸 배치에 방해가 되므로 뺀다. */
 const GUIDE_LINE_RE = /^(?:※|＊|\*\s*\(?\s*작성|\(\s*작성\s*(?:요령|방법|기준|예시|안내)|작성\s*(?:요령|방법|기준|예시)\s*[:：]|◦\s*유의)/;
 
+// ── 기안문 노이즈 ────────────────────────────────────────────
+// 추진계획서는 17장짜리 결재 문서다. 결재란·시행문·기관 주소·연락처 같은 행정 머리말은
+// 결과보고서에 옮길 내용이 아니므로 라벨과 값을 읽지 않는다(이메일·전화번호는 개인정보이기도 하다).
+const NOISE_LABEL_RE = /^(?:수신|경유|\(\s*경유\s*\)|시행|접수|등록|공람|결재|협조자|협조|붙\s*임|관리번호|문서번호|공개여부|비밀여부|보존기간|주무관)\s*[:：]?$/;
+const NOISE_LABEL_LOOSE_RE = /^(?:수신|경유|시행|접수|공람|결재|협조자|붙\s*임|관리번호|문서번호|공개여부|비밀여부|주무관|전화번호|팩스번호|홈페이지|이메일)\s*[:：]/;
+/** 결재란 라벨 — ‘팀장’·‘사무국장’ 같은 직위만 있는 줄 */
+const NOISE_ROLE_RE = /^(?:팀\s*장|사무국장|센터장|과\s*장|계\s*장|소\s*장|원\s*장|주무관|담당자?|팀원)\s*[:：]?$/;
+/** 값 자체가 개인정보·연락처인 줄 */
+const NOISE_VALUE_RES = [
+  /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/,
+  /0\d{1,2}-\d{3,4}-\d{4}/,
+  /^우\s*[:：·]?\s*\(?\d{5}\)?/,
+  /(?:강원|양양군)[^\n]{0,30}(?:로|길)\s*\d+[^\n]{0,20}(?:층|호)/
+];
+/** 결재란이나 문서 머리말 표인가 — 팀장·사무국장·센터장 칸이 보이면 표 전부를 건너뜄다. */
+const APPROVAL_TABLE_RE = /^(?:팀\s*장|사무국장|센터장|과\s*장|계\s*장|주무관|담당|협조자|결재|수신|경유)$/;
+/** 본문 이후의 붙임 서식 — 결과보고서에 옮길 내용이 아니다(계약서·매뉴얼·신청서·동의서). */
+const APPENDIX_TITLE_RE = /(?:계약서|동의서|신청서|승낙서|매뉴얼|청구\s*(?:및|·)?\s*영수서|인적카드|서약서|확인서|조사서|위임장)\s*$/;
+
+/** 라벨·값이 기안문 노이즈인가 */
+function isNoiseLine(label, value) {
+  const trimmedLabel = String(label ?? "").replace(/\s+/g, " ").trim();
+  const trimmedValue = String(value ?? "").trim();
+  if (trimmedLabel && (NOISE_LABEL_RE.test(trimmedLabel) || NOISE_LABEL_LOOSE_RE.test(trimmedLabel))) return true;
+  if (trimmedLabel && NOISE_ROLE_RE.test(trimmedLabel) && (!trimmedValue || trimmedValue.length <= 12)) return true;
+  if (trimmedValue && NOISE_VALUE_RES.some((pattern) => pattern.test(trimmedValue))) return true;
+  if (trimmedLabel === "우" && /^\s*\(?\d{5}/.test(trimmedValue)) return true;
+  return false;
+}
+
+/** 결재란·문서 머리말 표인가 */
+function isNoiseTable(headers, rows) {
+  const words = [];
+  for (const header of Array.isArray(headers) ? headers : []) words.push(String(header ?? "").trim());
+  for (const row of Array.isArray(rows) ? rows.slice(0, 3) : []) {
+    for (const cell of Array.isArray(row) ? row : []) words.push(String(cell ?? "").trim());
+  }
+  const hits = words.filter((word) => word && APPROVAL_TABLE_RE.test(word.replace(/\(\s*경유\s*\)/, "경유")));
+  if (hits.length >= 2) return true;
+  // 편지지(기관 로고자리) — ‘해오름의 고장’ 같은 구호만 든 표
+  const joined = words.join(" ");
+  return /해오름의 고장|오를 양/.test(joined) && words.length <= 12;
+}
+
 const BUDGET_HEADERS = /^(비목|예산비목|항목|구분|세목|재원)$/;
 const BASIS_HEADERS = /(산출|내역|세부|금액|단가|수량|비율|구성)/;
 const SCHEDULE_HEADERS = /(일정|기간|월|시기|날짜|일자|추진일정)/;
@@ -71,12 +115,16 @@ function joinCells(cells, from = 0) {
 export function planSourceLines(blocks) {
   const lines = [];
   const seen = new Set();
-  const counts = { paragraphs: 0, tables: 0, labels: 0, budgetLines: 0, scheduleLines: 0, skipped: 0 };
+  const counts = { paragraphs: 0, tables: 0, labels: 0, budgetLines: 0, scheduleLines: 0, skipped: 0, skippedNoise: 0, appendix: false };
   let section = "";
 
   const push = (line) => {
     const value = String(line.value ?? "").trim();
     if (!value) return false;
+    if (isNoiseLine(line.label, value)) {
+      counts.skippedNoise += 1;
+      return false;
+    }
     const key = `${line.kind}|${normalizeFormLabel(line.label || "")}|${value}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -87,9 +135,33 @@ export function planSourceLines(blocks) {
   for (const block of Array.isArray(blocks) ? blocks : []) {
     if (!block || typeof block !== "object") continue;
 
+    // 본문이 끝나고 붙여 둔 서식(계약서·매뉴얼·신청서·동의서)은 계획 내용이 아니다 — 거기서 멈춘다.
+    const blockTitle = clean(block.type === "table" ? "" : block.title ?? block.text, 120);
+    if (blockTitle && blockTitle.length <= 45 && APPENDIX_TITLE_RE.test(blockTitle)) {
+      counts.appendix = true;
+      break;
+    }
+
     if (block.type === "heading") {
       const title = clean(block.title ?? block.text, 120);
       if (!title) continue;
+      if (isNoiseLine(title, "")) {
+        counts.skippedNoise += 1;
+        continue;
+      }
+      // 굵은 글씨로 적힌 ‘사 업 명: …’·‘예 산: …’ 줄은 구역 제목이 아니라 라벨·값이다.
+      const headLabel = /^([^:：]{1,24})\s*[:：]\s*(\S.*)$/.exec(title);
+      if (headLabel && isFormLabelCell(headLabel[1].trim()) && !APPENDIX_TITLE_RE.test(headLabel[2].trim())) {
+        const label = headLabel[1].trim();
+        const value = headLabel[2].trim();
+        if (isNoiseLine(label, value)) {
+          counts.skippedNoise += 1;
+          continue;
+        }
+        counts.paragraphs += 1;
+        if (push({ kind: "label", label, value })) counts.labels += 1;
+        continue;
+      }
       section = title;
       push({ kind: "heading", label: "", value: title });
       continue;
@@ -102,6 +174,11 @@ export function planSourceLines(blocks) {
         counts.skipped += 1;
         continue;
       }
+      // 붙임·수신·시행 같은 기안문 머리말 — 라벨 분리가 안 되는 줄도 여기서 걷어 낸다.
+      if (/^(?:붙\s*임|수신|경유|시행|접수|공람|결재|협조자)\s*[:：]/.test(raw)) {
+        counts.skippedNoise += 1;
+        continue;
+      }
       // “사업명 : ○○” 처럼 한 줄에 라벨이 있으면 라벨·값으로 나눠 둔다.
       const labelled = [...raw.matchAll(/((?:[가-힣]{1,6}\s)?[가-힣A-Za-z][가-힣A-Za-z0-9·]{1,11})\s*[:：]/g)]
         .filter((match) => isFormLabelCell(match[1].trim()));
@@ -109,6 +186,10 @@ export function planSourceLines(blocks) {
         const match = labelled[0];
         const label = match[1].trim();
         const value = raw.slice(match.index + match[0].length).trim();
+        if (value && isNoiseLine(label, value)) {
+          counts.skippedNoise += 1;
+          continue;
+        }
         if (value) {
           counts.paragraphs += 1;
           if (push({ kind: "label", label, value })) counts.labels += 1;
@@ -124,6 +205,11 @@ export function planSourceLines(blocks) {
     counts.tables += 1;
     const headers = (block.headers || []).map((header) => clean(header, 60));
     const rows = (block.rows || []).filter((row) => Array.isArray(row));
+    // 결재란·편지지 표는 행마다 읽으면 ‘팀장: 사무국장’ 같은 값이 생긴다 — 표를 통째로 건너뛴다.
+    if (isNoiseTable(headers, rows)) {
+      counts.skippedNoise += 1;
+      continue;
+    }
 
     // ① 머리글이 ‘라벨 | 값’인 표 — 행마다 라벨: 값
     const labelValueTable = isLabelValueTable(headers);
@@ -165,10 +251,15 @@ export function planSourceLines(blocks) {
       }
 
       // ③ 그 밖의 표 — 첫 칸이 라벨 같으면 라벨: 값, 아니면 한 줄로 적는다.
+      // ‘영역 | 지표 | 목표치’처럼 앞 두 칸이 모두 짧은 이름이면 두 칸을 합쳐 라벨로 쓴다
+      // (“교육 · 수료율: 80% 이상”) — 첫 칸만 쓰면 서로 다른 지표가 같은 라벨로 묶인다.
       const label = cells[0];
-      const rest = joinCells(cells, 1);
+      const second = cells[1];
+      const twoLevel = cells.length >= 3 && isFormLabelCell(label) && second && isFormLabelCell(second) && !isBlankValueCell(second);
+      const finalLabel = twoLevel ? `${label} · ${second}` : label;
+      const rest = joinCells(cells, twoLevel ? 2 : 1);
       if (label && rest && isFormLabelCell(label) && !isBlankValueCell(rest)) {
-        if (push({ kind: "label", label, value: rest })) counts.labels += 1;
+        if (push({ kind: "label", label: finalLabel, value: rest })) counts.labels += 1;
         continue;
       }
       if (filled.length >= 2) {
@@ -178,9 +269,30 @@ export function planSourceLines(blocks) {
   }
 
   const limited = lines.slice(0, PLAN_SOURCE_MAX_LINES);
+
+  // 같은 라벨에 서로 다른 값 — 기안문 예산액과 본문 예산액이 다르게 적힌 경우처럼 사람이 원본을 봐야 한다.
+  const byLabel = new Map();
+  for (const line of lines) {
+    if (!line.label || !(line.kind === "label" || line.kind === "budget")) continue;
+    let key = normalizeFormLabel(line.label);
+    if (!key) continue;
+    // ‘예 산’(기안문)과 ‘사업예산’(본문)은 같은 항목이다 — 한 키로 묶어 값이 다른지 본다.
+    if (/^(?:사업)?(?:예산|사업비|총사업비)$/.test(key)) key = "사업예산";
+    const list = byLabel.get(key) || [];
+    // 띄어쓰기만 다른 같은 말(“농어촌퍼실리테이터” vs “농어촌 퍼실리테이터”)은 충돌이 아니다.
+    const compact = line.value.replace(/\s+/g, "");
+    if (!list.some((item) => item.value.replace(/\s+/g, "") === compact)) list.push({ label: line.label, value: line.value });
+    byLabel.set(key, list);
+  }
+  const conflicts = [...byLabel.values()]
+    .filter((list) => list.length > 1)
+    .slice(0, 4)
+    .map((list) => ({ label: list[0].label, values: list.map((item) => item.value.slice(0, 60)) }));
+
   return {
     lines: limited,
-    counts: { ...counts, total: limited.length, truncated: lines.length > limited.length }
+    counts: { ...counts, total: limited.length, truncated: lines.length > limited.length, conflicts: conflicts.length },
+    conflicts
   };
 }
 
@@ -225,7 +337,8 @@ export async function extractPlanSource({ bytes, fileName = "", jszip } = {}) {
     fileName: name,
     text: "",
     lines: [],
-    counts: { paragraphs: 0, tables: 0, labels: 0, budgetLines: 0, scheduleLines: 0, skipped: 0, total: 0, truncated: false },
+    counts: { paragraphs: 0, tables: 0, labels: 0, budgetLines: 0, scheduleLines: 0, skipped: 0, skippedNoise: 0, appendix: false, total: 0, truncated: false, conflicts: 0 },
+    conflicts: [],
     notes: [],
     warning: ""
   };
@@ -258,14 +371,18 @@ export async function extractPlanSource({ bytes, fileName = "", jszip } = {}) {
     return { ...empty, warning: "계획서 본문(Contents/section*.xml)을 읽지 못했습니다. 파일이 손상되었는지 확인해 주세요." };
   }
 
-  const { lines, counts } = planSourceLines(blocks);
+  const { lines, counts, conflicts = [] } = planSourceLines(blocks);
   const text = planSourceMaterialText({ lines, fileName: name, truncated: counts.truncated });
-  if (!text) return { ...empty, counts, warning: PLAN_SOURCE_EMPTY_HINT };
+  if (!text) return { ...empty, counts, conflicts, warning: PLAN_SOURCE_EMPTY_HINT };
 
   const notes = [
     "계획서에서 읽은 숫자는 계획값입니다. 실적 칸(참석 인원·집행액)은 출석·지출 자료의 값을 쓰세요."
   ];
   if (counts.truncated) notes.push("계획서가 길어 앞부분만 넣었습니다. 뒤쪽 내용은 직접 붙여넣어 주세요.");
+  if (counts.appendix) notes.push("계획서 뒤에 붙은 계약서·매뉴얼·신청서·동의서는 결과보고서 내용이 아니라서 넣지 않았습니다.");
+  for (const conflict of conflicts) {
+    notes.push(`계획서 안에서 ‘${conflict.label}’ 값이 ${conflict.values.map((value) => `‘${value}’`).join(" / ")} ${conflict.values.length}가지로 적혀 있습니다 — 어느 것이 맞는지 원본을 확인해 주세요.`);
+  }
 
   return {
     ok: true,
@@ -273,6 +390,7 @@ export async function extractPlanSource({ bytes, fileName = "", jszip } = {}) {
     text,
     lines,
     counts,
+    conflicts,
     notes,
     warning: ""
   };

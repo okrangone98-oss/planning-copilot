@@ -387,6 +387,12 @@ export function extractFormFields(schema) {
       slotId: field.slotId,
       origin: field.origin,
       duplicate: field.duplicate || undefined,
+      /** 글자 전체(또는 앞부분+값)를 갈아끼우는 칸 — 라벨로 찾지 않고 원문 글자로 찾는다. */
+      rewrite: field.rewrite || undefined,
+      /** 갈아끼울 때 찾을 원문 줄 글자 */
+      blockText: field.blockText || undefined,
+      /** 값 앞에 그대로 두어야 하는 글자 */
+      prefix: field.prefix === undefined ? undefined : String(field.prefix),
       context: field.context || ""
     };
     fields.push(created);
@@ -578,9 +584,66 @@ export function extractFormFields(schema) {
     pushInlineFieldsOfTable(table, rows, caption);
   }
 
-  /* 본문 슬롯 — 인라인 라벨·자리 표시 */
+  /* 본문·칸 슬롯 — 라벨: 값 · 문서 제목 · 인라인 라벨 · 자리 표시 */
   for (const slot of slots) {
     if (slot.kind === "table-cell" || slot.kind === "guide") continue;
+    // 표 밖 문단에 적힌 ‘라벨: 값’ — 결과보고서 사업명·기간·운영회차 같은 값.
+    if (slot.kind === "labelled") {
+      const value = String(slot.value ?? "").trim();
+      if (!value) continue;
+      pushField({
+        label: slot.label,
+        fillLabel: slot.fillLabel || slot.label,
+        value,
+        sectionId: slot.sectionId,
+        slotId: slot.id,
+        origin: "text",
+        hint: "",
+        context: slot.sectionTitle || ""
+      });
+      continue;
+    }
+    // 라벨 위치를 짚기 어려운 ‘라벨: 값’(괄호가 섞인 라벨) — 줄 앞부분은 그대로 두고 값만 갈아끼운다.
+    if (slot.kind === "labelled-text") {
+      const value = String(slot.value ?? "").trim();
+      if (!value) continue;
+      pushField({
+        label: slot.label,
+        fillLabel: slot.fillLabel || slot.label,
+        value,
+        sectionId: slot.sectionId,
+        slotId: slot.id,
+        origin: "text",
+        rewrite: true,
+        blockText: String(slot.preview ?? "").trim(),
+        prefix: String(slot.prefix ?? ""),
+        hint: "",
+        context: slot.sectionTitle || ""
+      });
+      continue;
+    }
+    // 문서 제목 문단·칸 — 라벨이 따로 없으므로 글자 전체를 통째로 갈아끼우는 칸으로 둔다.
+    if (slot.kind === "title") {
+      const value = String(slot.value ?? "").trim();
+      if (!value) continue;
+      pushField({
+        label: slot.label || "문서 제목",
+        fillLabel: slot.label || "문서 제목",
+        value,
+        sectionId: slot.sectionId,
+        slotId: slot.id,
+        tableId: slot.tableId,
+        rowIndex: slot.rowIndex,
+        columnIndex: slot.columnIndex,
+        origin: "text",
+        rewrite: true,
+        blockText: value,
+        prefix: "",
+        hint: "",
+        context: slot.sectionTitle || ""
+      });
+      continue;
+    }
     const preview = String(slot.preview ?? slot.label ?? "");
     if (!preview) continue;
     // 서명 블록은 라벨이 여러 개라 아래 일반 스캔으로는 일부만 잡힌다 — 한 번에 라벨별로 나눈다.
@@ -666,6 +729,11 @@ export function applyFieldValues(schema, valuesByFieldId, { force = false } = {}
       applied += 1;
       continue;
     }
+    if (field.rewrite) {
+      // 문서 제목처럼 글자 전체를 갈아끼우는 칸 — 스키마 표·칸 글자는 그대로 두고 .hwpx에서 바꿈.
+      applied += 1;
+      continue;
+    }
     if (field.tableId) {
       const table = next.tables.find((item) => item.id === field.tableId);
       if (!table) continue;
@@ -718,6 +786,14 @@ export function buildKordocFillValues({ fields, values }) {
   const warnings = [];
   const list = Array.isArray(fields) ? fields : [];
   for (const field of list) {
+    // 문서 제목처럼 글자 전체를 갈아끼우는 칸은 라벨 채우기 값이 아니다(별도 목록으로 넘긴다).
+    // 다만 검토 표에는 보여야 하므로 항목으로는 남긴다.
+    if (field.rewrite) {
+      const titleValue = String(values?.[field.id] ?? "").trim();
+      if (!titleValue) continue;
+      entries.push({ key: field.fillKey || field.label, normalized: normalizeFormLabel(field.fillKey || field.label), value: titleValue, fields: [field], rewrite: true });
+      continue;
+    }
     const value = String(values?.[field.id] ?? "").trim();
     if (!value) continue;
     const key = field.fillKey || field.label;
@@ -741,6 +817,11 @@ export function buildKordocFillValues({ fields, values }) {
   const values_ = {};
   const rows = [];
   for (const entry of entries) {
+    if (entry.rewrite) {
+      // 라벨로 찾는 값이 아니라 원문 글자로 찾는 값 — filler 의 rewrites 로 넘어간다.
+      rows.push({ key: entry.key, value: entry.value, label: entry.fields[0].label, sectionTitle: entry.fields[0].sectionTitle, where: whereOf(entry.fields[0]), fieldId: entry.fields[0].id });
+      continue;
+    }
     values_[entry.key] = entry.value;
     const fieldsInEntry = entry.fields;
     if (Array.isArray(entry.value)) {
@@ -754,7 +835,7 @@ export function buildKordocFillValues({ fields, values }) {
       }
     }
   }
-  const unmapped = list.filter((field) => !String(values?.[field.id] ?? "").trim());
+  const unmapped = list.filter((field) => !field.rewrite && !String(values?.[field.id] ?? "").trim());
   return { values: values_, entries: rows, warnings, unmapped };
 }
 

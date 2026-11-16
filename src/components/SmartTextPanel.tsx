@@ -39,7 +39,8 @@ export function SmartTextPanel({
   onSendLeftoversToDraft,
   onLoadProjectData,
   projectDataNote,
-  projectDataStale
+  projectDataStale,
+  compact = false
 }: {
   fields: FormField[];
   text: string;
@@ -62,6 +63,8 @@ export function SmartTextPanel({
   projectDataNote: string;
   /** 불러온 뒤 사업 데이터가 바뀌었는지 */
   projectDataStale: boolean;
+  /** 3단계 간단 화면 — 단계 번호와 긴 설명 대신 짧은 이름만 쓴다. */
+  compact?: boolean;
 }) {
   const summary = useMemo(() => summarizeSmartMap(result, selected), [result, selected]);
   const rows = result?.rows || [];
@@ -72,10 +75,11 @@ export function SmartTextPanel({
     <section className="grant-block smart-text" aria-label="자유 텍스트로 칸 채우기">
       <div className="grant-block-head">
         <div>
-          <strong>② 자료 붙여넣기</strong>
+          <strong>{compact ? "실적·메모 붙여넣기 (선택)" : "② 자료 붙여넣기"}</strong>
           <span>
-            카톡·메모·회의록·기존 문서의 글을 통째로 붙여넣으면, 위 양식의 칸 {fields.length}개(번 칸 {fillable}개) 중
-            알맞은 곳으로 나눠 넣습니다. 지금 실행 경로: {providerLabel}.
+            {compact
+              ? `올해 실적 숫자·메모·회의록을 붙여넣으면 양식의 칸 ${fields.length}개(빈칸 ${fillable}개) 중 알맞은 곳으로 나눠 넣습니다.`
+              : `카톡·메모·회의록·기존 문서의 글을 통째로 붙여넣으면, 위 양식의 칸 ${fields.length}개(번 칸 ${fillable}개) 중 알맞은 곳으로 나눠 넣습니다. 지금 실행 경로: ${providerLabel}.`}
           </span>
         </div>
         <div className="draft-actions">

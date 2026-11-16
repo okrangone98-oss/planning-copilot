@@ -86,7 +86,9 @@ export function KordocFillPanel({
   schema = null,
   carryoverById = null,
   carryoverOverwrites = null,
-  carryoverPreflight = null
+  carryoverPreflight = null,
+  textRewrites = null,
+  compact = false
 }: {
   fields: FormField[];
   values: Record<string, string>;
@@ -108,8 +110,12 @@ export function KordocFillPanel({
   carryoverById?: Record<string, { status: string; label: string; previous: string; next: string; strength: string; reason: string }> | null;
   /** 양식 이양 — 이 칸의 작년 값은 같은 글자면 갈아끼워도 된다(라벨 키 → 이전 글자들) */
   carryoverOverwrites?: Record<string, string[]> | null;
+  /** 문서 제목처럼 라벨 없이 글자 전체를 갈아끼우는 칸 */
+  textRewrites?: Array<{ from: string; to: string; label?: string; fieldId?: string }> | null;
   /** 사전 점검에 넘길 이양 정보(잔존 점검) */
   carryoverPreflight?: { plan?: CarryoverPlan | null; leftover?: CarryoverLeftover | null } | null;
+  /** 3단계 간단 화면 — 값 표와 내려받기만 남기고 개발자용 설정을 접어 둔다 */
+  compact?: boolean;
 }) {
   const [endpoint, setEndpoint] = useState(() => loadHwpxBridgeEndpoint());
   const [busy, setBusy] = useState<"" | "fill" | "patch" | "browser">("");
@@ -199,7 +205,12 @@ export function KordocFillPanel({
     setBusy("browser");
     setBrowserNote({ tone: "info", text: "브라우저에서 양식 서식을 그대로 두고 값을 넣는 중입니다." });
     try {
-      const result = await patchHwpxBytes({ bytes: base64ToBytes(fileBase64), values: fill.values, overwrites: carryoverOverwrites || undefined });
+      const result = await patchHwpxBytes({
+        bytes: base64ToBytes(fileBase64),
+        values: fill.values,
+        overwrites: carryoverOverwrites || undefined,
+        rewrites: textRewrites && textRewrites.length ? textRewrites : undefined
+      });
       setBrowserResult(result);
       if (!result.filled.length) {
         setBrowserNote({
@@ -337,30 +348,31 @@ export function KordocFillPanel({
       <section className="hwpx-block kordoc-fill" aria-label="입력 결과 검토">
         <div className="hwpx-head">
           <div>
-            <h3>3 · 입력 결과 검토(수정)</h3>
+            <h3>{compact ? "3 · 바뀐 항목 확인" : "3 · 입력 결과 검토(수정)"}</h3>
             <p>
-              양식의 어느 칸에 무슨 값이 들어가는지 확인하는 표입니다. 칸이 잘못 잡혔으면 <strong>넣을 값을 직접 고치거나 지워</strong>
-              주세요. 고친 값은 이 브라우저에 저장되어 4단계 다운로드에 그대로 쓰이고, 원본 양식에서 이미 값이 있는 칸은 덮어쓰지 않습니다.
+              {compact
+                ? "올해 자료로 바꿀 값만 모았습니다. 칸 이름 옆에 바뀐 항목·그대로 둔 항목이 표시되고, 값은 그 자리에서 고칠 수 있습니다."
+                : "양식의 어느 칸에 무슨 값이 들어가는지 확인하는 표입니다. 칸이 잘못 잡혔으면 넣을 값을 직접 고치거나 지워 주세요. 고친 값은 이 브라우저에 저장되어 4단계 다운로드에 그대로 쓰이고, 원본 양식에서 이미 값이 있는 칸은 덮어쓰지 않습니다."}
             </p>
           </div>
           <span className="badge is-info">저장됨 · 브라우저 안</span>
         </div>
 
-        <div className="kordoc-fill-stats">
+        {!compact && <div className="kordoc-fill-stats">
           <span className="template-badge is-ready">넣을 값 {count}개</span>
           <span>kordoc fill 키 {uniqueKeys}개</span>
           {fill.unmapped.length > 0 && <span className="kordoc-fill-muted">비어 있는 칸 {fill.unmapped.length}개</span>}
           {!hasFile && <span className="kordoc-fill-muted">양식 파일(.hwpx)이 없어 다운로드는 안 됩니다</span>}
-        </div>
+        </div>}
 
-        <div className="fill-status-legend" aria-label="칸 상태 요약">
+        {!compact && <div className="fill-status-legend" aria-label="칸 상태 요약">
           {renderStatus("auto", `자동 채움 ${statusCounts.auto}`)}
           {renderStatus("manual", `직접 적은 값 ${statusCounts.manual}`)}
           {renderStatus("check", `확인 필요 ${statusCounts.check}`)}
           {renderStatus("blank", `빈칸 ${statusCounts.blank}`)}
           {renderStatus("required", `빈칸·필수 ${statusCounts.required}`)}
           {statusCounts.original > 0 && renderStatus("original", `원본 유지 ${statusCounts.original}`)}
-        </div>
+        </div>}
 
         {fill.warnings.length > 0 && (
           <ul className="template-warnings">
@@ -434,7 +446,7 @@ export function KordocFillPanel({
         {blankRows.length > 0 && (
           <details className="setup-details fill-blank-panel" open={count === 0}>
             <summary>
-              아직 비어 있는 칸 {blankRows.length}개 — 여기에 바로 적을 수 있습니다
+              {compact ? `빈칸 ${blankRows.length}개 — 필요하면 여기에 직접 적기` : `아직 비어 있는 칸 ${blankRows.length}개 — 여기에 바로 적을 수 있습니다`}
               {statusCounts.required > 0 ? ` (필수 표시 ${statusCounts.required}개 포함)` : ""}
             </summary>
             <p className="block-note">
@@ -517,7 +529,7 @@ export function KordocFillPanel({
       <section className="hwpx-block kordoc-fill" aria-label="hwpx로 내려받기">
         <div className="hwpx-head">
           <div>
-            <h3>4 · HWPX 다운로드</h3>
+            <h3>{compact ? "3 · .hwpx 내려받기" : "4 · HWPX 다운로드"}</h3>
             <p>
               위에서 확인한 값을 원본 양식의 같은 칸에 넣어 <strong>.hwpx 파일로 내려받습니다</strong>. 글꼴·표 테두리·문단 모양은
               원본 그대로이고, 채우지 않은 칸도 원본 글자 그대로 남습니다. 파일은 이 브라우저 안에서만 만들어집니다.
@@ -585,7 +597,7 @@ export function KordocFillPanel({
           </details>
         )}
 
-        <details className="setup-details local-hwpx-options">
+        <details className={compact ? "setup-details local-hwpx-options is-advanced" : "setup-details local-hwpx-options"} hidden={compact}>
           <summary>고급 설정 — kordoc JSON·CLI·로컬 브릿지</summary>
           <p className="block-note">
             내 컴퓨터에서 kordoc을 돌리는 쪽이 편할 때만 쓰세요. 위의 ‘.hwpx 바로 내려받기’와 결과는 같습니다.

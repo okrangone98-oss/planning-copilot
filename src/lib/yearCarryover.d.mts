@@ -103,6 +103,29 @@ export function carryoverOverwriteMap(input?: {
   planRows?: CarryoverRow[] | null;
   values?: Record<string, string> | null;
 }): Record<string, string[]>;
+export const CARRYOVER_MIN_SCORE: number;
+
+export type TitleProposal = {
+  fieldId: string;
+  previous: string;
+  proposal: string;
+  yearOnly: string;
+  basis: "plan" | "year";
+};
+
+export function applyCarryoverGuard<T>(result: T, options?: { minScore?: number }): T;
+export function swapTitleYear(value?: string | null, currentYear?: number): string;
+export function proposeDocumentTitle(input?: {
+  fields?: Array<Record<string, unknown>> | null;
+  planLines?: Array<{ kind?: string; label?: string; value?: string }> | null;
+  currentYear?: number;
+}): TitleProposal[];
+
+export type TextRewrite = { fieldId: string; label: string; from: string; to: string };
+export function buildTextRewrites(input?: {
+  fields?: Array<Record<string, unknown>> | null;
+  values?: Record<string, string> | null;
+}): TextRewrite[];
 export function carryoverSummary(input?: {
   detection?: CarryoverDetection | null;
   plan?: CarryoverPlan | null;
