@@ -38,6 +38,7 @@ export function SmartTextPanel({
   clear,
   onSendLeftoversToDraft,
   onLoadProjectData,
+  onLoadBudgetData,
   projectDataNote,
   projectDataStale,
   compact = false
@@ -59,6 +60,8 @@ export function SmartTextPanel({
   onSendLeftoversToDraft: () => void;
   /** 이 사업에 적힌 계획·예산·회차·지출·결과보고를 이 칸에 한 번에 넣는다. */
   onLoadProjectData: () => void;
+  /** 예산 관리표(스프레드시트)의 숫자만 총사업비·집행액·잔액·비목 줄로 넣는다. */
+  onLoadBudgetData?: () => void;
   /** 마지막으로 불러온 사업 데이터 설명(불러온 시각·항목 수·비어 있는 항목). */
   projectDataNote: string;
   /** 불러온 뒤 사업 데이터가 바뀌었는지 */
@@ -99,6 +102,11 @@ export function SmartTextPanel({
         <button className="secondary-button" type="button" onClick={onLoadProjectData}>
           {text.trim() ? "현재 사업 데이터 다시 불러오기" : "현재 사업 데이터 불러오기"}
         </button>
+        {onLoadBudgetData && (
+          <button className="secondary-button budget-digest-button" type="button" onClick={onLoadBudgetData}>
+            예산 관리표 숫자만 불러오기
+          </button>
+        )}
         <span>
           이 사업의 사업명·기관·기간·비목별 예산과 집행·회차·참석 인원·결과보고에 쓴 글을 아래 칸에 그대로 넣습니다.
           직접 쓴 글이 있으면 지우지 않고 뒤에 이어 붙이며, 빈 항목은 0으로 채우지 않고 비워 둡니다.

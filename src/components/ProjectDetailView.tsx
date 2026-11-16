@@ -111,7 +111,8 @@ export function ProjectDetailView({
   onNavigate,
   onConfirmPlan,
   notify,
-  focusTaskId
+  focusTaskId,
+  onSendBudgetToTemplate
 }: {
   workspace: Workspace;
   meta: ProjectMeta;
@@ -129,6 +130,8 @@ export function ProjectDetailView({
   onConfirmPlan: (request: ConfirmPlanRequest) => ConfirmPlanResult;
   notify: (message: string) => void;
   focusTaskId?: string;
+  /** 예산 관리표 숫자를 서류 양식 채우기(2단계)로 보낸다. */
+  onSendBudgetToTemplate?: () => void;
 }) {
   const [showAllChanges, setShowAllChanges] = useState(false);
   const progress = projectProgress({ project, plan: grantPlan });
@@ -380,6 +383,7 @@ export function ProjectDetailView({
           notify={notify}
           onNavigate={onNavigate}
           onOpenTab={onTabChange}
+          onSendBudgetToTemplate={onSendBudgetToTemplate}
         />
       )}
     </div>

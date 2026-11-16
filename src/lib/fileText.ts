@@ -8,6 +8,7 @@ import {
   readHwpxBlocks,
   type SampleBlock
 } from "./sampleTemplateParser.mjs";
+import { readXlsxWorkbook } from "./xlsxTable.mjs";
 
 export type ExtractedDocument = {
   text: string;
@@ -129,12 +130,30 @@ async function readHwpx(file: File): Promise<ExtractedText> {
   };
 }
 
+/** 엑셀(.xlsx)은 첫 시트의 표를 Markdown 표 모양으로 바꿔 구조 파서가 열·행을 잡게 한다. */
+async function readXlsx(file: File): Promise<ExtractedText> {
+  const { rows, name, names } = await readXlsxWorkbook(await file.arrayBuffer(), { sheetIndex: 0 });
+  const table = rows.map((row) => `| ${row.map((cell) => String(cell ?? "").replace(/\|/g, "/")).join(" | ")} |`).join("\n");
+  return {
+    text: table,
+    warning: names.length > 1 ? `엑셀 시트 ${names.length}개 중 ‘${name}’ 시트만 읽었습니다. 다른 시트는 예산 관리표의 ‘엑셀·시트 불러오기’에서 고를 수 있습니다.` : undefined
+  };
+}
+
 /** 문서 전체를 구조 블록까지 포함해 읽는다. 양식 채우기는 blocks를, 기존 흐름은 text를 쓴다. */
 export async function extractDocument(file: File): Promise<ExtractedDocument> {
   const format = documentFormatOf(file.name);
   const extension = extensionOf(file);
 
   if (format === "hwp") return { text: "", blocks: [], format, warning: HWP_BINARY_GUIDANCE };
+  if (extension === ".xlsx") {
+    const extracted_ = await readXlsx(file);
+    const text_ = extracted_.text.trim();
+    return { text: text_, blocks: parseTextBlocks(text_), format: "xlsx", warning: extracted_.warning };
+  }
+  if (extension === ".xls") {
+    return { text: "", blocks: [], format: "xls", warning: "예전 엑셀 파일(.xls)은 읽지 못합니다. 엑셀에서 ‘다른 이름으로 저장 → .xlsx 또는 .csv’로 저장해 올려 주세요." };
+  }
 
   let extracted: ExtractedText;
   if (textLikeExtensions.includes(extension)) extracted = await readTextFile(file, extension);

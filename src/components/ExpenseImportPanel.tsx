@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { GrantBudgetLine } from "../types";
 import { formatWon } from "../lib/grantWorkflow.mjs";
 import { EXPENSE_IMPORT_SAMPLE, parseExpenseTable, toExpenseInputs } from "../lib/expenseImport.mjs";
 import type { ExpenseInput } from "../lib/expenseImport.mjs";
 import type { ProjectExpense } from "../lib/projectOperations.mjs";
+import { readXlsxWorkbook, rowsToTsvText } from "../lib/xlsxTable.mjs";
 
 function sameExpense(left: { spentAt: string; amount: number; description: string }, right: ProjectExpense) {
   return left.spentAt === right.spentAt
@@ -31,6 +32,33 @@ export function ExpenseImportPanel({
 }) {
   const [text, setText] = useState("");
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [xlsxFile, setXlsxFile] = useState<File | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  /** 엑셀 파일을 브라우저 안에서 읽어 표 글자로 바꾼다 — 시트가 여럿이면 고른 시트만. */
+  const readXlsx = async (file: File, index: number) => {
+    setBusy(true);
+    try {
+      const workbook = await readXlsxWorkbook(await file.arrayBuffer(), { sheetIndex: index });
+      setXlsxFile(file);
+      setSheetNames(workbook.names);
+      setSheetIndex(workbook.index);
+      workbook.warnings.forEach((warning) => notify(warning));
+      if (!workbook.rows.length) {
+        notify(`‘${workbook.name || "첫"}’ 시트가 비어 있습니다. 다른 시트를 골라 보세요.`);
+        return;
+      }
+      setText(rowsToTsvText(workbook.rows));
+      notify(`엑셀 ‘${workbook.name}’ 시트 ${workbook.rows.length}줄을 읽었습니다. 아래에서 읽은 결과를 확인하세요.`);
+    } catch {
+      notify("엑셀 파일을 읽지 못했습니다. 엑셀에서 CSV로 저장해 올리거나 표를 복사해 붙여넣어 주세요.");
+    } finally {
+      setBusy(false);
+    }
+  };
   const parsed = useMemo(() => (text.trim() ? parseExpenseTable(text) : null), [text]);
   const resolved = useMemo(
     () => (parsed ? toExpenseInputs(parsed.rows, budgetLines) : { inputs: [] as ExpenseInput[], unmatched: [] as Array<{ description: string; amount: number }> }),
@@ -59,9 +87,58 @@ export function ExpenseImportPanel({
         <button className="ghost-light-button" type="button" onClick={onClose}>닫기</button>
       </div>
       <p className="block-note">
-        엑셀·구글 시트에서 지출 표를 그대로 복사해 붙여넣으세요(탭·쉼표·Markdown 표 모두 됩니다).
+        엑셀(.xlsx)·CSV 파일을 올리거나, 엑셀·구글 시트에서 지출 표를 그대로 복사해 붙여넣으세요(탭·쉼표·Markdown 표 모두 됩니다).
         머리글은 사용일자·거래처·적요·금액·비목·상태·증빙을 알아봅니다. 읽은 결과를 먼저 보여 주고, 누를 때만 더합니다.
       </p>
+      <div className="draft-actions">
+        <label className="secondary-button file-button">
+          {busy ? "엑셀 읽는 중" : "엑셀·CSV 파일 열기"}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.csv,.tsv,.txt"
+            hidden
+            onChange={async (event) => {
+              const input = event.currentTarget;
+              const file = input.files?.[0];
+              input.value = "";
+              if (!file) return;
+              if (/\.xlsx$/i.test(file.name)) {
+                await readXlsx(file, 0);
+                return;
+              }
+              if (/\.xls$/i.test(file.name)) {
+                notify("예전 엑셀 파일(.xls)은 읽지 못합니다. 엑셀에서 ‘다른 이름으로 저장 → .xlsx 또는 .csv’로 저장해 올려 주세요.");
+                return;
+              }
+              setXlsxFile(null);
+              setSheetNames([]);
+              setText(await file.text());
+            }}
+          />
+        </label>
+        {busy && <span className="pc-cell-muted">파일은 이 브라우저 안에서만 읽습니다.</span>}
+      </div>
+      {xlsxFile && sheetNames.length > 1 && (
+        <div className="xlsx-sheet-picker" role="group" aria-label="엑셀 시트 고르기">
+          <span>시트 {sheetNames.length}개 — 읽을 시트를 고르세요</span>
+          <div className="xlsx-sheet-tabs">
+            {sheetNames.map((name, index) => (
+              <button
+                key={`${name}-${index}`}
+                className={`pc-chip ${index === sheetIndex ? "is-on" : ""}`}
+                type="button"
+                aria-pressed={index === sheetIndex}
+                disabled={busy}
+                onClick={() => { void readXlsx(xlsxFile, index); }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <label className="field wide">
         <span>붙여넣기</span>
         <textarea

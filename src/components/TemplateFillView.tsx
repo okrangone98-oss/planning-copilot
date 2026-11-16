@@ -149,6 +149,7 @@ export function TemplateFillView({
   fillValues,
   onFillValueChange,
   onLoadProjectData,
+  onLoadBudgetData,
   projectDataNote,
   projectDataStale,
   planSource = null,
@@ -228,6 +229,8 @@ export function TemplateFillView({
   onFillValueChange: (fieldId: string, value: string) => void;
   /** 2단계에 이 사업의 데이터를 한 번에 넣는다. */
   onLoadProjectData: () => void;
+  /** 예산 관리표 숫자만 불러온다 — 작년 결과보고서를 올해 것으로 바꿀 때 총사업비·집행액·잔액 칸을 채우는 용도. */
+  onLoadBudgetData?: () => void;
   projectDataNote: string;
   projectDataStale: boolean;
   /** 올해 추진계획서(.hwpx) 재료 */
@@ -493,6 +496,7 @@ export function TemplateFillView({
               clear={onSmartClear}
               onSendLeftoversToDraft={onSmartLeftoversToDraft}
               onLoadProjectData={onLoadProjectData}
+              onLoadBudgetData={onLoadBudgetData}
               projectDataNote={projectDataNote}
               projectDataStale={projectDataStale}
               compact
@@ -819,6 +823,7 @@ export function TemplateFillView({
           clear={onSmartClear}
           onSendLeftoversToDraft={onSmartLeftoversToDraft}
           onLoadProjectData={onLoadProjectData}
+          onLoadBudgetData={onLoadBudgetData}
           projectDataNote={projectDataNote}
           projectDataStale={projectDataStale}
         />

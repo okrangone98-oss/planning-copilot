@@ -13,12 +13,24 @@ export const HEADER_ALIASES = {
   item: ["세목", "세목명", "내역", "상세", "세부항목", "세부내역", "품명", "지출내역", "item", "detail"],
   unitCost: ["단가", "단가원", "단가금액", "단위단가", "unitcost", "unitprice", "price"],
   quantity: ["수량", "수량회", "횟수", "quantity", "qty", "count"],
-  amount: ["금액", "합계금액", "총액", "예산액", "amount", "total"],
+  amount: ["금액", "합계금액", "총액", "예산액", "편성액", "계획액", "예산편성액", "편성", "amount", "total", "budget"],
+  spent: ["집행액", "집행금액", "집행", "지출액", "실집행액", "실집행", "spent", "executed"],
   basis: ["산출근거", "산출기초", "산출내역", "계산근거", "산출", "basis", "calculation"],
   note: ["비고", "메모", "참고", "note", "remark", "memo"]
 };
 
 const TOTAL_WORDS = ["합계", "총계", "소계", "총합", "계"];
+
+/** 예산 행에 남길 칸 — 표에서 읽은 집행액 같은 곁가지 값이 저장 데이터로 새지 않게 한다. */
+export const BUDGET_LINE_FIELDS = ["category", "item", "unitCost", "quantity", "basis", "note"];
+
+/** 예산 행에서 예산표 칸만 골라낸다. */
+export function pickBudgetFields(line) {
+  const source = line && typeof line === "object" ? line : {};
+  const picked = {};
+  for (const field of BUDGET_LINE_FIELDS) picked[field] = cellText(source[field]);
+  return picked;
+}
 
 function normalizeHeader(value) {
   return String(value ?? "")
@@ -121,6 +133,17 @@ function positionalMapping(cellCount) {
     mapping.note = 6;
     mapping.amount = 4;
   }
+  // 예산 관리표를 그대로 붙인 경우(편성액·집행액·잔액·산출근거·비고)도 순서대로 읽는다.
+  if (cellCount >= 8) {
+    mapping.spent = 5;
+    mapping.basis = 6;
+    mapping.note = 7;
+  }
+  if (cellCount >= 9) {
+    mapping.spent = 5;
+    mapping.basis = 7;
+    mapping.note = 8;
+  }
   return mapping;
 }
 
@@ -150,9 +173,10 @@ export function parseBudgetTable(text, options = {}) {
   let hadHeader = false;
   let mapping = null;
   let totalAmount = 0;
+  let spentTotal = 0;
 
   if (!lines.length) {
-    return { rows, hadHeader, delimiter, warnings: ["붙여넣은 내용이 비어 있습니다."], totalAmount, lineCount: 0 };
+    return { rows, hadHeader, delimiter, warnings: ["붙여넣은 내용이 비어 있습니다."], totalAmount, spentTotal, lineCount: 0 };
   }
 
   lines.forEach((line, lineIndex) => {
@@ -181,6 +205,7 @@ export function parseBudgetTable(text, options = {}) {
     const unitCostRaw = pick(cells, mapping.unitCost);
     const quantityRaw = pick(cells, mapping.quantity);
     const amountRaw = pick(cells, mapping.amount);
+    const spentRaw = pick(cells, mapping.spent);
     const basis = pick(cells, mapping.basis);
     const note = pick(cells, mapping.note);
 
@@ -213,19 +238,25 @@ export function parseBudgetTable(text, options = {}) {
       basis,
       note
     };
+    // 집행액은 예산표 칸이 아니라 원장 몫이다 — 표에 함께 실려 오면 따로 세어 둔다.
+    const spent = parseAmount(spentRaw);
+    if (spentRaw && !spent) {
+      warnings.push(`${lineIndex + 1}번째 줄(${item || category})의 집행액을 숫자로 읽지 못했습니다.`);
+    }
     if (amount && unitCost * quantity && Math.abs(amount - unitCost * quantity) > 1) {
       warnings.push(
         `${lineIndex + 1}번째 줄(${item || category})의 금액 ${formatWon(amount)}이 단가×수량 ${formatWon(unitCost * quantity)}과 다릅니다. 표의 단가·수량을 그대로 넣었습니다.`
       );
     }
-    rows.push(parsedLine);
+    rows.push(spent ? { ...parsedLine, spent: String(spent) } : parsedLine);
     totalAmount += lineAmount(parsedLine);
+    spentTotal += spent;
   });
 
   if (!rows.length) warnings.push("예산 행을 찾지 못했습니다. 첫 줄에 비목·세목·단가·수량 같은 머리글을 넣거나, 시트에서 표 전체를 복사해 붙여넣어 주세요.");
   if (!hadHeader && rows.length) warnings.push("머리글이 없어 비목 → 세목 → 단가 → 수량 → 산출근거 → 비고 순서로 읽었습니다.");
 
-  return { rows, hadHeader, delimiter, warnings, totalAmount, lineCount: rows.length };
+  return { rows, hadHeader, delimiter, warnings, totalAmount, spentTotal, lineCount: rows.length };
 }
 
 /**
@@ -238,7 +269,7 @@ export function mergeBudgetLines(existing, imported, mode = "append") {
   const base = Array.isArray(existing) ? existing : [];
   const incoming = Array.isArray(imported) ? imported : [];
   const stamp = Date.now();
-  const withId = (line, index) => ({ ...emptyBudgetLine(`import-${stamp}-${index}`), ...line, id: line.id || `import-${stamp}-${index}` });
+  const withId = (line, index) => ({ ...emptyBudgetLine(`import-${stamp}-${index}`), ...pickBudgetFields(line), id: line.id || `import-${stamp}-${index}` });
 
   if (mode === "replace") return incoming.map(withId);
 
@@ -252,7 +283,7 @@ export function mergeBudgetLines(existing, imported, mode = "append") {
         indexByKey.set(key, next.length);
         next.push(withId(line, next.length));
       } else {
-        next[found] = { ...next[found], ...line, id: next[found].id };
+        next[found] = { ...next[found], ...pickBudgetFields(line), id: next[found].id };
       }
     });
     return next;

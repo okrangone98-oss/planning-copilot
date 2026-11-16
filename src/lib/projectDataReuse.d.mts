@@ -62,3 +62,22 @@ export function digestLoadedNote(input?: {
   missing?: string[] | null;
   truncated?: boolean;
 }): string;
+
+/** 예산 관리표 숫자 블록의 첫 줄 */
+export const BUDGET_DIGEST_TITLE: string;
+
+export function buildBudgetDigestText(input?: {
+  plan?: GrantPlan | null;
+  work?: ProjectWork | null;
+}): {
+  text: string;
+  lines: Array<{ label: string; value: string }>;
+  counts: { lines: number; budgetLines: number; expenseCount: number };
+  missing: string[];
+};
+
+export function replaceDigestSection(existing: unknown, block: unknown): {
+  text: string;
+  removed: number;
+  changed: boolean;
+};

@@ -9,7 +9,7 @@
 //
 // 결과 글은 "라벨: 값" 꼴이라 smartTextMapper의 규칙 기반 배치가 그대로 읽는다.
 
-import { budgetSummary, formatWon } from "./grantWorkflow.mjs";
+import { budgetSummary, formatWon, parseAmount } from "./grantWorkflow.mjs";
 import { attendanceReport, expenseSummary, sessionSummary } from "./projectOperations.mjs";
 
 const MAX_VALUE = 700;
@@ -274,6 +274,105 @@ export function buildProjectDataText({ meta, plan, work, project } = {}) {
     },
     truncated
   };
+}
+
+/* ────────────────────────── 예산 관리표 숫자만 ────────────────────────── */
+
+/** 예산 숫자 블록의 첫 줄 — 다시 불러올 때 예전 블록을 찾는 표식이다. */
+export const BUDGET_DIGEST_TITLE = "■ 예산 관리표";
+
+/**
+ * 예산 관리표(격자)의 숫자만 "라벨: 값" 줄로 만든다.
+ * - 계획서·결과보고·정산 양식의 총사업비·집행액·잔액·비목 칸에 그대로 들어가게 하는 것이 목적이다.
+ * - 숫자는 화면과 같은 계산 함수(budgetSummary·expenseSummary)에서만 가져온다.
+ * @returns {{text:string, lines:Array<{label:string,value:string}>, counts:{lines:number,budgetLines:number,expenseCount:number}, missing:string[]}}
+ */
+export function buildBudgetDigestText({ plan, work } = {}) {
+  const budget = budgetSummary(plan);
+  const ledger = expenseSummary(work, plan);
+  const lines = [];
+  const push = (label, value) => {
+    const safeLabel = inline(label, 24);
+    const safeValue = inline(value);
+    if (safeLabel && safeValue) lines.push({ label: safeLabel, value: safeValue });
+  };
+  const missing = [];
+
+  const funding = budget.funding;
+  const split = joinParts([
+    funding.subsidy ? `국비 ${formatWon(funding.subsidy)}` : "",
+    funding.local ? `지방비 ${formatWon(funding.local)}` : "",
+    funding.self ? `자부담 ${formatWon(funding.self)}` : ""
+  ], " · ");
+  const planTotal = ledger.total.plan || budget.total;
+  if (planTotal > 0) push("총사업비", `${formatWon(planTotal)}${split ? ` (${split})` : ""}`);
+  else missing.push("총사업비");
+
+  if (planTotal > 0) {
+    push("편성 총액", formatWon(planTotal));
+    push("집행액", formatWon(ledger.total.spent));
+    push("잔액", formatWon(ledger.total.balance));
+    push("집행률", `${ledger.total.rate}%`);
+  } else {
+    missing.push("집행액", "잔액", "집행률");
+  }
+
+  // 비목·세목 줄 — 양식의 비목별 금액 칸이 라벨로 찾을 수 있게 적는다.
+  const basisById = new Map((Array.isArray(plan?.budgetLines) ? plan.budgetLines : []).map((line) => [String(line?.id ?? ""), line]));
+  for (const row of ledger.rows || []) {
+    const category = text(row.category, 40) || "비목 미지정";
+    const parts = [];
+    for (const line of row.lines || []) {
+      const source = basisById.get(String(line.id ?? ""));
+      const basis = text(source?.basis, 50) || joinParts([parseAmount(source?.unitCost) ? formatWon(parseAmount(source?.unitCost)) : "", source?.quantity ? `× ${text(source.quantity, 20)}` : ""], " ");
+      parts.push(joinParts([text(line.item, 50) || category, basis ? `(${basis})` : "", line.plan ? formatWon(line.plan) : ""], " "));
+      if (line.item) push(line.item, joinParts([line.plan ? formatWon(line.plan) : "", basis ? `(${basis})` : ""], " "));
+    }
+    if (!parts.length && row.plan > 0) parts.push("세목 없이 편성한 예산 " + formatWon(row.plan));
+    const trail = joinParts([
+      ledger.expenseCount && row.spent ? `집행 ${formatWon(row.spent)}` : "",
+      row.plan ? `잔액 ${formatWon(row.balance)}` : ""
+    ]);
+    if (parts.length) push(category, joinParts([parts.join(" / "), trail]));
+  }
+  if (!(ledger.rows || []).length && planTotal > 0) missing.push("비목별 금액");
+
+  const chunks = [BUDGET_DIGEST_TITLE, ...lines.map((line) => `${line.label}: ${line.value}`)];
+  return {
+    text: chunks.join("\n"),
+    lines,
+    counts: { lines: lines.length, budgetLines: budget.lineCount, expenseCount: ledger.expenseCount },
+    missing
+  };
+}
+
+/**
+ * 붙여넣기 글에서 예전 예산 관리표 블록을 걷어내고 새 블록을 넣는다.
+ *  - 사용자가 쓴 다른 글은 그대로 둔다.
+ *  - "■ 예산 관리표" 로 시작하는 구역만 지운다(여러 번 눌러도 쌓이지 않게).
+ * @returns {{text:string, removed:number, changed:boolean}}
+ */
+export function replaceDigestSection(existing, block) {
+  const current = String(existing ?? "");
+  const next = String(block ?? "").trim();
+  if (!next) return { text: current, removed: 0, changed: false };
+
+  const kept = [];
+  let removed = 0;
+  let dropping = false;
+  for (const line of current.replace(/\r\n?/g, "\n").split("\n")) {
+    if (/^■\s*/.test(line)) {
+      dropping = line.trim().startsWith(BUDGET_DIGEST_TITLE);
+      if (dropping) {
+        removed += 1;
+        continue;
+      }
+    }
+    if (!dropping) kept.push(line);
+  }
+  const head = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const text = head ? `${head}\n\n${next}` : next;
+  return { text, removed, changed: text !== current };
 }
 
 /* ────────────────────────── 지문(중복·최신 여부) ────────────────────────── */
