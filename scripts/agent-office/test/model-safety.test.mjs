@@ -136,7 +136,8 @@ test("내 전용 중계는 접속 코드를 요구하고, 상위 경로만 고�
   assert.equal(validateApiKey("team-free-proxy", undefined).ok, false);
   assert.match(validateApiKey("team-free-proxy", "").message, /접속 코드/);
   // 사용자가 기억하기 쉬운 짧은 숫자 코드도 그대로 받는다(길이는 사용자가 정한다).
-  assert.equal(validateApiKey("team-free-proxy", "3869").ok, true);
+  // 실제 접속 코드는 테스트·저장소에 적지 않는다 — 아래 값은 형식 확인용 예시다.
+  assert.equal(validateApiKey("team-free-proxy", "1234").ok, true);
   assert.equal(validateApiKey("team-free-proxy", "my-code-2026").ok, true);
   assert.equal(validateApiKey("team-free-proxy", "코드 있어요").ok, false, "공백이 들어간 코드는 거부");
   assert.equal(validateApiKey("team-free-proxy", "x".repeat(65)).ok, false);
