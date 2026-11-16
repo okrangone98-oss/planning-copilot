@@ -176,14 +176,18 @@ export function BudgetSheet({
     }
   }, [pending, lines.length]);
 
-  const commit = (cell: CellRef, raw: string) => {
+  /**
+   * 고친 값을 예산 행에 반영한 새 목록을 돌려준다(바뀐 것이 없으면 null).
+   * Enter 로 새 행을 만들 때 이 목록 뒤에 붙여야 방금 적은 값이 사라지지 않는다.
+   */
+  const commitLines = (cell: CellRef, raw: string): GrantBudgetLine[] | null => {
     const line = lines[cell.row];
     const column = columnById.get(cell.id);
-    if (!line || !column) return;
+    if (!line || !column) return null;
     if (column.role === "spent") {
       const amount = parseAmount(raw);
       if (onSetSpent) onSetSpent([{ lineId: line.id, amount }]);
-      return;
+      return null;
     }
     let value = String(raw ?? "");
     if (column.role === "unitPrice") value = parseAmount(value) ? String(parseAmount(value)) : "";
@@ -192,17 +196,22 @@ export function BudgetSheet({
     if (column.role === "custom") {
       const custom = { ...(line.custom || {}) };
       const before = String(custom[column.id] ?? "");
-      if (before === value) return;
+      if (before === value) return null;
       if (value) custom[column.id] = value;
       else delete custom[column.id];
-      onChange(lines.map((item, index) => (index === cell.row ? { ...item, custom } : item)));
-      return;
+      return lines.map((item, index) => (index === cell.row ? { ...item, custom } : item));
     }
 
     const field = fieldOfRole(column.role);
-    if (!field) return;
-    if (String(line[field] ?? "") === value) return;
-    onChange(lines.map((item, index) => (index === cell.row ? { ...item, [field]: value } : item)));
+    if (!field) return null;
+    if (String(line[field] ?? "") === value) return null;
+    return lines.map((item, index) => (index === cell.row ? { ...item, [field]: value } : item));
+  };
+
+  const commit = (cell: CellRef, raw: string) => {
+    const next = commitLines(cell, raw);
+    if (next) onChange(next);
+    return next;
   };
 
   /** Tab·Enter 가 옮겨 갈 칸. 표 끝을 넘어가면 새 행을 만든다. */
@@ -226,13 +235,13 @@ export function BudgetSheet({
     return { row: nextRow, id: columns[nextColumn].id };
   };
 
-  const moveTo = (target: CellRef | "append" | null) => {
+  const moveTo = (target: CellRef | "append" | null, baseLines: GrantBudgetLine[] = lines) => {
     setEditing(null);
     if (!target) return;
     if (target === "append") {
-      onChange([...lines, emptyBudgetLine(`sheet-${Date.now()}`)]);
-      setPending({ row: lines.length, id: columns[0]?.id ?? "category" });
-      setActive({ row: lines.length, id: columns[0]?.id ?? "category" });
+      onChange([...baseLines, emptyBudgetLine(`sheet-${Date.now()}`)]);
+      setPending({ row: baseLines.length, id: columns[0]?.id ?? "category" });
+      setActive({ row: baseLines.length, id: columns[0]?.id ?? "category" });
       return;
     }
     setPending(target);
@@ -242,15 +251,15 @@ export function BudgetSheet({
     if (event.key === "Tab") {
       event.preventDefault();
       skipBlur.current = true;
-      commit(cell, draft);
-      moveTo(neighbor(cell, event.shiftKey ? -1 : 1, false));
+      const next = commit(cell, draft);
+      moveTo(neighbor(cell, event.shiftKey ? -1 : 1, false), next ?? lines);
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
       skipBlur.current = true;
-      commit(cell, draft);
-      moveTo(neighbor(cell, event.shiftKey ? -1 : 1, true));
+      const next = commit(cell, draft);
+      moveTo(neighbor(cell, event.shiftKey ? -1 : 1, true), next ?? lines);
       return;
     }
     if (event.key === "Escape") {
@@ -743,7 +752,7 @@ export function BudgetSheet({
       <div className="budget-sheet-foot">
         <span>
           {sheetSummaryLine(rows)}
-          {totals.plan ? ` · 집행률 ${totals.rate}%${totals.over ? ` · 초과 ${totals.over}개 비목` : ""}` : ""}
+          {totals.over ? ` · 초과 ${totals.over}개 비목` : ""}
         </span>
         <button className="ghost-light-button small" type="button" onClick={addRow} aria-label="예산 행 추가">+ 행 추가</button>
       </div>

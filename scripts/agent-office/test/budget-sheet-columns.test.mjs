@@ -339,14 +339,25 @@ test("양식이 쓰는 다른 머리글(산출내역·계획액)도 역할로 �
 
 test("양식 표에 이미 적힌 값은 예산표 값으로 덮지 않는다", () => {
   const columns = normalizeBudgetColumns(null);
-  const xml = budgetSection(["비목", "세목", "산출내역"], [["인건비", "작년 강사비", "작년 근거"]]);
+  const xml = budgetSection(["비목", "세목", "산출내역", "계획액"], [["인건비", "작년 강사비", "작년 근거", "900,000"]]);
   const result = patchSectionXml(xml, {}, {
-    budgetSheet: { columns, rows: [["인건비", "올해 강사비", "250000", "8", "2000000", "", "", "올해 근거", ""]] }
+    budgetSheet: { columns, rows: [["인건비", "올해 강사비", "250000", "8", "2,000,000", "", "", "올해 근거", ""]] }
   });
   const texts = textsOf(result.xml);
   assert.ok(texts.includes("작년 강사비"), "이미 적힌 칸은 그대로 둔다");
   assert.equal(result.filled.filter((item) => item.kind === "budget").length, 0);
   assert.ok(result.skipped.length >= 1);
+});
+
+test("금액 열이 없는 ‘비목|내용’ 모양의 라벨 표는 예산 표로 보지 않는다", () => {
+  // 연습 양식·기관 양식의 ‘비목 | 내용’ 섹션 표를 예산 표로 오인하면 사업명·수행기관 값 칸을 덮어 버린다.
+  const columns = normalizeBudgetColumns(null);
+  const xml = budgetSection(["비목", "내용"], [["사업명", ""], ["수행기관", ""]]);
+  const result = patchSectionXml(xml, {}, {
+    budgetSheet: { columns, rows: [["인건비", "외래강사비", "250000", "8", "2000000", "", "", "근거", ""]] }
+  });
+  assert.equal(result.filled.filter((item) => item.kind === "budget").length, 0);
+  assert.deepEqual(textsOf(result.xml).filter((text) => text === "외래강사비"), []);
 });
 
 test("예산표 값이 없으면 양식 표를 건드리지 않는다", () => {
@@ -364,7 +375,7 @@ test("머리글이 하나만 맞으면 예산표 채우기를 하지 않는다(�
   assert.equal(result.filled.filter((item) => item.kind === "budget").length, 0);
 });
 
-test("사용자 열 이름이 양식 머리글과 같으면 그 열 값이 그 칸에 들어간다", () => {
+test("사용자 열의 숫자 열 값이 양식 금액 칸에 들어간다", () => {
   const columns = customColumns();
   const xml = budgetSection(["비목", "국비", "지방비"], [["", "", ""]]);
   const result = patchSectionXml(xml, {}, {
@@ -375,4 +386,10 @@ test("사용자 열 이름이 양식 머리글과 같으면 그 열 값이 그 �
   assert.ok(texts.includes("1,400,000"));
   assert.ok(texts.includes("400,000"));
   assert.equal(result.filled.filter((item) => item.kind === "budget").length, 3);
+});
+
+test("세목도 금액도 없는 빈 행은 예산 관리표 글에 적히지 않는다", () => {
+  const plan = makePlan({ budgetLines: [...LINES, { id: "b3", category: "", item: "", unitCost: "", quantity: "", basis: "", note: "", custom: {} }] });
+  const digest = buildBudgetDigestText({ plan, work: createEmptyProjectWork("p1") });
+  assert.doesNotMatch(digest.text, /미분류/);
 });
