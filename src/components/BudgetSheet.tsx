@@ -324,7 +324,7 @@ export function BudgetSheet({
         <div className="budget-sheet-bar-main">
           <strong>
             예산 관리표
-            {badge && <small className="budget-sheet-badge">{badge}</small>}
+            {badge && <> <small className="budget-sheet-badge">{badge}</small></>}
           </strong>
           <span>
             칸을 눌러 바로 고치세요. <kbd>Tab</kbd>·<kbd>Enter</kbd>로 옆·아래 칸으로 옮겨 가고, 시트에서 복사한 표는{" "}
