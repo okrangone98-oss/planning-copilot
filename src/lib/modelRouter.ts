@@ -61,7 +61,7 @@ export function modelSafetyNote(settings: ModelSettings) {
 export async function runModelPrompt(
   prompt: string,
   settings: ModelSettings,
-  options: { apiKey?: string } = {}
+  options: { apiKey?: string; maxTokens?: number } = {}
 ): Promise<ModelRunResult> {
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) {
@@ -82,7 +82,8 @@ export async function runModelPrompt(
         prompt: trimmedPrompt,
         apiKey,
         baseUrl: settings.customBaseUrl,
-        route: normalizeProxyRoute(settings.proxyRoute)
+        route: normalizeProxyRoute(settings.proxyRoute),
+        maxTokens: options.maxTokens
       });
       return result.ok
         ? { provider: settings.provider, ok: true, output: result.output, upstream: result.upstream || "" }
