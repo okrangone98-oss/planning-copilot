@@ -30,6 +30,17 @@
   color: var(--c-text-1);
 }
 
+.budget-sheet-badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--c-fill);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-3);
+  vertical-align: 2px;
+}
+
 .budget-sheet-bar-main span {
   font-size: var(--fs-caption);
   line-height: var(--lh-sub);

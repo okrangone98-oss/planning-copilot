@@ -355,11 +355,6 @@ export function ProjectBudgetTab({
         </p>
       )}
 
-      <div className="block-head">
-        <h3>예산 관리표</h3>
-        <span className="block-count">지출 {ledger.expenseCount}건 · 비목 {ledger.lineCount}개</span>
-      </div>
-
       {ledger.overRows.length > 0 && (
         <p className="pc-notice is-danger">
           계획보다 많이 쓴 비목이 있습니다: {ledger.overRows.join(", ")}. 전용·추경이 가능한지 확인하고, 아니면 다른 비목에서 옮겨 적으세요.
@@ -373,6 +368,7 @@ export function ProjectBudgetTab({
         expenses={expenses}
         onSetSpent={setGridSpent}
         fileNamePrefix={`${meta.name || "사업"} 예산관리표`}
+        badge={`지출 ${ledger.expenseCount}건 · 비목 ${ledger.lineCount}개`}
       />
 
       <p className="block-note">

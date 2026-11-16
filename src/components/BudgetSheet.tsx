@@ -59,7 +59,9 @@ export function BudgetSheet({
   expenses,
   onSetSpent,
   fileNamePrefix = "예산관리표",
-  hint
+  hint,
+  badge,
+  actions
 }: {
   lines: GrantBudgetLine[];
   onChange: (lines: GrantBudgetLine[]) => void;
@@ -70,6 +72,10 @@ export function BudgetSheet({
   onSetSpent?: (updates: GridSpentUpdate[]) => void;
   fileNamePrefix?: string;
   hint?: string;
+  /** 표 제목 옆에 붙는 짧은 셈 — 예: "지출 1건 · 비목 4개" */
+  badge?: string;
+  /** 툴바 끝에 붙일 화면별 버튼(예: 서류 양식에 숫자 넣기) */
+  actions?: React.ReactNode;
 }) {
   const rows = useMemo(() => sheetRows({ lines, expenses }), [lines, expenses]);
   const totals = useMemo(() => sheetTotals(rows), [rows]);
@@ -316,7 +322,10 @@ export function BudgetSheet({
     <div className="budget-sheet" aria-label="예산 관리표">
       <div className="budget-sheet-bar">
         <div className="budget-sheet-bar-main">
-          <strong>예산 관리표</strong>
+          <strong>
+            예산 관리표
+            {badge && <small className="budget-sheet-badge">{badge}</small>}
+          </strong>
           <span>
             칸을 눌러 바로 고치세요. <kbd>Tab</kbd>·<kbd>Enter</kbd>로 옆·아래 칸으로 옮겨 가고, 시트에서 복사한 표는{" "}
             <kbd>Ctrl</kbd>+<kbd>V</kbd>로 그대로 붙습니다.
@@ -330,6 +339,7 @@ export function BudgetSheet({
           <button className="ghost-light-button small" type="button" onClick={exportCsv}>CSV 내려받기</button>
           <button className="ghost-light-button small" type="button" onClick={() => { void exportXlsx(); }} disabled={busy}>XLSX 내려받기</button>
           <button className="ghost-light-button small" type="button" onClick={() => { void copyToSheet(); }}>시트로 복사</button>
+          {actions}
         </div>
       </div>
 

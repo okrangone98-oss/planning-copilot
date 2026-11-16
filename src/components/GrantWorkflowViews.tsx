@@ -201,20 +201,6 @@ export function GrantBudgetView({
       )}
 
       <section className="grant-block">
-        <div className="grant-block-head">
-          <div>
-            <strong>비목별 예산 편성표</strong>
-            <span>
-              엑셀·구글 시트처럼 칸을 눌러 고칩니다. 편성액은 단가 × 수량으로 계산되고, 집행액·잔액은 지출 원장과 이어집니다.
-              엑셀 파일(.xlsx)을 올리거나 시트에서 복사한 표를 붙여넣어도 됩니다.
-            </span>
-          </div>
-          {onSendBudgetToTemplate && (
-            <button className="secondary-button" type="button" onClick={onSendBudgetToTemplate}>
-              서류 양식에 숫자 넣기
-            </button>
-          )}
-        </div>
         <BudgetSheet
           lines={plan.budgetLines}
           onChange={(budgetLines) => onChange({ budgetLines })}
@@ -222,6 +208,12 @@ export function GrantBudgetView({
           expenses={work ? work.expenses : undefined}
           onSetSpent={onUpdateWork ? setSpent : undefined}
           fileNamePrefix={`${project.projectName || plan.programName || "예산"}관리표`}
+          hint="엑셀·구글 시트처럼 칸을 눌러 고칩니다. 편성액은 단가 × 수량으로 계산되고, 집행액·잔액은 지출 원장과 이어집니다. 엑셀 파일(.xlsx)을 올리거나 시트에서 복사한 표를 붙여넣어도 됩니다."
+          actions={onSendBudgetToTemplate ? (
+            <button className="secondary-button small" type="button" onClick={onSendBudgetToTemplate}>
+              서류 양식에 숫자 넣기
+            </button>
+          ) : null}
         />
         {summary.byCategory.length > 0 && (
           <div className="grant-category-summary">
