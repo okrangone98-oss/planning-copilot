@@ -22,6 +22,7 @@ const KEYS = {
   openrouter: `sk-or-v1-${"f0e1d2c3b4a5".repeat(3)}`,
   groq: `gsk_${"a1b2c3d4e5".repeat(4)}`,
   gemini: `AIza${"SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4".slice(0, 30)}`,
+  geminiAq: "AQ.Ab8RN6DummyKeyForTest1234567890",
   github: `ghp_${"a1b2c3d4e5".repeat(4)}`,
   exaone: "exaone-test-key-1234"
 };
@@ -65,6 +66,24 @@ test("키 형식은 제공자별로 확인하고 프록시 키는 비워 둘 수
   assert.equal(validateApiKey("exaone", "").ok, false);
   assert.equal(validateApiKey("custom-openai", "").ok, true);
   assert.equal(validateApiKey("simulation", KEYS.amd).ok, false);
+});
+
+test("Gemini 키는 구형식(AIza)·신형식(AQ.)을 모두 받고 잘못된 모양은 거부한다", () => {
+  // 2026년 Google AI Studio는 `AQ.` 새 형식을 발급한다. 둘 다 통과해야 한다.
+  assert.equal(validateApiKey("gemini-openai", KEYS.gemini).ok, true);
+  assert.equal(validateApiKey("gemini-openai", KEYS.geminiAq).ok, true);
+  assert.equal(validateApiKey("gemini-openai", `  ${KEYS.geminiAq}  `).ok, true);
+  // 형식이 어긋나면 거부하고, 안내 문구에 두 형식을 함께 알려 준다.
+  ["AQ", "AQ.", "AQ.short", "aq.Ab8RN6DummyKeyForTest1234567890", "AIzaAIzaAIza", "Ab8RN6DummyKeyForTest1234567890", ""].forEach((bad) => {
+    const result = validateApiKey("gemini-openai", bad);
+    assert.equal(result.ok, false, bad);
+    assert.match(result.message, /AIza 또는 AQ\./, bad);
+  });
+  assert.match(providerConfig("gemini-openai").keyLabel, /AIza 또는 AQ\./);
+  // AQ. 키도 Gemini 제공자에만 쓸 수 있고 다른 제공자에서는 거부된다.
+  assert.equal(validateApiKey("groq-free", KEYS.geminiAq).ok, false);
+  assert.equal(buildChatRequest({ provider: "gemini-openai", model: "gemini-2.5-flash", prompt: "요약", apiKey: KEYS.geminiAq }).init.headers.Authorization, `Bearer ${KEYS.geminiAq}`);
+  assert.throws(() => buildChatRequest({ provider: "gemini-openai", model: "gemini-2.5-flash", prompt: "요약", apiKey: "AQ.tooShort" }), /키 형식/);
 });
 
 test("요청은 제공자별 고정 주소로 가고 키는 헤더에만 둔다", () => {
@@ -111,8 +130,11 @@ test("HTTP 실패는 원인별로 다르게 설명하고 키를 남기지 않는
   assert.match(describeHttpFailure(404, ""), /모델 이름/);
   assert.match(describeHttpFailure(503, ""), /서버 오류/);
   assert.match(describeHttpFailure(418, "teapot"), /418/);
-  const redacted = redactSecrets(`Bearer ${KEYS.openrouter} ${KEYS.amd} ${KEYS.groq} ${KEYS.gemini} ${KEYS.github}`);
-  Object.values(KEYS).slice(0, 5).forEach((key) => assert.equal(redacted.includes(key), false, key.slice(0, 6)));
+  const redacted = redactSecrets(`Bearer ${KEYS.openrouter} ${KEYS.amd} ${KEYS.groq} ${KEYS.gemini} ${KEYS.geminiAq} ${KEYS.github}`);
+  Object.values(KEYS).slice(0, 6).forEach((key) => assert.equal(redacted.includes(key), false, key.slice(0, 6)));
+  // 신형식 AQ. 키도 응답 본문·오류 메시지에서 가려진다.
+  assert.equal(redactSecrets(`{"error":"API key not valid: ${KEYS.geminiAq}"}`).includes("Ab8RN6Dummy"), false);
+  assert.match(redactSecrets(`키 ${KEYS.geminiAq}`), /AQ\.\*\*\*/);
 });
 
 test("CORS·네트워크 차단은 키 문제와 구분해 안내한다", () => {

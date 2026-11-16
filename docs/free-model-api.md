@@ -25,7 +25,8 @@ AI 질문을 복사해 외부 챗 화면에 붙여넣던 흐름은 그대로 두
 - 입력한 API 키는 **React 메모리에만** 있습니다. localStorage, 백업 JSON, 아카이브, 승인함, Markdown 내보내기 어디에도 쓰지 않습니다.
 - 저장 설정(`planningCopilotModelSettings`)은 `sanitizeModelSettings`의 허용 목록으로만 기록합니다. 허용 목록에 없는 필드(예: `apiKey`, `token`, `geminiApiKey`)는 저장 단계에서 사라집니다. 테스트로 고정했습니다.
 - 키 입력칸은 `type="password"`, `autocomplete="new-password"`이고, 입력한 키를 지우는 버튼이 있습니다. 탭을 닫으면 사라집니다.
-- 키가 오류 메시지나 응답 본문에 섞여 나와도 `redactSecrets`로 가립니다(`tl-…`, `sk-or-…`, `gsk_…`, `AIza…`, `ghp_…`, `Bearer …`).
+- 키가 오류 메시지나 응답 본문에 섞여 나와도 `redactSecrets`로 가립니다(`tl-…`, `sk-or-…`, `gsk_…`, `AIza…`, `AQ.…`, `ghp_…`, `Bearer …`).
+- Google Gemini 키는 **구형식 `AIza…`와 2026년 Google AI Studio가 발급하는 신형식 `AQ.…` 둘 다** 받습니다. 키 형식 검사는 모양만 보므로, 실제 유효성은 테스트 호출 응답(401/400 등)으로만 확인됩니다.
 - 요청 주소는 제공자별 고정값을 씁니다. 사용자가 주소를 바꿀 수 있는 것은 로컬 프록시뿐이고, 그마저도 loopback(`127.0.0.1`, `localhost`, `::1`)과 사설 IPv4(`10.`, `172.16~31.`, `192.168.`)만 허용합니다. 공용 인터넷 주소를 열어 두면 입력한 키가 임의 서버로 나가기 때문입니다.
 
 ## 실행 전 확인

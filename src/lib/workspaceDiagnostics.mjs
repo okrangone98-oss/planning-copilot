@@ -18,7 +18,7 @@ export const BACKUP_EXCLUDED_LABELS = ["모델 설정", "API 키(탭 메모리�
 export const SECRET_PATTERNS = [
   { id: "openrouter", label: "OpenRouter 키", pattern: /sk-or-[A-Za-z0-9-]{8,}/ },
   { id: "groq", label: "Groq 키", pattern: /gsk_[A-Za-z0-9]{8,}/ },
-  { id: "gemini", label: "Google AI Studio 키", pattern: /AIza[A-Za-z0-9_-]{16,}/ },
+  { id: "gemini", label: "Google AI Studio 키", pattern: /AIza[A-Za-z0-9_-]{16,}|AQ\.[A-Za-z0-9._-]{20,}/ },
   { id: "amd", label: "AMD Token Lab 키", pattern: /(?:^|[^A-Za-z0-9])tl-[A-Za-z0-9]{16,}/ },
   { id: "github", label: "GitHub 토큰", pattern: /(?:ghp_|github_pat_)[A-Za-z0-9_]{16,}/ }
 ];

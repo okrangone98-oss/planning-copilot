@@ -53,8 +53,9 @@ export const REMOTE_PROVIDERS = {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-2.5-flash",
     models: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
-    keyPattern: /^AIza[A-Za-z0-9_-]{20,}$/,
-    keyLabel: "Google AI Studio 키(AIza로 시작)",
+    // Google AI Studio는 2026년부터 `AQ.`로 시작하는 새 형식 키를 발급한다. 구형식(`AIza…`)도 계속 받는다.
+    keyPattern: /^(?:AIza[A-Za-z0-9_-]{20,}|AQ\.[A-Za-z0-9._-]{20,})$/,
+    keyLabel: "Google AI Studio 키(AIza 또는 AQ.로 시작)",
     cors: "allowed",
     corsNote: "브라우저 직접 호출 가능(2026-11-15 확인: 요청 Origin을 그대로 허용). 무료 한도는 모델별로 다릅니다."
   },
@@ -191,6 +192,7 @@ export function redactSecrets(text) {
     .replace(/sk-or-[A-Za-z0-9-]{6,}/g, "sk-or-***")
     .replace(/gsk_[A-Za-z0-9]{6,}/g, "gsk_***")
     .replace(/AIza[A-Za-z0-9_-]{10,}/g, "AIza***")
+    .replace(/AQ\.[A-Za-z0-9._-]{10,}/g, "AQ.***")
     .replace(/(ghp_|github_pat_)[A-Za-z0-9_]{6,}/g, "$1***")
     .replace(/Bearer\s+[A-Za-z0-9._-]{6,}/gi, "Bearer ***")
     .replace(/api[_-]?key"[^,}]{0,80}/gi, 'api_key":"***"');
