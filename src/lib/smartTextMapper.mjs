@@ -254,6 +254,21 @@ function labelTokensOf(field) {
   return expandTokens(String(field.label ?? "").replace(/·/g, " "));
 }
 
+/** 라벨 앞에 흔히 붙는 수식어 — 이 말만 다른 라벨은 같은 칸으로 본다. */
+const LABEL_MODIFIERS = ["사업", "총", "전체", "운영", "행사", "교육", "지원", "사업비", "주관"];
+
+/**
+ * 두 라벨이 ‘수식어만 다른 같은 칸’인가 — ‘사업대상’과 ‘대상’.
+ * 아무 낱말이나 잘라 맞추면 엉뚱한 칸이 붙으므로, 떼어 낸 앞부분이 흔한 수식어일 때만 인정한다.
+ */
+export function sameLabelWithModifier(longKey, shortKey) {
+  if (!longKey || !shortKey || longKey === shortKey) return false;
+  if (longKey.length <= shortKey.length || !longKey.endsWith(shortKey)) return false;
+  const modifier = longKey.slice(0, longKey.length - shortKey.length);
+  if (shortKey.length < 2 || modifier.length > 4) return false;
+  return LABEL_MODIFIERS.includes(modifier);
+}
+
 function sectionTokensOf(field) {
   return expandTokens(field.sectionTitle || "");
 }
@@ -280,6 +295,11 @@ export function scoreSegmentForField(segment, field) {
     const segmentKey = normalizeFormLabel(segment.label);
     if (segmentKey && (segmentKey === field.key || segmentKey === normalizeFormLabel(field.fillKey || ""))) {
       return { score: 1, reasons: ["라벨이 같은 줄"] };
+    }
+    // ‘사업대상’ ↔ ‘대상’, ‘총 운영회차’ ↔ ‘운영회차’ — 앞에 붙은 수식어만 다른 같은 칸.
+    const fieldKeys = [field.key, normalizeFormLabel(field.fillKey || "")].filter(Boolean);
+    if (segmentKey && fieldKeys.some((key) => sameLabelWithModifier(key, segmentKey))) {
+      return { score: 0.9, reasons: ["라벨이 같은 칸(앞 수식어만 다름)"] };
     }
   }
 
@@ -329,7 +349,43 @@ export function mapFreeTextToFields({ fields, text } = {}) {
   const leftovers = [];
   const byField = new Map();
 
+  /**
+   * ① 라벨이 정확히 같은 줄 먼저 — ‘사업명: …’은 사업명 칸으로.
+   * 여러 줄을 훑어 가장 비슷한 칸을 고르는 방식만 쓰면, 라벨이 똑같은 줄도 다른 칸에 먼저 붙어
+   * 정작 그 라벨의 칸은 비어 있게 된다(결과보고서 이양에서 사업대상·사업장소가 그랬다).
+   * 같은 라벨이 여러 칸이면 나온 순서대로 붙는다.
+   */
+  const fieldQueue = new Map();
+  for (const field of list) {
+    const key = String(field.key || normalizeFormLabel(field.label) || "");
+    if (!key) continue;
+    const queue = fieldQueue.get(key) || [];
+    queue.push(field);
+    fieldQueue.set(key, queue);
+  }
+  const takenSegments = new Set();
   for (const segment of segments) {
+    if (segment.kind !== "labeled" || !segment.label) continue;
+    if (!String(segment.text ?? "").trim()) continue;
+    const queue = fieldQueue.get(normalizeFormLabel(segment.label));
+    if (!queue || !queue.length) continue;
+    const field = queue.shift();
+    const assignment = {
+      fieldId: field.id,
+      field,
+      score: 1,
+      reasons: ["라벨이 같은 줄"],
+      segments: [segment],
+      merged: false,
+      source: "rule"
+    };
+    assignments.push(assignment);
+    byField.set(field.id, assignment);
+    takenSegments.add(segment);
+  }
+
+  for (const segment of segments) {
+    if (takenSegments.has(segment)) continue;
     if (segment.kind === "heading") {
       leftovers.push({ ...segment, reason: "구역 제목" });
       continue;

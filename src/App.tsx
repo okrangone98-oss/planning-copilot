@@ -34,13 +34,16 @@ import {
   type PlanSourceResult
 } from "./lib/hwpxSourceExtractor.mjs";
 import {
+  applyCarryoverGuard,
   buildCarryoverPlan,
+  buildTextRewrites,
   carryoverOverwriteMap,
   classifyCarryover,
   CARRYOVER_MODE_HINT,
   detectPreviousYearDocument,
   findLeftoverYearValues,
-  markCarryoverRows
+  markCarryoverRows,
+  proposeDocumentTitle
 } from "./lib/yearCarryover.mjs";
 import {
   MATERIALS_ACCEPT,
@@ -448,6 +451,8 @@ export default function App() {
   /** 2단계 재료 파일 — 올해 추진계획서(.hwpx)에서 뽑은 글 */
   const [planSource, setPlanSource] = useState<PlanSourceResult | null>(null);
   const [planSourceBusy, setPlanSourceBusy] = useState(false);
+  /** 양식 채우기 화면 모양 — carryover 면 ‘작년 결과보고서 → 올해 것으로 바꾸기’ 3단계만 보여 준다. */
+  const [templateLayout, setTemplateLayout] = useState<"full" | "carryover">("full");
   /** 출석·지출 자료(CSV/TSV·붙여넣기)에서 세어 낸 결과 */
   const [materialResult, setMaterialResult] = useState<SpreadsheetMaterial | null>(null);
   const [materialFileName, setMaterialFileName] = useState("");
@@ -1050,6 +1055,12 @@ export default function App() {
         }
         updateTemplateSession({ smartText: merged.text });
         resetSmartState();
+        // 3단계 간단 화면에서는 계획서를 올린 직후 한 번 나눠 둔다 — 다음 화면이 ‘바뀐 항목’을 바로 보여 준다.
+        if (templateLayout === "carryover") {
+          void runSmartMap("rule", merged.text);
+          notify(`계획서에서 항목 ${result.counts.total}줄을 읽었습니다. 3단계에서 바뀐 항목을 확인해 주세요.`);
+          return;
+        }
         notify(`계획서에서 항목 ${result.counts.total}줄을 읽어 2단계에 이어 붙였습니다. ‘자동으로 칸 나누기’를 다시 눌러 주세요.`);
       } catch {
         notify("계획서 파일을 읽지 못했습니다. 파일을 다시 골라 주세요.");
@@ -1247,6 +1258,13 @@ export default function App() {
     );
   };
 
+  /** 첫 화면의 큰 버튼 — 3단계 간단 화면으로 들어가고, 작년 값 갈아끼우기를 켠다(사용자가 직접 고른 길). */
+  const startCarryoverFlow = () => {
+    setTemplateLayout("carryover");
+    setCarryoverUserChoice(true);
+    setSection("templateFill");
+  };
+
   const clearTemplateSchema = () => {
     if (!window.confirm("읽은 양식 구조와 결과를 지울까요? 올린 파일 자체는 삭제되지 않습니다.")) return;
     setTemplateSession(createEmptyTemplateSession());
@@ -1334,6 +1352,40 @@ export default function App() {
     [carryoverEnabled, carryoverPlan, templateSession.fieldValues]
   );
 
+  /** 문서 제목의 올해 제안 — 계획서 사업명이 있으면 그 이름으로, 없으면 연도만 바꾼다 */
+  const titleProposal = useMemo(
+    () =>
+      carryoverEnabled
+        ? proposeDocumentTitle({ fields: carryoverSourceFields, planLines: planSource?.lines || [], currentYear })
+        : [],
+    [carryoverEnabled, carryoverSourceFields, planSource, currentYear]
+  );
+  /**
+   * 제목 칸에는 연도를 바꾼 값을 미리 넣어 둔다 — 사업명이 달라졌으면 3단계에서 고친다.
+   * 한 제안은 한 번만 넣는다(넣은 뒤 값 비교가 어긋나도 다시 넣지 않도록 ref 로 막는다).
+   */
+  const titlePrefillApplied = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!titleProposal.length) return;
+    const patch: Record<string, string> = {};
+    for (const item of titleProposal) {
+      const key = `${item.fieldId}|${item.proposal}`;
+      if (titlePrefillApplied.current[key]) continue;
+      const current = String(templateSession.fieldValues[item.fieldId] ?? "").trim();
+      if (current && current !== item.yearOnly && current !== item.previous) continue;
+      patch[item.fieldId] = item.proposal;
+      titlePrefillApplied.current[key] = item.proposal;
+    }
+    if (!Object.keys(patch).length) return;
+    updateTemplateSession({ fieldValues: { ...templateSession.fieldValues, ...patch } });
+  }, [titleProposal, templateSession.fieldValues]);
+
+  /** 문서 제목처럼 글자 전체를 갈아끼우는 칸의 작업 목록 — .hwpx 에서 원문 글자로 찾아 바꿀다 */
+  const textRewrites = useMemo(
+    () => buildTextRewrites({ fields: templateFields, values: templateSession.fieldValues }),
+    [templateFields, templateSession.fieldValues]
+  );
+
   const readFileBase64 = (file: File) =>
     new Promise<string>((resolve) => {
       const reader = new FileReader();
@@ -1376,19 +1428,22 @@ export default function App() {
 
   const applySmartRows = (result: SmartMapResult, note: string) => {
     // 양식 이양 모드 — 전년도 값이 적힌 칸은 바꿀 값이 있으면 미리 체크해 둔다 (사용자가 풀면 그대로 둔다).
-    const marked = carryoverEnabled && carryoverPlan.rows.length ? markCarryoverRows(result, carryoverPlan.rows) : result;
+    // 이미 적힌 값을 덮어쓰는 일이라, 자동 배치 확신이 낮은 칸은 체크를 풀어 사람이 보게 한다.
+    const marked = carryoverEnabled && carryoverPlan.rows.length
+      ? applyCarryoverGuard(markCarryoverRows(result, carryoverPlan.rows))
+      : result;
     setSmartResult(marked);
     setSmartSelected(new Set(marked.rows.filter((row) => row.checked).map((row) => row.fieldId)));
     setSmartNote(note);
   };
 
   /** 자유 텍스트 배치 — AI 키가 있으면 AI, 없거나 실패하면 규칙. 어느 쪽이든 미리보기부터. */
-  const runSmartMap = async (mode: "auto" | "rule") => {
+  const runSmartMap = async (mode: "auto" | "rule", textOverride?: string) => {
     if (!templateSession.schema) {
       notify("먼저 샘플 양식을 올리거나 연습 양식을 불러와 주세요.");
       return;
     }
-    const text = templateSession.smartText.trim();
+    const text = String(textOverride ?? templateSession.smartText).trim();
     if (!text) {
       notify("붙여넣을 글을 먼저 넣어 주세요.");
       return;
@@ -2122,6 +2177,7 @@ export default function App() {
             onSelectProject={switchProject}
             onOpenProjectBoard={() => setSection("projectBoard")}
             onNavigate={setSection}
+            onStartCarryover={startCarryoverFlow}
             onImportFile={importDocument}
             onImportTemplate={parseTemplateFile}
             onLoadExample={() => { setProject(exampleProject); notify("예시를 불러왔습니다."); }}
@@ -2781,8 +2837,10 @@ export default function App() {
 
         {section === "templateFill" && (
           <Panel
-            title="읽은 양식 구조 그대로 채웁니다"
-            description="공고·기관 양식 파일을 올리면 섹션 목차, 표의 열과 행, 빈칸·작성 항목을 먼저 보여 줍니다. 그 구조를 유지한 Markdown 초안을 만들고 복사·내려받기·워크브레인 내보내기로 이어집니다."
+            title={templateLayout === "carryover" ? "작년 결과보고서 → 올해 것으로 바꾸기" : "읽은 양식 구조 그대로 채웁니다"}
+            description={templateLayout === "carryover"
+              ? "작년 결과보고서를 올리고 올해 계획서·정산 자료만 넣으면 숫자와 내용을 갈아끼워 .hwpx로 내려받습니다. 글꼴·표 서식은 작년 그대로입니다."
+              : "공고·기관 양식 파일을 올리면 섹션 목차, 표의 열과 행, 빈칸·작성 항목을 먼저 보여 줍니다. 그 구조를 유지한 Markdown 초안을 만들고 복사·내려받기·워크브레인 내보내기로 이어집니다."}
           >
             <TemplateFillView
               schema={templateSession.schema}
@@ -2828,6 +2886,9 @@ export default function App() {
               onFillValueChange={setTemplateFieldValue}
               carryoverById={carryoverClassified?.byId}
               carryoverOverwrites={carryoverOverwrites}
+              textRewrites={textRewrites}
+              layout={templateLayout}
+              onLayoutChange={setTemplateLayout}
               onLoadProjectData={useProjectDataForTemplate}
               projectDataNote={templateDigestNote}
               projectDataStale={templateDigestStale}

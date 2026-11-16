@@ -61,7 +61,8 @@ export function WorkHomeView({
   digest,
   onOpenNextAction,
   onOpenSession,
-  onOpenEvidence
+  onOpenEvidence,
+  onStartCarryover
 }: {
   projectName: string;
   plan: GrantPlan;
@@ -82,6 +83,8 @@ export function WorkHomeView({
   onOpenSession?: (projectId: string, sessionId: string) => void;
   /** 증빙 미확인 사업을 눌렀을 때 지출 원장(예산·집행)으로 간다. */
   onOpenEvidence?: (projectId: string) => void;
+  /** 첫 화면의 큰 버튼 — 작년 결과보고서를 올해 것으로 바꾸는 3단계 화면을 연다. */
+  onStartCarryover: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const templateRef = useRef<HTMLInputElement>(null);
@@ -93,6 +96,25 @@ export function WorkHomeView({
 
   return (
     <div className="home-view">
+      <section className="home-choices" aria-label="무엇을 할까요">
+        <button className="home-choice is-primary" type="button" onClick={onStartCarryover}>
+          <span className="home-choice-icon" aria-hidden="true">🔄</span>
+          <span className="home-choice-main">
+            <strong>작년 결과보고서 → 올해 것으로 바꾸기</strong>
+            <small>작년 결과보고서(.hwpx)를 올리고 올해 계획서·정산 자료만 넣으면 숫자와 내용을 갈아끼워 내려받습니다.</small>
+          </span>
+          <span className="home-choice-go" aria-hidden="true">시작 ›</span>
+        </button>
+        <button className="home-choice" type="button" onClick={() => onNavigate("templateFill")}>
+          <span className="home-choice-icon" aria-hidden="true">📄</span>
+          <span className="home-choice-main">
+            <strong>새 계획서·양식 채우기</strong>
+            <small>공고에서 받은 빈 양식(.hwpx)을 올려 처음부터 채웁니다.</small>
+          </span>
+          <span className="home-choice-go" aria-hidden="true">열기 ›</span>
+        </button>
+      </section>
+
       <section className="home-hero" aria-label="현재 사업 상황">
         <p className="eyebrow">지금 이 사업</p>
         <h2 className="home-title">{projectName.trim() || "이름 없는 사업"}</h2>
@@ -244,7 +266,12 @@ export function WorkHomeView({
         </section>
       )}
 
-      <section className="block" aria-label="문서·예산 흐름">
+      <details className="block home-more" aria-label="다른 작업">
+        <summary>
+          <strong>다른 작업</strong>
+          <span className="block-count">문서에서 정산까지 4단계 · 읽어 둔 양식 · 내 사업</span>
+        </summary>
+      <section className="block home-more-inner" aria-label="문서·예산 흐름">
         <div className="block-head">
           <h3>문서에서 정산까지</h3>
           <span className="block-count">4단계 · {progress.overall}%</span>
@@ -272,27 +299,7 @@ export function WorkHomeView({
         </button>
       </section>
 
-      <section className="block" aria-label="시작하기">
-        <div className="block-head">
-          <h3>무엇부터 할까요</h3>
-        </div>
-        <div className="home-start-grid">
-          {START_CARDS.map((card) => (
-            <button
-              className="home-start-card"
-              key={card.id}
-              type="button"
-              onClick={() => (card.file ? fileRef.current?.click() : card.section && onNavigate(card.section))}
-            >
-              <strong>{card.title}</strong>
-              <span>{card.description}</span>
-              <em>{card.action} ›</em>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="block" aria-label="샘플 양식">
+      <section className="block home-more-inner" aria-label="샘플 양식">
         <div className="block-head">
           <h3>이미 쓰는 양식이 있나요?</h3>
           <button className="block-link" type="button" onClick={() => onNavigate("templateFill")}>양식 채우기 열기</button>
@@ -321,6 +328,8 @@ export function WorkHomeView({
           }}
         />
       </section>
+
+      </details>
 
       <section className="block" aria-label="내 사업">
         <div className="block-head">

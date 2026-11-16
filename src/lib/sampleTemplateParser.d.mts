@@ -29,7 +29,7 @@ export type TemplateTable = {
   emptyCells: number;
 };
 
-export type TemplateSlotKind = "blank" | "label" | "guide" | "item" | "table-cell";
+export type TemplateSlotKind = "blank" | "label" | "guide" | "item" | "table-cell" | "labelled" | "title";
 
 export type TemplateSlot = {
   id: string;
@@ -38,8 +38,10 @@ export type TemplateSlot = {
   sectionId: string | null;
   sectionTitle: string;
   preview?: string;
-  /** 사용자가 채운 값(본문 자리 표시 칸) */
+  /** 사용자가 채운 값(본문 자리 표시 칸) — 본문 ‘라벨: 값’·문서 제목 칸은 원문 값 */
   value?: string;
+  /** 본문 인라인 채우기에 쓰는 라벨 글자(‘총 운영회차’ → ‘운영회차’) */
+  fillLabel?: string;
   tableId?: string;
   rowIndex?: number;
   columnIndex?: number;
@@ -53,6 +55,10 @@ export type TemplateCounts = {
   emptyCells: number;
   blanks: number;
   guides: number;
+  /** 본문 문단에 적힌 ‘라벨: 값’ 칸 수 */
+  labelled?: number;
+  /** 연도가 박힌 문서 제목 칸 수(0 또는 1) */
+  titles?: number;
 };
 
 export type TemplateSchema = {
@@ -105,6 +111,8 @@ export function extractHwpxBlocks(xml?: string): SampleBlock[];
 export function readHwpxBlocks(zip: unknown): Promise<SampleBlock[]>;
 export function extractDocxHtmlBlocks(html?: string): SampleBlock[];
 export function detectSlotKind(text?: string, blockType?: string): TemplateSlotKind | null;
+export function labelledParagraphParts(text?: string | null): Array<{ label: string; fillLabel: string; value: string }>;
+export function detectDocumentTitleText(text?: string | null): string;
 export function emptyTemplateSchema(fileName?: string): TemplateSchema;
 export function parseSampleTemplate(input?: {
   text?: string;
