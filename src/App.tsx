@@ -1646,28 +1646,56 @@ export default function App() {
         }),
         "AI 남은 칸 초안"
       );
-      const result = await runModelPrompt(prompt, modelSettings, { apiKey: apiKeys[modelSettings.provider] || "" });
-      if (!result.ok) {
-        setAiDraftError(result.error || "AI 호출에 실패했습니다. 잠시 뒤 다시 실행하거나 칸 값을 직접 적어 주세요.");
+      // 무료 추론 모델은 생각만 하다 본문 없이 끊기기도 한다. 그때는 한 번만 더 시도한다.
+      // 내 전용 중계에서 ‘자동/OpenRouter’로 답을 못 받으면 AMD 무료 경로(Gemma)로 한 번 더 보낸다.
+      const route = normalizeProxyRoute(modelSettings.proxyRoute);
+      const attempts =
+        modelSettings.provider === "team-free-proxy" && route !== "amd"
+          ? [modelSettings, { ...modelSettings, proxyRoute: "amd" }]
+          : [modelSettings];
+
+      let parsed: ReturnType<typeof parseLeftoverDraftResponse> | null = null;
+      let usedRetry = false;
+      let upstream = "";
+      let failure = "";
+      for (let index = 0; index < attempts.length; index += 1) {
+        const attemptSettings = attempts[index];
+        const result = await runModelPrompt(prompt, attemptSettings, {
+          apiKey: apiKeys[modelSettings.provider] || "",
+          maxTokens: 2600
+        });
+        if (!result.ok) {
+          failure = result.error || "AI 호출에 실패했습니다.";
+          continue;
+        }
+        const candidate = parseLeftoverDraftResponse(result.output, {
+          targets,
+          currentYear,
+          sourceYear: carryoverDetection?.sourceYear ?? null
+        });
+        if (!candidate.rows.length) {
+          failure = "AI 응답에서 채울 값을 찾지 못했습니다.";
+          continue;
+        }
+        parsed = candidate;
+        usedRetry = index > 0;
+        upstream = result.upstream || "";
+        break;
+      }
+      if (!parsed) {
+        setAiDraftError(
+          `${failure} 올해 자료를 더 넣거나 칸 값을 직접 적어 주세요.${attempts.length > 1 ? " 자동 경로에서 답을 못 받아 다른 무료 경로로 한 번 더 시도했습니다." : ""}`
+        );
         return;
       }
-      const parsed = parseLeftoverDraftResponse(result.output, {
-        targets,
-        currentYear,
-        sourceYear: carryoverDetection?.sourceYear ?? null
-      });
-      if (!parsed.rows.length) {
-        setAiDraftError("AI 응답에서 채울 값을 찾지 못했습니다. 올해 자료를 더 넣거나 칸 값을 직접 적어 주세요.");
-        return;
-      }
-      setAiDraftResult({ ...parsed, upstream: result.upstream || "" });
+      setAiDraftResult({ ...parsed, upstream });
       setAiDraftSelected(new Set(parsed.rows.map((row) => row.fieldId)));
       const skipped = [
         parsed.counts.masked ? `가림 표시가 남은 ${parsed.counts.masked}건은 넣지 않았습니다` : "",
         parsed.counts.rejected ? `형식이 맞지 않은 ${parsed.counts.rejected}건은 뺐습니다` : ""
       ].filter(Boolean).join(" · ");
       setAiDraftNote(
-        `${modelLabel(modelSettings.provider)}${result.upstream ? ` · ${result.upstream}` : ""} 초안 ${parsed.rows.length}칸을 받았습니다. 아직 양식에는 넣지 않았습니다 — 값을 보고 ‘체크한 칸 양식에 넣기’를 누르세요.${skipped ? ` (${skipped})` : ""}`
+        `${modelLabel(modelSettings.provider)}${upstream ? ` · ${upstream}` : ""}${usedRetry ? " · AMD 무료 경로로 다시 시도" : ""} 초안 ${parsed.rows.length}칸을 받았습니다. 아직 양식에는 넣지 않았습니다 — 값을 보고 ‘체크한 칸 양식에 넣기’를 누르세요.${skipped ? ` (${skipped})` : ""}`
       );
       notify(`AI 초안 ${parsed.rows.length}칸을 받았습니다. 확인한 칸만 양식에 넣으세요.`);
     } catch (error) {
