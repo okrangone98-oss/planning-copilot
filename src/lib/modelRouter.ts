@@ -3,7 +3,7 @@ import { isRemoteOllamaModel, normalizeLoopbackBaseUrl, normalizeProxyRoute, PRO
 import { requestFreeModel } from "./freeModelRouter.mjs";
 
 export const defaultModelSettings: ModelSettings = {
-  // 기본값은 키 없이 바로 쓰는 공용 무료 AI 경로다. 템플릿 모드·개인 키 경로도 그대로 고를 수 있다.
+  // 기본값은 내 전용 무료 AI(중계) 경로다. 접속 코드를 넣어야 호출되고, 템플릿 모드·개인 키 경로도 그대로 고를 수 있다.
   provider: "team-free-proxy",
   ollamaBaseUrl: "http://127.0.0.1:11434",
   ollamaModel: "llama3.1",
@@ -20,7 +20,7 @@ export const defaultModelSettings: ModelSettings = {
 };
 
 export const modelProviderOptions: Array<{ id: ModelProvider; label: string; description: string }> = [
-  { id: "team-free-proxy", label: "공용 무료 AI", description: "키 없이 바로 · Cloudflare 중계로 OpenRouter·Gemini·AMD 무료 경로" },
+  { id: "team-free-proxy", label: "내 전용 무료 AI", description: "Cloudflare 중계 · 접속 코드 필요 · 내 무료 경로만 사용" },
   { id: "simulation", label: "템플릿 모드", description: "AI 호출 없이 규칙 기반 예시 초안 생성" },
   { id: "ollama", label: "Ollama 로컬", description: "내 컴퓨터에서 모델을 실행해 통합 초안 생성" },
   { id: "openrouter-free", label: "OpenRouter Free", description: "브라우저 호출 가능 · openrouter/free 같은 무료 모델" },
@@ -50,7 +50,7 @@ export function currentModelName(settings: ModelSettings) {
 
 export function modelSafetyNote(settings: ModelSettings) {
   if (settings.provider === "team-free-proxy") {
-    return "가린 프롬프트가 이 앱의 Cloudflare 중계를 거쳐 무료 AI 제공자(OpenRouter·Gemini·AMD)로 전달됩니다. 키는 브라우저에 두지 않습니다. 개인정보 마스킹을 켜 두면 이름·연락처는 [성명_1]·[연락처_1]로 바뀐 채 나갑니다.";
+    return "가린 프롬프트가 내 Cloudflare 중계를 거쳐 무료 AI 제공자(OpenRouter·Gemini·AMD)로 전달됩니다. 중계는 접속 코드를 확인한 뒤 자기 키로 부르고, 그 키는 브라우저로 오지 않습니다. 개인정보 마스킹을 켜 두면 이름·연락처는 [성명_1]·[연락처_1]로 바뀐 채 나갑니다.";
   }
   if (settings.provider === "ollama") return "명령, 관련 프로젝트 입력란, 일치하는 저장 자료 최대 3건만 이 컴퓨터의 Ollama로 보냅니다. 역할 분해는 규칙 기반이며, 최종 보고서만 모델이 생성합니다.";
   const config = providerConfig(settings.provider);

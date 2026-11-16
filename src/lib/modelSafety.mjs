@@ -46,18 +46,21 @@ export function normalizeProxyRoute(value) {
  * cors 값은 2026-11-15에 실제 프리플라이트(Origin: https://okrangone98-oss.github.io)로 확인한 결과다.
  */
 export const REMOTE_PROVIDERS = {
-  // 키를 넣지 않아도 되는 기본 경로. 상위 무료 키는 중계 서버에만 있다.
+  /**
+   * 내 전용 중계. 상위 무료 키는 중계 서버에만 있고, 브라우저는 ‘접속 코드’만 보낸다.
+   * 코드는 앱에 넣지 않는다 — 사용자가 이 탭에서 넣고, 저장하지 않는다.
+   */
   "team-free-proxy": {
-    label: "공용 무료 AI (키 불필요 · Cloudflare 중계)",
+    label: "내 전용 무료 AI (Cloudflare 중계 · 접속 코드 필요)",
     baseUrl: "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1",
     defaultModel: "",
     models: [],
-    keyPattern: /^$/,
-    requiresKey: false,
-    keyLabel: "별도 키 입력 불필요 (중계 서버에 암호화 보관)",
+    keyPattern: /^[A-Za-z0-9._~-]{8,}$/,
+    requiresKey: true,
+    keyLabel: "접속 코드(공백 없이 8자 이상 · 이 탭 메모리에만)",
     cors: "allowed",
     corsNote:
-      "이 앱의 Cloudflare 중계로 보냅니다(2026-11-16 확인: 브라우저 직접 호출·CORS 허용). 상위 무료 경로의 키는 중계 서버에만 있고 브라우저로 오지 않습니다."
+      "내 Cloudflare 중계로 보냅니다. 접속 코드를 넣어야 호출되며, 코드는 이 탭 메모리에만 있고 저장·백업되지 않습니다. 상위 무료 경로의 키는 중계 서버에만 있습니다."
   },
   "openrouter-free": {
     label: "OpenRouter Free",
@@ -167,7 +170,7 @@ export function providerConfig(provider) {
 
 /** 기본 노출 카드에 붙는 짧은 상태 표시. */
 export function providerAvailabilityNote(provider) {
-  if (provider === "team-free-proxy") return "키 없이 바로 사용 · 공용 중계";
+  if (provider === "team-free-proxy") return "접속 코드 필요 · 내 전용 중계";
   if (provider === "simulation") return "키 없이 바로 사용";
   if (provider === "ollama") return "내 컴퓨터에 설치 필요";
   const config = providerConfig(provider);
@@ -212,7 +215,7 @@ export function providerRequiresKey(provider) {
 
 /**
  * 실행 전에 ‘외부로 보낸다’를 사용자가 확인해야 하는 경로인지.
- * 공용 중계는 붙여넣은 개인 키가 아니라 앱이 운영하는 중계로 보내므로, 키를 넣는 경로에서만 확인을 받는다.
+ * 무료 API·내 전용 중계처럼 자료가 밖으로 나가는 경로는 모두 확인을 받는다.
  */
 export function providerNeedsExternalAck(provider) {
   return providerRequiresKey(provider);
