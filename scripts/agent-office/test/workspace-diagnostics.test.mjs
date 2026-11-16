@@ -143,6 +143,9 @@ test("키가 없는 저장소는 백업 안전으로 표시한다", () => {
 test("키 모양 탐지는 종류별로 세고, 짧은 흔적은 키로 보지 않는다", () => {
   assert.equal(findSecretsInText("gsk_" + "a".repeat(20)).total, 1);
   assert.equal(findSecretsInText("AIza" + "B".repeat(30)).total, 1);
+  // 2026년 Google AI Studio의 신형식 AQ. 키도 키 모양으로 잡는다.
+  assert.equal(findSecretsInText("AQ." + "B".repeat(30)).total, 1);
+  assert.equal(findSecretsInText("AQ.short").total, 0);
   assert.equal(findSecretsInText("(ghp_" + "c".repeat(24) + ")").total, 1);
   assert.equal(findSecretsInText("tl-" + "d".repeat(20)).total, 1);
   assert.equal(findSecretsInText("sk-or-short").total, 0);
