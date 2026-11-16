@@ -8,6 +8,7 @@
 import { budgetSummary, formatWon } from "./grantWorkflow.mjs";
 import { attendanceReport, expenseSummary } from "./projectOperations.mjs";
 import { escapeXmlText } from "./browserHwpxFiller.mjs";
+import { isPackageListEntry, isPreviewTextEntry, planPreviewPatch, stripPreviewImageReferences, writePreviewText } from "./hwpxPreview.mjs";
 
 export const REPORT_TEMPLATE_FILE = "report-base.hwpx";
 
@@ -317,6 +318,7 @@ export function renderReportBodyXml(document) {
 /**
  * 템플릿 .hwpx 바이트의 본문 뒤에 문서를 붙여 새 .hwpx 바이트를 만든다.
  * 템플릿의 mimetype·header.xml·content.hpf 는 그대로 두고 section0.xml 만 다시 쓴다.
+ * 미리보기(Preview/)는 만든 본문에서 다시 뽑아 쓴다 — 템플릿의 미리보기가 남으면 내용과 다른 문서로 보인다.
  */
 export async function buildReportHwpxBytes({ baseBytes, document, jszip } = {}) {
   const input = baseBytes instanceof Uint8Array ? baseBytes : new Uint8Array(baseBytes || []);
@@ -333,7 +335,10 @@ export async function buildReportHwpxBytes({ baseBytes, document, jszip } = {}) 
   const output = new JSZip();
   const mimeEntry = zip.file("mimetype");
   if (mimeEntry) output.file("mimetype", await mimeEntry.async("uint8array"), { compression: "STORE" });
-  for (const name of Object.keys(zip.files)) {
+  const names = Object.keys(zip.files);
+  const preview = planPreviewPatch({ names, sectionXmls: [sectionXml] });
+  const removeEntries = new Set(preview.removeEntries);
+  for (const name of names) {
     const file = zip.files[name];
     if (file.dir) {
       output.folder(name.replace(/\/$/, ""));
@@ -344,10 +349,21 @@ export async function buildReportHwpxBytes({ baseBytes, document, jszip } = {}) 
       output.file(name, sectionXml);
       continue;
     }
+    // 옛 미리보기 그림·글자는 넣지 않는다(글자는 아래에서 새로 쓴다).
+    if (removeEntries.has(name) || isPreviewTextEntry(name)) continue;
+    if (isPackageListEntry(name)) {
+      output.file(name, stripPreviewImageReferences(await file.async("text")).xml);
+      continue;
+    }
     output.file(name, await file.async("uint8array"), { binary: true });
   }
+  const previewWritten = writePreviewText(output, preview.previewText);
   const bytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
-  return { bytes, sectionXml };
+  return {
+    bytes,
+    sectionXml,
+    preview: { text: preview.previewText, chars: preview.previewText.length, removedImages: preview.removeEntries, written: previewWritten }
+  };
 }
 
 /** 내려받을 파일 이름 — "2026 양양 관광두레 플러스-결과보고.hwpx" */
