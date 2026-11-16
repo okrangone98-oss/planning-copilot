@@ -55,9 +55,10 @@ export const REMOTE_PROVIDERS = {
     baseUrl: "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1",
     defaultModel: "",
     models: [],
-    keyPattern: /^[A-Za-z0-9._~-]{8,}$/,
+    // 코드 길이는 사용자가 정한다(짧게 기억하는 코드도 그대로 받는다). 공백만 없으면 된다.
+    keyPattern: /^\S{1,64}$/,
     requiresKey: true,
-    keyLabel: "접속 코드(공백 없이 8자 이상 · 이 탭 메모리에만)",
+    keyLabel: "접속 코드(공백 없이 · 이 탭 메모리에만)",
     cors: "allowed",
     corsNote:
       "내 Cloudflare 중계로 보냅니다. 접속 코드를 넣어야 호출되며, 코드는 이 탭 메모리에만 있고 저장·백업되지 않습니다. 상위 무료 경로의 키는 중계 서버에만 있습니다."
