@@ -135,6 +135,14 @@ export function BudgetSheet({
   const skipHeaderBlur = useRef(false);
 
   const columnById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+  /** 지운 열도 값이 남아 있다 — 그 id 를 새 열에 다시 쓰면 숨은 값이 되살아난다. */
+  const usedCustomIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const line of lines) {
+      for (const key of Object.keys(line.custom || {})) ids.add(key);
+    }
+    return Array.from(ids);
+  }, [lines]);
 
   const valueOf = (rowIndex: number, column: BudgetSheetColumn) => {
     const row = rows[rowIndex];
@@ -388,7 +396,11 @@ export function BudgetSheet({
       notify("새 열 이름을 적어 주세요. 예: 국비, 지방비, 자부담");
       return;
     }
-    const column = createBudgetColumn({ label, numeric: adding.numeric }, columns);
+    const column = createBudgetColumn({ label, numeric: adding.numeric }, [
+      ...columns,
+      // 지운 열에 남은 값의 열쇠(id)는 다시 쓰지 않는다.
+      ...usedCustomIds.map((id) => ({ id, label: "" }))
+    ]);
     setColumns([...columns, column]);
     setAdding(null);
     notify(`‘${column.label}’ 열을 더했습니다${adding.numeric ? " (숫자 열 — 표 아래에 합계를 냅니다)" : ""}.`);
