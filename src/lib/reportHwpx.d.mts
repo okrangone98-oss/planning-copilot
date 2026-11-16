@@ -47,5 +47,9 @@ export function buildReportHwpxBytes(options: {
   baseBytes: Uint8Array | ArrayBuffer;
   document: ReportDocument;
   jszip?: unknown;
-}): Promise<{ bytes: Uint8Array; sectionXml: string }>;
+}): Promise<{
+  bytes: Uint8Array;
+  sectionXml: string;
+  preview: { text: string; chars: number; removedImages: string[]; written: boolean };
+}>;
 export function reportFileName(options?: { plan?: Partial<GrantPlan> | null; project?: { projectName?: string } | null; fallback?: string }): string;

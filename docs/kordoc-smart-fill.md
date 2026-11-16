@@ -137,10 +137,30 @@ PORT=8790 node scripts/kordoc-bridge.mjs  # 포트 바꾸기
 - 채운 칸 글자가 원래 칸보다 길면 한글이 줄을 다시 나눠 표 높이가 늘어날 수 있습니다(줄 배치 캐시는 비워 둡니다).
 - AI 경로는 사용자가 고른 무료 모델 설정에 따르며, 키가 없으면 규칙 경로만 씁니다. 채운 값은 외부로 나가지 않습니다.
 
+## 미리보기(Preview/) 정리 — 채운 파일이 ‘작년 문서’로 보이지 않게
+
+HWPX 안에는 본문(`Contents/section*.xml`) 말고 미리보기 두 가지가 더 들어 있습니다.
+`Preview/PrvText.txt`(문서 앞부분 글자)와 `Preview/PrvImage.png`(1쪽 그림)입니다.
+지금까지는 채울 때 이 두 파일을 원본 그대로 복사해서, 본문은 2026년인데 미리보기는 2025년인 파일이 나갔고
+모바일·일부 뷰어가 미리보기를 먼저 보여 주면서 **작년 문서처럼** 보이는 문제가 있었습니다.
+
+`src/lib/hwpxPreview.mjs` 가 채운 파일을 묶을 때 이렇게 정리합니다(`browserHwpxFiller.mjs`·`reportHwpx.mjs` 공통).
+
+| 미리보기 | 처리 | 이유 |
+| --- | --- | --- |
+| `Preview/PrvText.txt` | **채운 본문에서 새로 만든다** (앞부분 1200자, 줄 경계에서 끊음, CRLF) | 옛 연도 글자가 남지 않는다 |
+| `Preview/PrvImage.png` | **넣지 않는다**(옛 그림 삭제) | 브라우저에서 1쪽을 정확히 그릴 수 없다 — 그림이 없으면 뷰어가 본문을 직접 그린다 |
+| `Contents/content.hpf`·`META-INF/manifest.xml`·`container.xml` | 그림을 가리키는 항목이 있으면 함께 지운다 | 없는 파일을 가리키는 목록은 패키지를 깨뜨린다 |
+
+- 글자 미리보기를 가리키는 `container.xml` 의 rootfile 은 그대로 두고 파일 내용만 새로 씁니다(참조 정합성 유지).
+- 실제 한컴오피스가 만든 `.hwpx` 를 확인해 보니 `PrvImage.png` 는 어떤 목록에도 등록돼 있지 않고 `container.xml` 은 `PrvText.txt` 만 rootfile 로 둡니다.
+  그래서 그림만 빼고 글자를 새로 써도 패키지 참조는 깨지지 않습니다.
+- 호환성 확인: `npx kordoc@4.24.80 validate` 로 채운 파일 구조 검증 통과(엔트리 15개, 원본 16개), `kordoc <파일>` 본문 재읽기·17쪽 렌더까지 정상.
+
 ## 검증
 
 ```
-npm test           # 272개 (기존 250 + 브라우저 HWPX 패처·결과보고 HWPX 22)
+npm test           # 385개 (기존 375 + HWPX 미리보기 회귀 10)
 npx tsc --noEmit
 NODE_OPTIONS=--max-old-space-size=1024 npm run build
 npm run check

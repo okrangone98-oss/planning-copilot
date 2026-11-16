@@ -31,6 +31,16 @@ export type SectionPatchResult = {
   changed: boolean;
 };
 
+export type HwpxPreviewResult = {
+  /** 채운 본문에서 새로 뽑은 미리보기 글자 */
+  text: string;
+  chars: number;
+  /** ZIP 에서 빼버린 옛 미리보기 그림 엔트리 */
+  removedImages: string[];
+  /** 미리보기 글자를 넣었는지 */
+  written: boolean;
+};
+
 export type HwpxPatchResult = {
   bytes: Uint8Array;
   filled: FilledEntry[];
@@ -38,6 +48,7 @@ export type HwpxPatchResult = {
   unmatched: string[];
   sectionCount: number;
   changed: boolean;
+  preview: HwpxPreviewResult;
 };
 
 export type HwpxXmlNode = {

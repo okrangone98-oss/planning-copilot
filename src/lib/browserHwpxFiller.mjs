@@ -10,6 +10,7 @@
 // 지난 단계까지는 "어느 칸에 무슨 값"만 정하고 실제 쓰기는 kordoc CLI·브릿지에 맡겼는데, 이 모듈이 그 쓰기를 브라우저로 가져온다.
 
 import { isBlankValueCell, isDatePlaceholderCell, isFormLabelCell, isInlineSignatureBlock, isSignaturePlaceholderCell, isSubLabelBeside, findMatchingFieldKey, normalizeFormLabel, scanInlineFieldSegments } from "./kordocFormSpec.mjs";
+import { isPackageListEntry, isPreviewTextEntry, planPreviewPatch, stripPreviewImageReferences, writePreviewText } from "./hwpxPreview.mjs";
 
 export const HWPX_MIME = "application/hwp+zip";
 /** 다시 읽을 때 본문으로 보는 ZIP 엔트리 */
@@ -786,6 +787,8 @@ function applySplices(source, splices) {
 /**
  * .hwpx 바이트 전체를 값으로 채워 새 .hwpx 바이트를 만든다.
  * ZIP 안의 섹션 XML만 바뀌고 나머지 엔트리는 그대로다. mimetype 은 압축하지 않고 맨 앞에 둔다(HWPX 규칙).
+ * 미리보기(Preview/)는 원본을 그대로 두면 채운 본문과 어긋나므로 새로 맞춘다 — 글자는 채운 본문에서 다시 뽑고,
+ * 옛 그림(PrvImage)은 넣지 않는다(hwpxPreview.mjs).
  */
 export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrites } = {}) {
   const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
@@ -809,6 +812,13 @@ export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrite
     if (result.changed) edited.set(name, result.xml);
   }
 
+  // 미리보기는 ‘채운 뒤의 본문’에서 다시 만든다 — 원본 미리보기를 복사하면 옛 연도 문서로 보인다.
+  const preview = planPreviewPatch({
+    names,
+    sectionXmls: await Promise.all(targets.map(async (name) => (edited.has(name) ? edited.get(name) : await zip.file(name).async("text"))))
+  });
+  const removeEntries = new Set(preview.removeEntries);
+
   const output = new JSZip();
   // mimetype 은 압축하지 않고 ZIP 의 첫 엔트리로 둔다(HWPX 규칙 — 뷰어가 앞에서 형식을 먼저 읽는다).
   const mimeEntry = zip.file("mimetype");
@@ -820,11 +830,21 @@ export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrite
       continue;
     }
     if (name === "mimetype") continue;
-    const data = edited.has(name) ? edited.get(name) : await entry.async("uint8array");
-    // 문자열은 JSZip 이 UTF-8 로 쓰고, 바이트는 그대로 넣는다(binary:true 를 주면 한글이 깨진다).
-    if (typeof data === "string") output.file(name, data);
-    else output.file(name, data, { binary: true });
+    // 옛 미리보기 그림·글자는 넣지 않는다(글자는 아래에서 새로 쓴다).
+    if (removeEntries.has(name) || isPreviewTextEntry(name)) continue;
+    if (edited.has(name)) {
+      output.file(name, edited.get(name));
+      continue;
+    }
+    // 패키지 목록에 미리보기 그림 항목이 남아 있으면 함께 지운다(없는 파일을 가리키는 목록은 깨진다).
+    if (isPackageListEntry(name)) {
+      output.file(name, stripPreviewImageReferences(await entry.async("text")).xml);
+      continue;
+    }
+    // 바이트는 그대로 넣는다(binary:true 를 주면 한글이 깨진다).
+    output.file(name, await entry.async("uint8array"), { binary: true });
   }
+  const previewWritten = writePreviewText(output, preview.previewText);
   const outBytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
 
   const skippedKeys = new Set(skipped.map((item) => item.key).filter(Boolean));
@@ -842,7 +862,14 @@ export async function patchHwpxBytes({ bytes, values, jszip, overwrites, rewrite
     skipped,
     unmatched,
     sectionCount: targets.length,
-    changed: edited.size > 0
+    changed: edited.size > 0,
+    // 미리보기 처리 결과 — 글자는 채운 본문에서 새로 썼고, 그림 미리보기는 넣지 않았다.
+    preview: {
+      text: preview.previewText,
+      chars: preview.previewText.length,
+      removedImages: preview.removeEntries,
+      written: previewWritten
+    }
   };
 }
 
