@@ -100,6 +100,13 @@ test("새 열은 겹치지 않는 id 와 이름을 받고, 숫자 열로 만들 
   assert.equal(two.kind, "text");
 });
 
+test("지운 열에 남은 값의 id 는 새 열에 다시 쓰지 않는다", () => {
+  const base = normalizeBudgetColumns(null);
+  // col-1 은 이미 지운 열의 칸 값이 쓰던 id — 새 열이 이 id 를 받으면 숨어 있던 값이 되살아난다.
+  const next = createBudgetColumn({ label: "국비", numeric: true }, [...base, { id: "col-1", label: "" }]);
+  assert.equal(next.id, "col-2");
+});
+
 /* ── 합계 ─────────────────────────────────────────────────── */
 
 test("사용자가 더한 숫자 열(국비·지방비)은 표 아래에 열 합계로 더해진다", () => {
