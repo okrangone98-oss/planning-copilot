@@ -3415,7 +3415,7 @@ function RemoteKeyBlock({
         </div>
         <div className="form-grid">
           <label className="field wide">
-            <span>접속 코드(저장하지 않음 · {config.keyLabel})</span>
+            <span>접속 코드 (저장하지 않음 · 이 탭 메모리에만)</span>
             <input
               type="password"
               value={apiKey}
