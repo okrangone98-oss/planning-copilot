@@ -165,12 +165,23 @@ test("fetch를 주입해 성공·한도·차단 경로를 확인한다", async (
   assert.equal(limited.ok, false);
   assert.match(limited.error, /호출 한도/);
 
+  // 중계가 접속 코드를 거부하면 코드 문제로 안내한다(키 오류와 구분).
+  const denied = await requestFreeModel({
+    provider: "team-free-proxy",
+    prompt: "요약",
+    route: "auto",
+    apiKey: "my-private-code-2026",
+    fetchImpl: async () => ({ ok: false, status: 401, text: async () => '{"error":"unauthorized"}' })
+  });
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /접속 코드가 맞지 않아/);
+
   const blocked = await requestFreeModel({ ...base, fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
   assert.equal(blocked.ok, false);
   assert.match(blocked.error, /CORS/);
 });
 
-test("공용 무료 AI 중계는 키 없이 호출하고, 상위 경로를 본문에 넣는다", async () => {
+test("내 전용 중계는 접속 코드를 Bearer로 보내고, 상위 경로를 본문에 넣는다", async () => {
   const { buildChatRequest, parseChatCompletion, requestFreeModel, resolveEndpoint } = await import("../../../src/lib/freeModelRouter.mjs");
 
   assert.equal(
@@ -178,29 +189,35 @@ test("공용 무료 AI 중계는 키 없이 호출하고, 상위 경로를 본�
     "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1/chat/completions"
   );
 
-  // 키도 모델도 없이 요청이 만들어진다 — 중계가 경로별 기본 모델을 고른다.
-  const auto = buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "auto" });
+  const CODE = "my-private-code-2026";
+  // 접속 코드가 없으면 요청 자체를 만들지 않는다 — 남의 API가 차감되지 않게.
+  assert.throws(() => buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "auto" }), /접속 코드/);
+
+  // 코드가 있으면 모델 없이 요청이 만들어진다 — 중계가 경로별 기본 모델을 고른다.
+  const auto = buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "auto", apiKey: CODE });
   const autoBody = JSON.parse(String(auto.init.body));
   assert.equal(auto.url, "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1/chat/completions");
   assert.equal(autoBody.provider, "auto");
   assert.equal("model" in autoBody, false, "모델을 비우면 본문에 모델 이름을 보내지 않는다");
-  assert.equal("Authorization" in auto.init.headers, false, "중계에는 개인 키를 보내지 않는다");
+  assert.equal(auto.init.headers.Authorization, `Bearer ${CODE}`, "접속 코드는 Authorization 헤더로만 보낸다");
+  assert.equal(String(auto.init.body).includes(CODE), false, "접속 코드가 본문에 들어가면 안 된다");
   assert.equal(autoBody.stream, false);
   assert.equal(autoBody.messages.length, 2);
 
-  const gemini = buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "gemini", model: "gemini-2.5-flash" });
+  const gemini = buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "gemini", model: "gemini-2.5-flash", apiKey: CODE });
   const geminiBody = JSON.parse(String(gemini.init.body));
   assert.equal(geminiBody.provider, "gemini");
   assert.equal(geminiBody.model, "gemini-2.5-flash");
 
   // 목록에 없는 경로는 auto 로 되돌린다(중계에 임의 문자열을 넘기지 않는다).
-  assert.equal(JSON.parse(String(buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "openai-paid" }).init.body)).provider, "auto");
+  assert.equal(JSON.parse(String(buildChatRequest({ provider: "team-free-proxy", prompt: "요약", route: "openai-paid", apiKey: CODE }).init.body)).provider, "auto");
 
   // 중계가 알려 준 실제 경로(X-Proxy-Provider)를 돌려준다.
   const response = await requestFreeModel({
     provider: "team-free-proxy",
     prompt: "성과 3개",
     route: "auto",
+    apiKey: CODE,
     fetchImpl: async () => ({
       ok: true,
       status: 200,
@@ -216,6 +233,7 @@ test("공용 무료 AI 중계는 키 없이 호출하고, 상위 경로를 본�
   const noHeader = await requestFreeModel({
     provider: "team-free-proxy",
     prompt: "성과 3개",
+    apiKey: CODE,
     fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: "답" } }] }) })
   });
   assert.equal(noHeader.ok, true);

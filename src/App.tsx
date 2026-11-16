@@ -1612,7 +1612,7 @@ export default function App() {
       return;
     }
     if (modelSettings.provider === "simulation") {
-      setAiDraftError("지금은 템플릿 모드입니다. 모델·보안 설정에서 ‘공용 무료 AI(키 불필요)’를 고르면 키 없이 바로 초안을 받을 수 있습니다.");
+      setAiDraftError("지금은 템플릿 모드입니다. 모델·보안 설정에서 ‘내 전용 무료 AI’를 고르고 접속 코드를 넣으면 초안을 받을 수 있습니다.");
       return;
     }
     const remoteConfig = providerConfig(modelSettings.provider);
@@ -2451,7 +2451,7 @@ export default function App() {
         )}
 
         {section === "modelSettings" && (
-          <Panel title="AI 연결은 직접 고르고, 키는 이 탭에만 둡니다" description="기본값은 키를 넣지 않고 바로 쓰는 공용 무료 AI(Cloudflare 중계)입니다. 브라우저에서 바로 호출되는 무료 경로만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. 직접 발급한 API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
+          <Panel title="AI 연결은 직접 고르고, 키는 이 탭에만 둡니다" description="기본값은 내 전용 무료 AI(Cloudflare 중계)입니다 — 접속 코드를 넣어야 호출되고 자료는 가린 뒤 나갑니다. 브라우저에서 바로 호출되는 무료 경로만 먼저 보여주고, 차단·로컬 설치는 아래 '고급 / 로컬 연결'에 모았습니다. 직접 발급한 API 키는 이 탭의 메모리에만 있고 localStorage·백업·Markdown 어디에도 저장하지 않습니다.">
             <div className="model-status-bar">
               <strong>현재 경로: {modelLabel(modelSettings.provider)} · {currentModelName(modelSettings) || "모델 미지정"}</strong>
               <span>{modelSafetyNote(modelSettings)}</span>
@@ -2538,7 +2538,7 @@ export default function App() {
               <div className="model-section-head">
                 <div>
                   <strong>바로 쓸 수 있는 경로</strong>
-                  <span>공용 무료 AI는 키 없이 바로 됩니다(이 앱의 Cloudflare 중계). 템플릿 모드도 키 없이 동작하고, 아래 무료 3종은 브라우저에서 바로 호출되는 것을 2026-11-15에 확인했습니다.</span>
+                  <span>내 전용 무료 AI는 접속 코드를 넣어야 호출됩니다(내 Cloudflare 중계). 템플릿 모드는 키 없이 동작하고, 아래 무료 3종은 브라우저에서 바로 호출되는 것을 2026-11-15에 확인했습니다.</span>
                 </div>
                 <span className="model-section-count">{primaryModelOptions.length}개</span>
               </div>
@@ -3377,7 +3377,7 @@ function RemoteKeyBlock({
   const field = remoteModelField(provider);
   if (!config) return null;
 
-  // 공용 무료 AI 중계 — 키를 넣지 않는다. 어느 무료 경로로 넘길지만 고른다.
+  // 내 전용 중계 — 접속 코드가 있어야 호출된다. 코드는 이 탭 메모리에만 두고 저장하지 않는다.
   if (provider === "team-free-proxy") {
     return (
       <div className="remote-key-block">
@@ -3386,6 +3386,17 @@ function RemoteKeyBlock({
           <span>{config.corsNote}</span>
         </div>
         <div className="form-grid">
+          <label className="field wide">
+            <span>접속 코드(저장하지 않음 · {config.keyLabel})</span>
+            <input
+              type="password"
+              value={apiKey}
+              placeholder="내가 정한 접속 코드 — 창을 닫으면 사라집니다"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => onApiKeyChange(event.target.value)}
+            />
+          </label>
           <label className="field">
             <span>무료 경로(중계가 넘길 곳)</span>
             <select
@@ -3408,12 +3419,17 @@ function RemoteKeyBlock({
           </label>
         </div>
         <p className="remote-key-note">
-          키를 넣지 않습니다. 상위 무료 경로(OpenRouter·Gemini·AMD)의 키는 중계 서버에만 있고 브라우저로 오지 않습니다.
+          접속 코드가 맞아야 중계가 응답합니다. 코드와 상위 무료 경로(OpenRouter·Gemini·AMD)의 키는 어디에도 저장되지 않습니다.
           개인정보 마스킹이 켜져 있으면 이름·연락처는 [성명_1]·[연락처_1]로 가린 뒤 나갑니다.
         </p>
         <div className="draft-actions">
-          <button className="ghost-light-button" type="button" onClick={() => onSettingsChange({ provider: "simulation" })}>키 없이 완전히 로컬로(템플릿 모드)</button>
+          <button className="ghost-light-button" type="button" onClick={onClearApiKey}>입력한 접속 코드 지우기</button>
+          <button className="ghost-light-button" type="button" onClick={() => onSettingsChange({ provider: "simulation" })}>코드 없이 완전히 로컬로(템플릿 모드)</button>
         </div>
+        <label className="grant-inline-check">
+          <input type="checkbox" checked={remoteAck} onChange={(event) => onRemoteAckChange(event.target.checked)} />
+          <span>이 경로로 실행하면 가린 프롬프트가 내 Cloudflare 중계를 거쳐 외부 AI로 전송되는 것을 확인했습니다.</span>
+        </label>
       </div>
     );
   }

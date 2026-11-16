@@ -92,26 +92,30 @@ test("model settings split into primary and advanced without gaps or overlaps", 
   assert.ok(ADVANCED_MODEL_PROVIDERS.includes("custom-openai"));
   assert.equal(providerAvailabilityNote("simulation"), "키 없이 바로 사용");
   assert.equal(providerAvailabilityNote("ollama"), "내 컴퓨터에 설치 필요");
-  assert.match(providerAvailabilityNote("team-free-proxy"), /키 없이 바로 사용/);
+  assert.match(providerAvailabilityNote("team-free-proxy"), /접속 코드 필요/);
 });
 
-test("공용 무료 AI 중계는 키 없이 쓰고, 상위 경로만 고른다", async () => {
+test("내 전용 중계는 접속 코드를 요구하고, 상위 경로만 고른다", async () => {
   const { PROXY_ROUTES, PROXY_ROUTE_LABELS, normalizeProxyRoute, providerConfig, providerNeedsExternalAck, providerRequiresKey, validateApiKey } =
     await import("../../../src/lib/modelSafety.mjs");
 
   const config = providerConfig("team-free-proxy");
-  assert.equal(config.requiresKey, false);
+  // 남의 API가 차감되지 않게 접속 코드 없이는 호출되지 않는다.
+  assert.equal(config.requiresKey, true);
   assert.equal(config.cors, "allowed");
   // 브라우저는 이 주소 하나만 안다 — 상위 제공자 주소·키는 중계 서버 쪽에 있다.
   assert.equal(config.baseUrl, "https://planning-copilot-ai-proxy.okrangone98.workers.dev/v1");
-  assert.match(config.label, /키 불필요/);
-  assert.match(config.corsNote, /2026-11-16/);
+  assert.match(config.label, /접속 코드/);
+  assert.match(config.corsNote, /2026-11-16|이 탭 메모리에만/);
 
-  assert.equal(validateApiKey("team-free-proxy", "").ok, true);
-  assert.equal(validateApiKey("team-free-proxy", undefined).ok, true);
-  assert.equal(providerRequiresKey("team-free-proxy"), false);
-  assert.equal(providerNeedsExternalAck("team-free-proxy"), false);
-  // 개인 키를 넣는 경로는 그대로 확인을 받는다.
+  assert.equal(validateApiKey("team-free-proxy", "").ok, false);
+  assert.equal(validateApiKey("team-free-proxy", undefined).ok, false);
+  assert.match(validateApiKey("team-free-proxy", "").message, /접속 코드/);
+  assert.equal(validateApiKey("team-free-proxy", "short").ok, false);
+  assert.equal(validateApiKey("team-free-proxy", "my-code-2026").ok, true);
+  assert.equal(providerRequiresKey("team-free-proxy"), true);
+  // 자료가 밖으로 나가는 경로는 중계도 외부 전송 확인을 받는다.
+  assert.equal(providerNeedsExternalAck("team-free-proxy"), true);
   assert.equal(providerRequiresKey("openrouter-free"), true);
   assert.equal(providerNeedsExternalAck("openrouter-free"), true);
   assert.equal(providerNeedsExternalAck("simulation"), false);

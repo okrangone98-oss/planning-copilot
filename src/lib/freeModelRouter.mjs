@@ -43,7 +43,8 @@ export function buildChatRequest({ provider, model, prompt, apiKey, baseUrl, rou
   }
   const headers = { "Content-Type": "application/json" };
   const key = String(apiKey || "").trim();
-  if (key && provider !== "team-free-proxy") headers.Authorization = `Bearer ${key}`;
+  // 내 전용 중계는 이 값이 ‘접속 코드’다. 중계 서버가 이 코드를 확인한 뒤 자기 키로 상위 경로를 부른다.
+  if (key) headers.Authorization = `Bearer ${key}`;
   if (provider === "openrouter-free") headers["X-Title"] = "Planning Copilot";
 
   return {
@@ -119,6 +120,10 @@ export async function requestFreeModel({
     const response = await doFetch(url, controller ? { ...init, signal: controller.signal } : init);
     if (!response.ok) {
       const body = typeof response.text === "function" ? await response.text().catch(() => "") : "";
+      // 중계가 접속 코드를 거부한 경우는 ‘키 오류’가 아니라 코드 문제라고 알려 준다.
+      if (provider === "team-free-proxy" && (response.status === 401 || response.status === 403)) {
+        throw new Error(`접속 코드가 맞지 않아 중계가 거부했습니다(${response.status}). 모델·보안 설정에서 접속 코드를 다시 확인해 주세요.`);
+      }
       throw new Error(describeHttpFailure(response.status, body));
     }
     const data = await response.json();
